@@ -51,6 +51,17 @@ class FillGlassPanesArch(bpy.types.PropertyGroup):
         row.prop(self, "pane_border")
         row.prop(self, "glass_thickness")
 
+    def to_dict(self):
+        d = {'pane_border': self.pane_border, 'margin': self.margin,
+             'pane_gap': self.pane_gap, 'glass_thickness': self.glass_thickness}
+        return d
+
+    def from_dict(self, d):
+        self.pane_border = d['pane_border']
+        self.margin = d['margin']
+        self.pane_gap = d['pane_gap']
+        self.glass_thickness = d['glass_thickness']
+
 
 class ArchFillProperty(bpy.types.PropertyGroup):
 
@@ -85,6 +96,14 @@ class ArchFillProperty(bpy.types.PropertyGroup):
         fill = fill_map.get(self.fill_type)
         if fill:
             fill.draw(layout)
+
+    def to_dict(self):
+        d = {'fill_type': self.fill_type, 'glass_fill': self.glass_fill.to_dict()}
+        return d
+
+    def from_dict(self, d):
+        self.fill_type = d['fill_type']
+        self.glass_fill.from_dict(d['glass_fill'])
 
 
 class ArchProperty(bpy.types.PropertyGroup):
@@ -180,3 +199,21 @@ class ArchProperty(bpy.types.PropertyGroup):
             col.prop(self, "thickness")
 
         self.fill.draw(context, col)
+
+    def to_dict(self):
+        d = {'resolution': self.resolution, 'straight_height': self.straight_height, 'arc_height': self.arc_height,
+             'arc_offset': self.arc_offset, 'thickness': self.thickness, 'function': self.function,
+             'flip_direction': self.flip_direction, 'curved': self.curved,
+             'fill': self.fill.to_dict()}
+        return d
+
+    def from_dict(self, d):
+        self.resolution = d['resolution']
+        self.straight_height = d['straight_height']
+        self.arc_height = d['arc_height']
+        self.arc_offset = d['arc_offset']
+        self.thickness = d['thickness']
+        self.function = d['function']
+        self.flip_direction = d['flip_direction']
+        self.curved = d['curved']
+        self.fill.from_dict(d['fill'])

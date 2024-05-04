@@ -3,7 +3,7 @@ import itertools as it
 from mathutils import Matrix, Vector
 
 from .util_mesh import face_with_verts
-from .util_material import verify_facemaps_for_object, FaceMap, create_object_material
+from .util_material import verify_facemaps_for_object, create_object_material, add_facemaps
 
 
 def cube(bm, width=2, length=2, height=2):
@@ -115,7 +115,7 @@ def split_faces(original_bm, faces_list, objs_name_list, delete_original=True):
     for faces,name in zip(faces_list, objs_name_list):
         obj = new_obj_from_faces(faces, name)
         if bpy.app.version >= (4, 0, 0):  # need a zero index material
-            mat = create_object_material(obj, "Default")
+            object_setup(obj)
         objs.append(obj)
         verify_facemaps_for_object(obj)
         all_faces += faces
@@ -135,14 +135,29 @@ def new_obj_from_faces(faces, name):
     me = bpy.data.meshes.new("Mesh")
     if bpy.app.version < (4, 0, 0):
         bm.faces.layers.face_map.verify()
-    else:
-        bm.faces.layers.int.new(FaceMap.FACEMAP.name)
     bm.to_mesh(me)
     obj = bpy.data.objects.new(name, me)
     if bpy.app.version >= (4, 0, 0):  # need a zero index material
-        mat = create_object_material(obj, "Default")
+        object_setup(obj)
 
     return obj
+
+
+def object_setup(obj):
+    create_object_material(obj, "Default")
+    add_facemaps(None, obj)
+    obj["bt_data"] = "{}"
+
+
+def store_object_data(obj, key, value):
+    bt_dict = eval(obj["bt_data"])
+    bt_dict[key] = value
+    obj["bt_data"] = repr(bt_dict)
+
+
+def get_object_data(obj, key):
+    bt_dict = eval(obj["bt_data"])
+    return bt_dict.get(key, None)
 
 
 def set_origin(obj, origin, parent_origin=Vector((0,0,0))):
@@ -160,3 +175,19 @@ def mean_vector(x):
     for a in x:
         sum += a
     return sum/len(x)
+
+def get_children(obj):
+    lst = []
+    for c in obj.children:
+        lst.append(c)
+        lst = lst + get_children(c)
+    return lst
+
+
+def get_parent_type(obj, creation_type):
+    dat = get_object_data(obj, "create")
+    if dat is None and obj.parent:
+        return get_parent_type(obj.parent, creation_type)
+    if (dat is None) or (dat['type'] != creation_type):
+        return None
+    return obj

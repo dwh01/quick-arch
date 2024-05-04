@@ -65,3 +65,16 @@ class AddWindowProperty(bpy.types.PropertyGroup):
                 row = col.row(align=True)
                 row.label(text=str(key))
                 row.label(text=str(value))
+
+    def to_dict(self):
+        d = {'count': self.count, 'only_hole': self.only_hole, 'add_arch': self.add_arch, 'arch': self.arch.to_dict(),
+             'size_offset': self.size_offset.to_dict(), 'frame': self.frame.to_dict(), 'window': self.window.to_dict()}
+        return d
+
+    def from_dict(self, d):
+        self.count = d['count']
+        self.only_hole = d['only_hole']
+        self.add_arch = d['add_arch']
+        self.arch.from_dict(d['arch'])
+        self.frame.from_dict(d['frame'])
+        self.window.from_dict(d['window'])

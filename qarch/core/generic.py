@@ -91,7 +91,11 @@ class SizeOffsetProperty(bpy.types.PropertyGroup):
         return self.get("offset", self["default_offset"])
 
     def set_offset(self, value):
-        self["offset"] = restricted_offset(self["limits"], self.size, value) if self["restricted"] else value
+        try:
+            r = self["restricted"]
+        except KeyError:
+            r = False
+        self["offset"] = restricted_offset(self["limits"], self.size, value) if r else value
 
     offset: FloatVectorProperty(
         name="Offset",
@@ -119,6 +123,17 @@ class SizeOffsetProperty(bpy.types.PropertyGroup):
 
         col = row.column(align=True)
         col.prop(self, "offset")
+
+    def to_dict(self):
+        o = self['offset'][0], self['offset'][1]
+        s = self['size'][0], self['size'][1]
+
+        d = {'size': s, 'offset': o}
+        return d
+
+    def from_dict(self, d):
+        self['size'][0], self['size'][1] = d['size'][0], d['size'][1]
+        self['offset'][0], self["offset"][1] = d['offset'][0], d['offset'][1]
 
 
 class FrameProperty(bpy.types.PropertyGroup):
@@ -170,7 +185,16 @@ class FrameProperty(bpy.types.PropertyGroup):
         row.prop(self, "margin")
         row.prop(self, "border_thickness")
 
+    def to_dict(self):
+        d = {'thickness': self.thickness, 'depth': self.depth,
+             'margin': self.margin, 'border_thickness':self.border_thickness}
+        return d
 
+    def from_dict(self, d):
+        self.thickness = d['thickness']
+        self.depth = d['depth']
+        self.margin = d['margin']
+        self.border_thickness = d['border_thickness']
 
 classes = (
     SizeOffsetProperty,

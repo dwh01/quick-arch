@@ -73,3 +73,20 @@ class WindowProperty(bpy.types.PropertyGroup):
         col = layout.column(align=True)
         row = col.row(align=True)
         row.prop(self, "handle")
+
+
+    def to_dict(self):
+        d = {'thickness':self.thickness, 'double': self.double, 'hinge':self.hinge, 'handle':self.handle,
+             'add_bars':self.add_bars, 'flip_direction':self.flip_direction,
+             'fill':self.fill.to_dict(), 'bars':self.bars.to_dict()}
+        return d
+
+    def from_dict(self, d):
+        self.thickness = d['thickness']
+        self.double = d['double']
+        self.hinge = d['hinge']
+        self.handle = d['handle']
+        self.add_bars = d['add_bars']
+        self.flip_direction = d['flip_direction']
+        self.fill.from_dict(d['fill'])
+        self.bars.from_dict(d['bars'])

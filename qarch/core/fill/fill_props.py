@@ -71,6 +71,18 @@ class FillPanel(bpy.types.PropertyGroup):
         row.prop(self, "panel_border")
         row.prop(self, "panel_depth")
 
+    def to_dict(self):
+        d = {'count_x': self.count_x, 'count_y': self.count_y, 'panel_border': self.panel_border,
+             'margin': self.margin, 'panel_gap':self.panel_gap, 'panel_depth': self.panel_depth}
+        return d
+
+    def from_dict(self, d):
+        self.count_x = d['count_x']
+        self.count_y = d['count_y']
+        self.panel_border = d['panel_border']
+        self.margin = d['margin']
+        self.panel_gap = d['panel_gap']
+        self.panel_depth = d['panel_depth']
 
 class FillGlassPanes(bpy.types.PropertyGroup):
 
@@ -141,6 +153,19 @@ class FillGlassPanes(bpy.types.PropertyGroup):
         row.prop(self, "pane_border")
         row.prop(self, "glass_thickness")
 
+    def to_dict(self):
+        d = {'count_x': self.count_x, 'count_y': self.count_y, 'pane_border': self.pane_border,
+             'margin': self.margin, 'pane_gap':self.pane_gap, 'glass_thickness': self.glass_thickness}
+        return d
+
+    def from_dict(self, d):
+        self.count_x = d['count_x']
+        self.count_y = d['count_y']
+        self.pane_border = d['pane_border']
+        self.margin = d['margin']
+        self.pane_gap = d['pane_gap']
+        self.glass_thickness = d['glass_thickness']
+
 
 class FillLouver(bpy.types.PropertyGroup):
     louver_width: FloatProperty(
@@ -166,6 +191,14 @@ class FillLouver(bpy.types.PropertyGroup):
         row = layout.row(align=True)
         row.prop(self, "margin")
         row.prop(self, "louver_width")
+
+    def to_dict(self):
+        d = {'louver_width': self.louver_width, 'margin': self.margin}
+        return d
+
+    def from_dict(self, d):
+        self.louver_width = d['louver_width']
+        self.margin = d['margin']
 
 
 class FillBars(bpy.types.PropertyGroup):
@@ -213,6 +246,18 @@ class FillBars(bpy.types.PropertyGroup):
         row.prop(self, "bar_radius")
         row.prop(self, "bar_depth")
 
+    def to_dict(self):
+        d = {'bar_count_x': self.bar_count_x, 'bar_count_y': self.bar_count_y, 'bar_radius': self.bar_radius,
+             'bar_depth': self.bar_depth}
+        return d
+
+    def from_dict(self, d):
+        self.bar_count_x = d['bar_count_x']
+        self.bar_count_y = d['bar_count_y']
+        self.bar_radius = d['bar_radius']
+        self.bar_depth = d['bar_depth']
+
+
 
 class FillProperty(bpy.types.PropertyGroup):
 
@@ -256,3 +301,14 @@ class FillProperty(bpy.types.PropertyGroup):
         fill = fill_map.get(self.fill_type)
         if fill:
             fill.draw(layout)
+
+    def to_dict(self):
+        d = {'fill_type': self.fill_type, 'panel_fill': self.panel_fill.to_dict(),
+             'glass_fill': self.glass_fill.to_dict(), 'louver_fill': self.louver_fill.to_dict()}
+        return d
+
+    def from_dict(self, d):
+        self.fill_type = d['fill_type']
+        self.panel_fill.from_dict(d['panel_fill'])
+        self.glass_fill.from_dict(d['glass_fill'])
+        self.louver_fill.from_dict(d['louver_fill'])

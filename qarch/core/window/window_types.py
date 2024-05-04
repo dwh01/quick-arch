@@ -1,5 +1,5 @@
 import bpy, bmesh, mathutils, math
-import os
+import os, pickle
 from pathlib import Path
 
 from ..generic import clamp_count
@@ -28,6 +28,7 @@ from ...utils import (
     align_obj,
     shrink_face,
     verify_facemaps_for_object,
+    store_object_data,
 )
 from ..frame import create_multigroup_hole, create_multigroup_frame_and_dw
 from ..validations import validate, some_selection, ngon_validation, same_dimensions
@@ -50,16 +51,38 @@ def build_window(context, props):
         create_window(bm, faces, props)
     return {"FINISHED"}
 
+@crash_safe
+def edit_window(obj, props):
+    """ Create window from context and prop, with validations. Intented to be called directly from operator.
+    """
+    verify_facemaps_for_object(obj)
+    with managed_bmesh(obj) as bm:
+        faces = [f for f in bm.faces if f.select]
+        deselect(faces)
+        create_window(bm, faces, props)
+    return {"FINISHED"}
+
 
 def create_window(bm, faces, prop):
     """Generate a window
     """
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
     for face in faces:
         clamp_count(calc_face_dimensions(face)[0], prop.frame.thickness * 2, prop)
         array_faces = subdivide_face_horizontally(bm, face, widths=[prop.size_offset.size.x]*prop.count)
         for aface in array_faces:
             normal = aface.normal.copy()
             dw_faces, arch_faces = create_multigroup_hole(bm, aface, prop.size_offset.size, prop.size_offset.offset, 'w', 1, prop.frame.margin, prop.frame.depth, prop.add_arch, prop.arch, prop.only_hole)
+            opposite_face = get_opposite_face(aface, [f for f in bm.faces if f != aface])
+
+            window_opts = {'type': 'window'}
+            window_opts['prop'] = prop.to_dict()
+            window_opts['dw_faces'] = []
+            window_opts['depth'] = prop.frame.depth
+            for dw in dw_faces:
+                window_opts['dw_faces'].append( [tuple(vrt.co) for vrt in dw.verts])
+
             if prop.only_hole:
                 bmesh.ops.delete(bm, geom=dw_faces+arch_faces, context="FACES")
             else:
@@ -79,6 +102,9 @@ def create_window(bm, faces, prop):
                 set_origin(frame, frame_origin)
                 for window,origin in zip(windows,window_origins):
                     set_origin(window, origin, frame_origin)
+
+                # store prop values
+                store_object_data(frame, "create", window_opts)
 
                 # create bars
                 if prop.window.add_bars:
