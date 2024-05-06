@@ -50,6 +50,7 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("qarch.add_asset", icon="ADD")
+        row.operator("qarch.face_divide")
 
 
 if bpy.app.version < (4,0,0):

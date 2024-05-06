@@ -358,6 +358,43 @@ def create_face(bm, size, offset, xyz):
     return bmesh.ops.contextual_create(bm, geom=[v1, v2, v3, v4])["faces"][0]
 
 
+def face_bbox(control_points):
+    """in-plane bounding box points and local coord sys"""
+
+    x, y, z = face_xyz(control_points)
+
+    p0 = control_points[0]
+    dx = [0]
+    dy = [0]
+    for v in control_points[1:]:
+        p1 = v
+        p01 = p1-p0
+        dpx = x.dot(p01)
+        dx.append(dpx)
+        dpy = y.dot(p01)
+        dy.append(dpy)
+    dx.sort()
+    dy.sort()
+    min_pt = p0 + x * dx[0] + y * dy[0]
+    max_pt = p0 + x * dx[-1] + y * dy[-1]
+    return min_pt, max_pt, (x, y, z)
+
+
+def face_xyz(control_points):
+    """Z is normal, x is horizontal aligned with lowest edge"""
+    v1 = control_points[1] - control_points[0]
+    v2 = control_points[2] - control_points[1]
+    z = v1.cross(v2).normalized()
+    if z[2] > 0.99:
+        x = Vector((1,0,0))
+    else:
+        x = Vector((0,0,1)).cross(z)
+
+    y = z.cross(x)
+
+    return x, y, z
+
+
 def get_top_edges(edges, n=1):
     return sort_edges(edges, Vector((0, 0, -1)))[:n]
 

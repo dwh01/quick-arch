@@ -17,11 +17,11 @@ from .multigroup import register_multigroup, unregister_multigroup
 from .asset import register_asset, unregister_asset
 from .floorplan import register_floorplan, unregister_floorplan
 from .settings import register_settings, unregister_settings, QuickArchSettings
-
+from .base import register_base, unregister_base
 
 # -- ORDER MATTERS --
 register_funcs = (
-    register_generic,
+    register_generic, register_base,
     register_material,
     register_railing,
     register_balcony,
@@ -41,7 +41,7 @@ register_funcs = (
 )
 
 unregister_funcs = (
-    unregister_generic,
+    unregister_generic, unregister_base,
     unregister_material,
     unregister_railing,
     unregister_balcony,

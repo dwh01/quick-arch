@@ -164,3 +164,19 @@ def infer_values(prop, components, width_ratio=1):
         "Window Width": round(width_ratio*(prop.size_offset.size[0]-prop.frame.margin*(len(components)+1))/factor,3),
         "Window Height": round(prop.size_offset.size[1]-prop.frame.margin,3),
     }
+
+
+def sliding_clamp(offset, size, max_size):
+    """fit and offset and size into a space"""
+    tx = offset+size
+    if tx > max_size:
+        if size >= max_size:
+            fit_offset = 0
+            fit_size = max_size
+        else:
+            fit_offset = max_size - size
+            fit_size = size
+    else:
+        fit_offset = offset
+        fit_size = size
+    return fit_offset, fit_size

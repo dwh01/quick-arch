@@ -38,10 +38,6 @@ class QARCH_OT_add_window(bpy.types.Operator):
 
         return build_window(context, self.props)
 
-
-    def draw(self, context):
-        self.props.draw(context, self.layout)
-
     def prepare_for_edit(self, context):
         obj = get_parent_type(context.object, "window")
 
