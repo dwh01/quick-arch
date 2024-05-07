@@ -1,7 +1,7 @@
 import bpy, bmesh
 import math
 import mathutils, mathutils.geometry
-from mathutils import Vector
+from mathutils import Vector, Matrix
 import functools
 import operator
 from ...utils import managed_bmesh_edit, crash_safe, face_bbox, sliding_clamp
@@ -75,25 +75,123 @@ def safe_bridge(bm, face, center_face):
     return new_faces
 
 
+class CustomEdge:
+    def __init__(self, p0, v, idx, slope, intercept, inside):
+        self.p0 = p0
+        self.v = v
+        self.idx = idx
+        self.slope = slope
+        self.intercept = intercept
+        self.inside = inside
+
+    def __str__(self):
+        s = "edge <{:.1f},{:.1f}> ".format(self.p0.x, self.p0.y)
+        if self.slope is not None:
+            s = s + "m={:.1f} b={:.1f}".format(self.slope, self.intercept)
+        else:
+            s = s + "vertical"
+        return s
+
+    def test_inside(self, pt):
+        if self.slope is None:  # vertical
+            if pt.x * self.inside > self.p0.x * self.inside:
+                return True
+            return False
+        y = pt.x * self.slope + self.intercept
+        if y * self.inside > pt.y * self.inside:
+            return True
+        return False
 
 
 class CustomPoly:
     """Helper to manipulate virtual polygons where some verts exist and some don't"""
     def __init__(self):
-        self.coords = []
+        self.coord3d = []
         self.indices = []
+        self.changed = []
+        self.center = Vector((0,0,0))
+        self.normal = Vector((0,0,1))
+        self.matrix = Matrix.Identity(3)
+        self.inverse = Matrix.Identity(3)
+        self.bbox = [Vector((0,0)), Vector((0,0))]
+        self.edges = []
+        self.coord2d = []
+        self.xdir = Vector((1,0,0))
+        self.ydir = Vector((0,1,0))
+        self.box_size = Vector((0,0))
 
     def __str__(self):
-        s = ["Poly["] + ["<{:.1f},{:.1f},{:.1f}>".format(c[0], c[1], c[2]) for c in self.coords]
-        return ",".join(s) + "]"
+        s = ["<{:.1f},{:.1f},{:.1f}>".format(c.x, c.y, c.z) for c in self.coord3d]
+        return "Poly[" + ",".join(s) + "]"
+
+    def debug(self):
+        print(self)
+        print("bbox", self.bbox)
+        print("size", self.box_size)
+        print(self.matrix)
+        for e in self.edges:
+            print(e)
 
     def add(self, coord, index):
-        self.coords.append(coord)
+        self.coord3d.append(coord)
         self.indices.append(index)
+        self.changed.append(False)
 
-    def calc_center(self):
-        n = len(self.coords)
-        self.center = functools.reduce(operator.add, self.coords) / n
+    def from_face(self, face):
+        for v in face.verts:
+            self.add(v.co, v.index)
+        self.prepare()
+
+    def prepare(self):
+        """Precalculate values"""
+        n = len(self.coord3d)
+        self.center = functools.reduce(operator.add, self.coord3d) / n
+        v1 = self.coord3d[0] - self.center
+        v2 = self.coord3d[1] - self.center
+        self.normal = v1.cross(v2).normalized()
+
+        if self.normal[2] < -0.99:
+            self.ydir = -self.ydir
+        elif self.normal[2] < 0.99:
+            self.xdir = Vector((0,0,1)).cross(self.normal).normalized()
+            self.ydir = self.normal.cross(self.xdir).normalized()
+
+        # matrix to rotate flat, transpose brings us back
+        self.matrix[0] = self.xdir
+        self.matrix[1] = self.ydir
+        self.matrix[2] = self.normal
+        self.inverse = self.matrix.transposed()
+
+        for v3 in self.coord3d:
+            v = self.matrix @ (v3 - self.center)
+            self.coord2d.append(v.to_2d())
+
+        n = len(self.coord2d)
+        for i in range(n):
+            j = (i+1) % n
+            p0 = self.coord2d[i]
+            p1 = self.coord2d[j]
+            v = p1-p0
+            if v.x == 0:  # vertical line
+                if p0.x > self.center.x:
+                    inside = -1
+                else:
+                    inside = 1
+                edge = CustomEdge(p0, p1, i, None, None, inside)
+            else:
+                slope = v.y/v.x
+                intercept = p1.y - slope*p1.x
+                if v[0] > 0:
+                    inside = 1
+                else:
+                    inside = -1
+                edge = CustomEdge(p0, v, i, slope, intercept, inside)
+            self.edges.append(edge)
+            self.bbox[0].x = min(p0.x, self.bbox[0].x)
+            self.bbox[0].y = min(p0.y, self.bbox[0].y)
+            self.bbox[1].x = max(p0.x, self.bbox[1].x)
+            self.bbox[1].y = max(p1.y, self.bbox[1].y)
+        self.box_size = self.bbox[1] - self.bbox[0]
 
     def generate_poly(self, xyz, ctr, n_sides, start_angle):
         angle_delta = (2 * math.pi) / n_sides
@@ -101,80 +199,70 @@ class CustomPoly:
             dx = math.cos(i * angle_delta + start_angle)
             dy = math.sin(i * angle_delta + start_angle)
             co = ctr + dx * xyz[0] + dy * xyz[1]
-            self.coords.append(co)
-            self.indices.append(None)
+            self.add(co,None)
 
-    def scale_to(self, min_xyz, max_xyz):
-        n = len(self.coords)
-        center = functools.reduce(operator.add, self.coords) / n
-        ctr_box = (min_xyz + max_xyz)/2
-        shift = ctr_box - center
+        self.prepare()
 
-        if shift.length > 0:
-            for i in range(n):
-                self.coords[i] = self.coords[i] + shift
+    def stretch_to(self, min_xy, max_xy):
+        diag_target = max_xy - min_xy
+        diag_now = self.box_size
+        scale_x = diag_target.x/diag_now.x
+        scale_y = diag_target.y/diag_now.y
+        shift = (min_xy + max_xy)/2 - (self.bbox[1] + self.bbox[0])/2
 
-        min_pt, max_pt, xyz = face_bbox(self.coords)
-        diag_target = max_xyz - min_xyz
-        diag_now = max_pt - min_pt
-        scale = [1,1,1]
-        for i in range(3):
-            if diag_now[i] == 0:
-                scale[i] = 1
-            else:
-                scale[i] = diag_target[i]/diag_now[i]
-        for i in range(n):
-            vec = self.coords[i] - ctr_box
-            for j in range(3):
-                vec[j] = vec[j]*scale[j]
-            self.coords[i] = vec + ctr_box
+        for i in range(len(self.coord2d)):
+            co = self.coord2d[i]
+            co.x = co.x * scale_x
+            co.y = co.y * scale_y
+            self.coord2d[i] = co + shift
+            v3 = self.inverse @ co.to_3d() + self.center
+            self.coord3d[i] = v3
+            self.changed[i] = True
 
-        self.calc_center()
+        # recalculate all
+        self.prepare()
 
-    def slice(self, pt, direction):
+    def slice_2d(self, pt, direction):
         """slice into 2 polygons with the line defined"""
-        a = pt #Vector(pt)
-        b = a + direction
-        n = len(self.coords)
+        # make sure cutting segment is bigger than the polygon
+        # blender 2d intersection works on segments not lines
+        big = self.box_size.x + self.box_size.y  # save on square roots, any size bigger than diagonal is good
+        a = pt - big * direction
+        b = pt + big * direction
         splits = []
         cur = []
-        #print("self:", self.coords)
-        #print("pt",pt,"dir",direction)
+
         for i in range(n):  # should find 2 intersections
-            c = self.coords[i]
-            d = self.coords[(i + 1) % n]
-            tup = mathutils.geometry.intersect_line_line(a, b, c, d)
-            if tup is None:
+            c = self.coord2d[i]
+            d = self.coord2d[(i + 1) % n]
+            pt_cd = mathutils.geometry.intersect_line_line_2d(a, b, c, d)
+
+            if pt_cd is None:  # between intersections, just accumulate points
                 cur.append(i)
                 continue
-            pt_cd = tup[1]
-            dist_cd = (d - c).length
-            dist_isect = (pt_cd - c).length
 
-            if 0 == round(dist_isect, 6):
+            if pt_cd == c:  # hit a vertex
                 cur.append(i)
                 splits.append(cur)
                 cur = [i]
-            elif round(dist_isect,6) == round(dist_cd,6):
+            elif pt_cd == d:  # hit second vertex, handle both here
                 j = (i+1) % n
                 cur.append(i)
                 cur.append(j)
                 splits.append(cur)
                 cur = []
-            elif 0 < dist_isect < dist_cd:
+            else:  # accumulate i and add a new point
                 cur.append(i)
                 cur.append(pt_cd)
                 splits.append(cur)
                 cur = [pt_cd]
-            else:
-                cur.append(i)
 
         if len(cur):
             splits.append(cur)
-        #print(splits)
+
         if len(splits) < 2:
             return [self]
-        if len(splits) == 3:
+        if len(splits) == 3:  # started in middle of span
             splits = splits[2] + splits[0], splits[1]
         # convex poly can only have up to 3 splits present
 
@@ -183,34 +271,110 @@ class CustomPoly:
             cur = splits[i]
             for idx_or_pt in cur:
                 if isinstance(idx_or_pt, Vector):
-                    polys[i].add(idx_or_pt, None)
+                    v3 = self.make_3d(idx_or_pt)
+                    polys[i].add(v3, None)
                 else:
-                    polys[i].add(self.coords[idx_or_pt], self.indices[idx_or_pt])
+                    polys[i].add(self.coord3d[idx_or_pt], self.indices[idx_or_pt])
 
-        for p in polys: # for sorting
-            p.calc_center()
+        for p in polys:
+            p.prepare()
 
         return polys
 
-    def is_oriented_rect(self, xyz):
-        """Test for simple architecture"""
-        n = len(self.coords)
+    def match(self, pt):
+        for i in range(len(self.coord2d)):
+            if pt == self.coord2d[i]:
+                return self.indices[i]
+        return None
+
+    def slice_rect_3(self, axis_to_cut, offset, size):
+        assert self.is_oriented_rect(), "slice_rect_3 only works on rectangles"
+        polys = []
+        if axis_to_cut=="x":
+            x2d = Vector((1,0))
+            a = self.bbox[0]
+            b = Vector((a.x, self.bbox[1].y))
+            new_pts = [
+                a + x2d * offset,
+                a + x2d * (offset + size),
+                b + x2d * (offset + size),
+                b + x2d * offset,
+            ]
+            if offset > 0:
+                p = CustomPoly()
+                p.add(self.make_3d(a), self.match(a))
+                p.add(self.make_3d(new_pts[0]), None)
+                p.add(self.make_3d(new_pts[3]), None)
+                p.add(self.make_3d(b), self.match(b))
+                polys.append(p)
+            p = CustomPoly()
+            for v in new_pts:
+                p.add(self.make_3d(v), None)
+            polys.append(p)
+            if offset+size < self.box_size.x:
+                c = a + x2d * self.box_size.x
+                d = b + x2d * self.box_size.x
+                p = CustomPoly()
+                p.add(self.make_3d(new_pts[1]), None)
+                p.add(self.make_3d(c), self.match(c))
+                p.add(self.make_3d(d), self.match(d))
+                p.add(self.make_3d(new_pts[2]), None)
+                polys.append(p)
+        else:
+            y2d = Vector((0,1))
+            a = self.bbox[0]
+            b = Vector((self.bbox[1].x, a.y))
+            new_pts = [
+                a + y2d * offset,
+                b + y2d * offset,
+                b + y2d * (offset + size),
+                a + y2d * (offset + size),
+            ]
+            if offset > 0:
+                p = CustomPoly()
+                p.add(self.make_3d(a), self.match(a))
+                p.add(self.make_3d(b), self.match(b))
+                p.add(self.make_3d(new_pts[1]), None)
+                p.add(self.make_3d(new_pts[0]), None)
+                polys.append(p)
+            p = CustomPoly()
+            for v in new_pts:
+                p.add(self.make_3d(v), None)
+            polys.append(p)
+            if offset + size < self.box_size.y:
+                c = a + y2d * self.box_size.y
+                d = b + y2d * self.box_size.y
+                p = CustomPoly()
+                p.add(self.make_3d(new_pts[3]), None)
+                p.add(self.make_3d(new_pts[2]), None)
+                p.add(self.make_3d(d), self.match(d))
+                p.add(self.make_3d(c), self.match(c))
+                polys.append(p)
+        for p in polys:
+            p.prepare()
+        return polys
+
+    def make_3d(self, v2d):
+        v3 = self.inverse @ v2d.to_3d() + self.center
+        return v3
+
+    def is_oriented_rect(self):
+        """Test for simple architecture rectangles"""
+        n = len(self.edges)
         if n != 4:
             return False
 
         for i in range(n):
-            e = self.coords[(i+1) % n] - self.coords[i]
-            xdot = (abs(e.dot(xyz[0])) > 0.99)
-            ydot = (abs(e.dot(xyz[1])) > 0.99)
-            if not (xdot or ydot):
+            edge = self.edges[i]
+            if (edge.slope is not None) and (abs(edge.slope) != 0):
                 return False
 
         return True
 
     def calc_area(self):
-        n = len(self.coords)-1
+        n = len(self.coord2d)-1
         a = 0
-        c = self.coords
+        c = self.coord2d
         for i in range(1, n):
             a = a + mathutils.geometry.area_tri(c[0], c[i], c[i+1])
         return a
@@ -219,12 +383,12 @@ class CustomPoly:
         """Use dctNew to accumulate created verts that might be shared
         between new polygons"""
         vlist = []
-        for i in range(len(self.coords)):
+        for i in range(len(self.coord3d)):
             if self.indices[i] is None:  # probably new
-                v = dctNew.get(tuple(self.coords[i]), None)
+                v = dctNew.get(tuple(self.coord3d[i]), None)
                 if v is None:  # definitely new
-                    v = bm.verts.new(self.coords[i])
-                    dctNew[tuple(self.coords[i])] = v
+                    v = bm.verts.new(self.coord3d[i])
+                    dctNew[tuple(self.coord3d[i])] = v
             else:
                 bm.verts.ensure_lookup_table()
                 v = bm.verts[self.indices[i]]
@@ -272,49 +436,45 @@ def face_divide(context, oper):
 
             # helper polygon
             control_poly = CustomPoly()
-            for co, idx in zip(control_points, control_indices):
-                control_poly.add(co, idx)
-            control_poly.calc_center()
+            control_poly.from_face(face)
 
-            min_pt, max_pt, xyz = face_bbox(control_points)  # coordinate system box
-            diagonal = max_pt - min_pt
-            max_size_x = diagonal.dot(xyz[0])
-            max_size_y = diagonal.dot(xyz[1])
+            max_size_x = control_poly.box_size.x
+            max_size_y = control_poly.box_size.y
 
             # force offset and size to fit boxes inside each other
             face_ox, face_sx = sliding_clamp(ox, sx, max_size_x)
             face_oy, face_sy = sliding_clamp(oy, sy, max_size_y)
 
-            inner_min = min_pt + face_ox * xyz[0] + face_oy * xyz[1]
-            inner_max = inner_min + face_sx * xyz[0] + face_sy * xyz[1]
+            # calcs in 2d
+            x2d = Vector((1,0))
+            y2d = Vector((0,1))
+            inner_min = control_poly.bbox[0] + face_ox * x2d + face_oy * y2d
+            inner_max = inner_min + face_sx * x2d + face_sy * y2d
             inner_center = (inner_min + inner_max)/2
 
-            if ns == 4 and control_poly.is_oriented_rect(xyz) and (props.extrude_distance==0):  # special architectural case, keep rectangles
+            if ns == 4 and control_poly.is_oriented_rect() and (props.extrude_distance == 0):
+                # special architectural case, keep rectangles
                 new_polygons = []
-                cut_polys = control_poly.slice(inner_min, xyz[1])
-                cut_polys.sort(key = lambda p: p.center.dot(xyz[0]))
-                if len(cut_polys)>1:
-                    new_polygons.append(cut_polys[0])  # left
-                cut_polys = cut_polys[-1].slice(inner_max, xyz[1])
-                cut_polys.sort(key=lambda p: p.center.dot(xyz[0]))
-                if len(cut_polys)>1:
-                    new_polygons.append(cut_polys[-1])  # right
-                cut_polys = cut_polys[0].slice(inner_max, xyz[0])
-                cut_polys.sort(key=lambda p: p.center.dot(xyz[1]))
-                if len(cut_polys) > 1:
-                    new_polygons.append(cut_polys[-1])  # top
-                cut_polys = cut_polys[0].slice(inner_min, xyz[0])
-                cut_polys.sort(key=lambda p: p.center.dot(xyz[1]))
-                if len(cut_polys) > 1:
-                    new_polygons.append(cut_polys[0])  # bottom
-                    center_poly = cut_polys[-1]
+                cut_polys = control_poly.slice_rect_3('x', face_ox, face_sx)
+                if face_ox == 0:
+                    cut_next = cut_polys[0]
+                    new_polygons = new_polygons + cut_polys[1:]
                 else:
-                    center_poly = cut_polys[0]
-                new_polygons.append(center_poly)
-                new_polygons = [p for p in new_polygons if p.calc_area() > 0.000001]
+                    cut_next = cut_polys[1]
+                    new_polygons.append(cut_polys[0])
+                    if len(cut_polys) > 2:
+                        new_polygons.append(cut_polys[2])
+
+                cut_polys = cut_next.slice_rect_3('y', face_oy, face_sy)
+                n_new = len(new_polygons)  # offset to find the center
+                new_polygons = new_polygons + cut_polys
+
                 dctNew = {}
                 new_faces = [p.create_bmface(bm, dctNew)[0] for p in new_polygons]
-                center_face = new_faces[-1]
+                if face_oy == 0:
+                    center_face = new_faces[n_new]  # first of second cut series
+                else:
+                    center_face = new_faces[n_new + 1] # second of second cut series
 
             else:  # bridge edge loops
                 angle_delta = (2 * math.pi)/ns
@@ -324,8 +484,9 @@ def face_divide(context, oper):
                     start_angle = start_angle - 0.5 * angle_delta
 
                 center_poly = CustomPoly()
-                center_poly.generate_poly(xyz, inner_center, ns, start_angle)
-                center_poly.scale_to(inner_min, inner_max)
+                origin = control_poly.make_3d(inner_center)
+                center_poly.generate_poly(control_poly.matrix, origin, ns, start_angle)
+                center_poly.stretch_to(inner_min, inner_max)
 
                 center_face, dctNew = center_poly.create_bmface(bm, {})
                 center_face.normal_update()
@@ -338,7 +499,7 @@ def face_divide(context, oper):
                 # not actually extruding, just offset new face
                 # bmesh.ops.extrude_discrete_faces(bm, faces=center_face)
                 for v in center_face.verts:
-                    v.co = v.co + xyz[2] * props.extrude_distance
+                    v.co = v.co + center_face.normal * props.extrude_distance
 
                 # curves can make non-flat faces
                 test_faces = [f for f in new_faces if (f is not center_face) and f.is_valid]
