@@ -1,6 +1,6 @@
 import bpy
 
-from .base_ops import QARCH_OT_face_divide
+from .base_ops import QARCH_OT_face_divide, QARCH_OT_select_op
 
 from .base_props import (
     ArchShapeProperty,
@@ -24,6 +24,7 @@ classes = (
     LouversProperty,
     RoomProperty,
     QARCH_OT_face_divide,
+    QARCH_OT_select_op,
 )
 
 

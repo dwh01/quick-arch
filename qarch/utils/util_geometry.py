@@ -147,7 +147,7 @@ def object_setup(obj):
     create_object_material(obj, "Default")
     add_facemaps(None, obj)
     obj["bt_data"] = "{}"
-
+    obj["record_name"] = obj.name
 
 def store_object_data(obj, key, value):
     bt_dict = eval(obj["bt_data"])

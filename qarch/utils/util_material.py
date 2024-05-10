@@ -134,6 +134,8 @@ else:  # using face attribute
 
         if "facemap" not in obj.data.attributes:
             key = obj.data.attributes.new(FaceMap.FACEMAP.name, 'INT', 'FACE')
+            key = obj.data.attributes.new("opid", 'INT', 'POINT')
+            key = obj.data.attributes.new("sequence", 'INT', 'POINT')
 
 
     def verify_facemaps_for_object(obj):

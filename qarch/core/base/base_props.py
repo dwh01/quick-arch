@@ -38,6 +38,11 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
             row = col.row(align=True)
 
             for pname in row_list:
+                if pname in self.topology_lock:  # if locked, drawl label TODO
+                    if hasattr(self, 'locked') and self.locked:
+                        row.label(pname)
+                        continue
+
                 rna = self.bl_rna.properties[pname]
                 if isinstance(rna, bpy.types.EnumProperty):
                     row.label(text=getattr(self, pname))
@@ -64,7 +69,7 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
 
     def from_dict(self, d):
         """Helper for loading persistent data"""
-        for k, v in d:
+        for k, v in d.items():
             if k == "_clamp_":
                 self.clamp_dict = v
             elif isinstance(v, dict):
@@ -103,12 +108,15 @@ class ArchShapeProperty(CustomPropertyBase):
     arch_height: FloatProperty(name="Arch Height", default=.5, unit="LENGTH", description="Height of arch")
     has_keystone: BoolProperty(name="Keystone", default=False)
     arch_type: EnumProperty(name="Arch Type", items=arch_type_list, description="Type of arch", default="ROMAN")
+    num_sides: IntProperty(name="Num Sides", min=2, default=12, description="Number of sides")
 
     field_layout = [
         ["arch_height", "has_keystone"],
+        ["num_sides"],
         ["arch_type"]
     ]
 
+    topology_lock = ['arch_type', 'has_keystone', 'num_sides']
 
 class BayProperties(CustomPropertyBase):
     side_count: IntProperty(name="Sides Count", min=2, default=3, description="Number of sides on bay")
@@ -120,6 +128,8 @@ class BayProperties(CustomPropertyBase):
         ['side_count', 'depth'],
         ['has_floor', 'floor_thickness'],
     ]
+
+    topology_lock = ['side_count']
 
 
 class DividersProperty(CustomPropertyBase):
@@ -138,6 +148,8 @@ class DividersProperty(CustomPropertyBase):
         ['num_sides']
     ]
 
+    topology_lock = ['count_x', 'count_y', 'num_sides']
+
 
 class ExtrusionSimpleProperty(CustomPropertyBase):
     distance: FloatProperty(name="Distance", default=0.1, min=0, unit="LENGTH", description="Extrude distance")
@@ -149,6 +161,7 @@ class ExtrusionSimpleProperty(CustomPropertyBase):
         ['taper_x', 'taper_y'],
     ]
 
+    topology_lock = []
 
 class ExtrusionTwistProperty(CustomPropertyBase):
     def twist_update(self, context):
@@ -181,6 +194,7 @@ class ExtrusionTwistProperty(CustomPropertyBase):
         ['twist_angle', 'steps']
     ]
 
+    topology_lock = ['steps', 'twist_angle']  # twist can change rect to triangle on sides
 
 class FaceDivisionProperty(CustomPropertyBase):
     offset_x: FloatProperty(name="Horizontal Offset", default=0.0, min=0, unit="LENGTH", description="Offset along face base")
@@ -195,6 +209,8 @@ class FaceDivisionProperty(CustomPropertyBase):
         ['size_x', 'size_y'],
         ['inner_sides', 'extrude_distance'],
     ]
+
+    topology_lock = ['inner_sides', 'extrude_distance']  # extrude dist can change rect to triangle on sides
 
 
 class FrameShapeProperty(CustomPropertyBase):
@@ -232,9 +248,10 @@ class FrameShapeProperty(CustomPropertyBase):
         ["sill_front", "sill_back"],
         ("arched_sill", "sill_arch_prop"),
         "Inside",
-        ["front_recess", "inner_thickness"]
+        ["front_recess", "arched_sill"]
     ]
 
+    topology_lock = ['arched_lintel', 'arched_sill']
 
 class LouversProperty(CustomPropertyBase):
     count_x: IntProperty(name="X Count", min=0, default=1, description="Number of vertical divisions")
@@ -255,6 +272,7 @@ class LouversProperty(CustomPropertyBase):
         ['flip_xy']
     ]
 
+    topology_lock = ['count_x', 'count_y', 'flip_xy']
 
 class RoomProperty(CustomPropertyBase):
     offset_x: FloatProperty(name="Offset X", default=0.0, unit="LENGTH", description="Placement along wall")
@@ -273,6 +291,7 @@ class RoomProperty(CustomPropertyBase):
         ['has_turret', 'turret_sides']
     ]
 
+    topology_lock = ['has_turret', 'turret_sides']
 
 # order might matter
 base_classes = [

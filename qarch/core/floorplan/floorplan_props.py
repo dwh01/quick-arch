@@ -1,7 +1,8 @@
 import bpy
 from bpy.props import FloatProperty
+from ..base.base_props import CustomPropertyBase
 
-class FloorplanProperty(bpy.types.PropertyGroup):
+class FloorplanProperty(CustomPropertyBase):
 
     width: FloatProperty(
         name="Width",
@@ -21,7 +22,12 @@ class FloorplanProperty(bpy.types.PropertyGroup):
         description="Base Length of floorplan",
     )
 
-    def draw(self, context, layout):
-        row = layout.row(align=True)
-        row.prop(self, "width")
-        row.prop(self, "length")
+    #def draw(self, context, layout):
+    #    row = layout.row(align=True)
+    #    row.prop(self, "width")
+    #    row.prop(self, "length")
+    field_layout = [
+        ["width", "length"]
+    ]
+
+    topology_lock = []

@@ -6,11 +6,12 @@ import functools
 import operator
 from ...utils import managed_bmesh_edit, crash_safe, face_bbox, sliding_clamp
 
+do_debug_print = True
 
-def angle_of_verts(face, ref, norm, org):
+def angle_of_points(pts, ref, norm, org):
     angles = []
-    for v1 in face.verts:
-        v2 = v1.co - org
+    for v1 in pts:
+        v2 = v1 - org
         v2 = v2.normalized()
         crs = ref.cross(v2)
         dt = crs.dot(norm)
@@ -22,56 +23,116 @@ def angle_of_verts(face, ref, norm, org):
         angles.append(ang)
     return angles
 
-def safe_bridge(bm, face, center_face):
+
+def find_face_by_verts(bm, vlist):
+    face = None
+    for test_face in vlist[0].link_faces:
+        b_found = True
+        b_order = True
+        for i, v in enumerate(test_face.verts):
+            if v not in vlist:
+                b_found = False
+                break
+            if v is not vlist[i]:
+                b_order = False
+        if b_found:
+            if b_order:
+                face = test_face
+            else:
+                bmesh.ops.delete(bm, geom=[test_face], context="FACES_ONLY")
+            break
+    return face
+
+
+def safe_bridge(bm, verts, center_face):
     """Avoid twist that can happen with bmesh.ops.bridge_loops"""
     closest = {}
-    face_orig = face.calc_center_median()
+    face_orig = functools.reduce(operator.add, [v.co for v in verts]) / len(verts)
+    face_normal = (verts[1].co-verts[0].co).cross(verts[2].co-verts[0].co).normalized()
+
     center_face_orig = center_face.calc_center_median()
-    face_angle = []
-    center_angle = []
     ref = center_face.verts[0].co - center_face_orig
     ref = ref.normalized()
-    center_angles = angle_of_verts(center_face, ref, center_face.normal, center_face_orig)
+    points = [v.co for v in center_face.verts]
+    center_angles = angle_of_points(points, ref, center_face.normal, center_face_orig)
     # could project ref onto face in case the faces are not coplanar
-    face_angles = angle_of_verts(face, ref, face.normal, face_orig)
+    points = [v.co for v in verts]
+    face_angles = angle_of_points(points, ref, face_normal, face_orig)
 
-    for i, a in enumerate(center_angles):
-        dist = []
-        for j, b in enumerate(face_angles):
-            d = abs(a-b)
-            if d > math.pi:
-                d = 2*math.pi - d
-            dist.append((i,j, d *180/math.pi))
+    center_sort = list(zip(center_angles, center_face.verts))
+    outer_sort = list(zip(face_angles, verts))
+    center_sort.sort(key=lambda a: a[0])
+    outer_sort.sort(key=lambda a: a[0])
 
-        dist.sort(key=lambda t: t[2])
-        closest[i] = dist[0][1]  # mark from center face to outside closest point
-
-    n = len(center_face.verts)
-    m = len(face.verts)
-    faceverts = [v for v in face.verts]
-    if face.normal.dot(center_face.normal) < 0:
-        reverse_winding = True
+    if abs(center_sort[0][0] - (outer_sort[-1][0]-2*math.pi)) < abs(center_sort[0][0] - outer_sort[0][0]):
+        first_outer = -1  # this seems to cause a failure mode with all faces being triangles to the first outer point
+        first_outer = 0
     else:
-        reverse_winding = False
+        first_outer = 0
 
+    n_inner = len(center_face.verts)
+    n_outer = len(verts)
+    wrap = {-1: -2*math.pi, n_outer: 2*math.pi}
     new_faces = []
-    for i in range(n):
-        j = (i+1) % n
-        vlist = [center_face.verts[i], center_face.verts[j]]
-        # come back on outside face
-        k = closest[j]
-        l = closest[i]
-        if reverse_winding:  # untested?
-            k, l = l, k
-        if k < l: # wrapped
-            k = k + m
-        indices = list(range(k,l-1,-1))
+    j_outer = 0
+    for i_inner in range(n_inner):
+        j_inner = (i_inner+1) % n_inner
 
-        for i2 in indices:
-            vlist.append(faceverts[i2 % m])
+        i_outer = first_outer
+        j_outer = first_outer
+        delta_angle = outer_sort[i_outer][0] - center_sort[i_inner][0]
+        for j in range(i_outer, n_outer+1):
+            w = wrap.get(j, 0)
+            if j > -1:
+                j = j % n_outer
+            j_angle = (outer_sort[j][0]+w) - center_sort[i_inner][0]
+            if (delta_angle < 0) and (delta_angle <= j_angle < math.pi/2):
+                j_outer = j
+                delta_angle = j_angle
+            else:
+                break
 
-        vlist.reverse()
-        new_faces.append(bm.faces.new(vlist))
+        if j_outer < i_outer:
+            j_outer = j_outer + n_outer
+        lst_outer = [outer_sort[j % n_outer][1] for j in range(i_outer, j_outer+1)]
+        lst_inner = [center_sort[i_inner][1], center_sort[j_inner][1]]
+        lst_outer.reverse()
+        # for next face
+        first_outer = j_outer
+
+        vlist2 = lst_inner + lst_outer
+        vlist = []
+        for v in vlist2:
+            if v not in vlist:
+                vlist.append(v)
+
+        if len(vlist) < 3:
+            print(f"i {i_inner}, {i_outer}, o {j_outer}, {j_inner}")
+            print("vlist size < 3", [v.co for v in vlist])
+        else:
+            face = find_face_by_verts(bm, vlist)
+            if face is None:
+                new_faces.append(bm.faces.new(vlist))
+            else:
+                new_faces.append(face)
+
+    first_vert = list(new_faces[0].verts)[-1]
+    last_vert = list(new_faces[-1].verts)[2]
+    if first_vert is not last_vert:  # closure triangle
+        lst_inner = [center_sort[j_inner][1]]
+        lst_outer = [first_vert, last_vert]
+        vlist = lst_inner + lst_outer
+
+        face = find_face_by_verts(bm, vlist)
+        if face is None:
+            new_faces.append(bm.faces.new(vlist))
+        else:
+            new_faces.append(face)
+
+    for face in new_faces:
+        face.normal_update()
+        if face.normal.dot(center_face.normal) < 0:
+            face.normal_flip()
     return new_faces
 
 
@@ -105,7 +166,8 @@ class CustomEdge:
 
 class CustomPoly:
     """Helper to manipulate virtual polygons where some verts exist and some don't"""
-    def __init__(self):
+    def __init__(self, name="poly"):
+        self.name = name
         self.coord3d = []
         self.indices = []
         self.changed = []
@@ -122,39 +184,56 @@ class CustomPoly:
 
     def __str__(self):
         s = ["<{:.1f},{:.1f},{:.1f}>".format(c.x, c.y, c.z) for c in self.coord3d]
-        return "Poly[" + ",".join(s) + "]"
+        return self.name+"[" + ",".join(s) + "]"
 
     def debug(self):
         print(self)
+        print("{} points, {} edges".format(len(self.coord2d), len(self.edges)))
         print("bbox", self.bbox)
         print("size", self.box_size)
         print(self.matrix)
-        for e in self.edges:
-            print(e)
 
     def add(self, coord, index):
         self.coord3d.append(coord)
         self.indices.append(index)
         self.changed.append(False)
 
-    def from_face(self, face):
-        for v in face.verts:
+    def from_verts(self, verts):
+        for v in verts:
             self.add(v.co, v.index)
         self.prepare()
 
-    def prepare(self):
-        """Precalculate values"""
+    def prepare(self, norm=Vector((0,0,1))):
+        """Precalculate values, norm is used for degenerate polys"""
         n = len(self.coord3d)
         self.center = functools.reduce(operator.add, self.coord3d) / n
-        v1 = self.coord3d[0] - self.center
-        v2 = self.coord3d[1] - self.center
-        self.normal = v1.cross(v2).normalized()
+
+        v1 = (self.coord3d[0] - self.center).normalized()
+        v2 = (self.coord3d[1] - self.center).normalized()
+        self.normal = v1.cross(v2)
+        if self.normal.length==0:
+            print("replace norm with +z")
+            self.normal = norm
+        self.normal.normalize()
 
         if self.normal[2] < -0.99:
+            print("negative y")
             self.ydir = -self.ydir
         elif self.normal[2] < 0.99:
             self.xdir = Vector((0,0,1)).cross(self.normal).normalized()
             self.ydir = self.normal.cross(self.xdir).normalized()
+            print("new x",self.xdir)
+            print("new y", self.ydir)
+            print("new z", self.normal)
+
+        # enforce ccw winding
+        # pointing could be wrong if first 2 points are wrong,
+        # but usually it is points 3 and 4 of a rectangle that are reversed
+        angles = angle_of_points(self.coord3d, self.xdir, self.normal, self.center)
+        lst = list(zip(angles, self.coord3d, self.indices))
+        lst.sort(key=lambda a: a[0])
+        self.coord3d = [a[1] for a in lst]
+        self.indices = [a[2] for a in lst]
 
         # matrix to rotate flat, transpose brings us back
         self.matrix[0] = self.xdir
@@ -162,11 +241,13 @@ class CustomPoly:
         self.matrix[2] = self.normal
         self.inverse = self.matrix.transposed()
 
+        self.coord2d=[]
         for v3 in self.coord3d:
             v = self.matrix @ (v3 - self.center)
             self.coord2d.append(v.to_2d())
 
         n = len(self.coord2d)
+        self.edges = []
         for i in range(n):
             j = (i+1) % n
             p0 = self.coord2d[i]
@@ -189,7 +270,7 @@ class CustomPoly:
             self.edges.append(edge)
             self.bbox[0].x = min(p0.x, self.bbox[0].x)
             self.bbox[0].y = min(p0.y, self.bbox[0].y)
-            self.bbox[1].x = max(p0.x, self.bbox[1].x)
+            self.bbox[1].x = max(p1.x, self.bbox[1].x)
             self.bbox[1].y = max(p1.y, self.bbox[1].y)
         self.box_size = self.bbox[1] - self.bbox[0]
 
@@ -232,6 +313,7 @@ class CustomPoly:
         splits = []
         cur = []
 
+        n = len(self.coord2d)
         for i in range(n):  # should find 2 intersections
             c = self.coord2d[i]
             d = self.coord2d[(i + 1) % n]
@@ -287,73 +369,6 @@ class CustomPoly:
                 return self.indices[i]
         return None
 
-    def slice_rect_3(self, axis_to_cut, offset, size):
-        assert self.is_oriented_rect(), "slice_rect_3 only works on rectangles"
-        polys = []
-        if axis_to_cut=="x":
-            x2d = Vector((1,0))
-            a = self.bbox[0]
-            b = Vector((a.x, self.bbox[1].y))
-            new_pts = [
-                a + x2d * offset,
-                a + x2d * (offset + size),
-                b + x2d * (offset + size),
-                b + x2d * offset,
-            ]
-            if offset > 0:
-                p = CustomPoly()
-                p.add(self.make_3d(a), self.match(a))
-                p.add(self.make_3d(new_pts[0]), None)
-                p.add(self.make_3d(new_pts[3]), None)
-                p.add(self.make_3d(b), self.match(b))
-                polys.append(p)
-            p = CustomPoly()
-            for v in new_pts:
-                p.add(self.make_3d(v), None)
-            polys.append(p)
-            if offset+size < self.box_size.x:
-                c = a + x2d * self.box_size.x
-                d = b + x2d * self.box_size.x
-                p = CustomPoly()
-                p.add(self.make_3d(new_pts[1]), None)
-                p.add(self.make_3d(c), self.match(c))
-                p.add(self.make_3d(d), self.match(d))
-                p.add(self.make_3d(new_pts[2]), None)
-                polys.append(p)
-        else:
-            y2d = Vector((0,1))
-            a = self.bbox[0]
-            b = Vector((self.bbox[1].x, a.y))
-            new_pts = [
-                a + y2d * offset,
-                b + y2d * offset,
-                b + y2d * (offset + size),
-                a + y2d * (offset + size),
-            ]
-            if offset > 0:
-                p = CustomPoly()
-                p.add(self.make_3d(a), self.match(a))
-                p.add(self.make_3d(b), self.match(b))
-                p.add(self.make_3d(new_pts[1]), None)
-                p.add(self.make_3d(new_pts[0]), None)
-                polys.append(p)
-            p = CustomPoly()
-            for v in new_pts:
-                p.add(self.make_3d(v), None)
-            polys.append(p)
-            if offset + size < self.box_size.y:
-                c = a + y2d * self.box_size.y
-                d = b + y2d * self.box_size.y
-                p = CustomPoly()
-                p.add(self.make_3d(new_pts[3]), None)
-                p.add(self.make_3d(new_pts[2]), None)
-                p.add(self.make_3d(d), self.match(d))
-                p.add(self.make_3d(c), self.match(c))
-                polys.append(p)
-        for p in polys:
-            p.prepare()
-        return polys
-
     def make_3d(self, v2d):
         v3 = self.inverse @ v2d.to_3d() + self.center
         return v3
@@ -379,34 +394,59 @@ class CustomPoly:
             a = a + mathutils.geometry.area_tri(c[0], c[i], c[i+1])
         return a
 
-    def create_bmface(self, bm, dctNew):
+    def create_bmface(self, bm, dctNew, dctOld, opid):
         """Use dctNew to accumulate created verts that might be shared
-        between new polygons"""
+        between new polygons. dctOld contains existing verts to use
+        """
+        if do_debug_print:
+            ("Make face from")
+            self.debug()
+        key_sequence = bm.verts.layers.int['sequence']
+        key_opid = bm.verts.layers.int['opid']
         vlist = []
+        bAnyNew = False
+        offset= dctOld['offset']
         for i in range(len(self.coord3d)):
-            if self.indices[i] is None:  # probably new
-                v = dctNew.get(tuple(self.coord3d[i]), None)
-                if v is None:  # definitely new
+            v = dctNew.get(tuple(self.coord3d[i]), None)
+            if v is None:
+                if (i+offset) in dctOld:  # just move existing vert
+                    v = dctOld[i+offset]
+                    v.co = self.coord3d[i]
+                    dctOld['used'].append(i+offset)
+                else:  # make new
                     v = bm.verts.new(self.coord3d[i])
-                    dctNew[tuple(self.coord3d[i])] = v
-            else:
-                bm.verts.ensure_lookup_table()
-                v = bm.verts[self.indices[i]]
+                    v[key_sequence] = i+offset
+                    v[key_opid] = opid
+                    bAnyNew = True
+                dctNew[tuple(self.coord3d[i])] = v
 
             if len(vlist):
                 if v is vlist[-1]:  # oops, repeated vertex
                     continue
             vlist.append(v)
+        dctOld['offset'] = offset + len(self.coord3d)
 
         if vlist[-1] is vlist[0]:  # just in case wrapped onto self
             vlist = vlist[:-1]
 
-        face = bm.faces.new(vlist)
+        if do_debug_print:
+            ("face from verts {}".format(vlist))
+        if bAnyNew:
+            face = bm.faces.new(vlist)
+        else:
+            # find existing face using these verts
+            face = find_face_by_verts(bm, vlist)
+            if face is None:
+                face = bm.faces.new(vlist)
+            else:
+                if do_debug_print:
+                    print("was found")
+
         return face, dctNew
 
 
 @crash_safe
-def face_divide(context, oper):
+def face_divide(oper, context, opid):
     """Create a center patch inside face
     applies to selected faces, takes FaceDivideProps
     shrinks offset then size for faces that are too small
@@ -420,23 +460,43 @@ def face_divide(context, oper):
 
     log_list = []
     with managed_bmesh_edit(obj) as bm:
+        key_sequence = bm.verts.layers.int['sequence']
+        key_opid = bm.verts.layers.int['opid']
+
         bm.faces.ensure_lookup_table()
         bm.verts.ensure_lookup_table()
-        sel_faces = [face for face in bm.faces if face.select]
-        if len(sel_faces)==0:
-            oper.report({"OPERATOR"}, "Select some faces first")
+
+        sel_faces = [f for f in bm.faces if f.select]  # for later deletion
+        remove_verts = []
+
+        lst_cp = [  # where this operation will be applied
+            [v.index for v in face.verts] for face in bm.faces if face.select
+        ]
+        if len(lst_cp) == 0:  # called programmatically with control points selected
+            lst_cp = [[v.index for v in bm.verts if v.select]]
+
+        if len(lst_cp[0]) == 0:
+            oper.report({"OPERATOR"}, "Select some vertices first")
             return
 
-        for face in sel_faces:
-            control_points = [v.co for v in face.verts]
-            # logging information
-            deleted_index = face.index
-            control_indices = [v.index for v in face.verts]
-            log_list.append((deleted_index, control_indices, control_points))
-
+        dctOld = {}  # used to move instead of create
+        for v in bm.verts:
+            if v[key_opid] == opid:
+                dctOld[v[key_sequence]] = v
+        dctOld['offset'] = 0  # each polygon needs to know how many already consumed
+        dctOld['used'] = []  # so we can delete verts we don't need any more
+        if do_debug_print:
+            print("\n\nexisting for {}".format(opid))
+            print(dctOld)
+            print()
+        for control_points in lst_cp:
+            verts = [bm.verts[i] for i in control_points]
             # helper polygon
-            control_poly = CustomPoly()
-            control_poly.from_face(face)
+            control_poly = CustomPoly('control')
+            control_poly.from_verts(verts)
+            if do_debug_print:
+                print("control points {}".format(control_points))
+                control_poly.debug()
 
             max_size_x = control_poly.box_size.x
             max_size_y = control_poly.box_size.y
@@ -453,30 +513,56 @@ def face_divide(context, oper):
             inner_center = (inner_min + inner_max)/2
 
             if ns == 4 and control_poly.is_oriented_rect() and (props.extrude_distance == 0):
-                # special architectural case, keep rectangles
-                new_polygons = []
-                cut_polys = control_poly.slice_rect_3('x', face_ox, face_sx)
-                if face_ox == 0:
-                    cut_next = cut_polys[0]
-                    new_polygons = new_polygons + cut_polys[1:]
-                else:
-                    cut_next = cut_polys[1]
-                    new_polygons.append(cut_polys[0])
-                    if len(cut_polys) > 2:
-                        new_polygons.append(cut_polys[2])
+                # special architectural case, keep rectangles with 3x3 grid
+                # some cells may be zero width, that's ok and needed for later adjustment
+                new_faces = []
+                grid_verts = []
+                i_sequence = 0
+                for y in [control_poly.bbox[0].y, inner_min.y, inner_max.y, control_poly.bbox[1].y]:
+                    for x in [control_poly.bbox[0].x, inner_min.x, inner_max.x, control_poly.bbox[1].x]:
+                        v2 = Vector((x, y))
+                        v3 = control_poly.make_3d(v2)
+                        if i_sequence in dctOld:
+                            grid_verts.append(dctOld[i_sequence])
+                            grid_verts[-1].co = v3
+                            dctOld['used'].append(i_sequence)
+                        else:
+                            grid_verts.append(bm.verts.new(v3))
+                            grid_verts[-1][key_sequence] = i_sequence
+                            grid_verts[-1][key_opid] =opid
+                        i_sequence = i_sequence + 1
 
-                cut_polys = cut_next.slice_rect_3('y', face_oy, face_sy)
-                n_new = len(new_polygons)  # offset to find the center
-                new_polygons = new_polygons + cut_polys
+                for i in range(3):
+                    for j in range(3):
+                        k = i*4+j
+                        cell = [k, k+1, k+5, k+4]
+                        vlist = [grid_verts[idx] for idx in cell]
+                        face = find_face_by_verts(bm, vlist)
+                        if face is None:
+                            new_faces.append(bm.faces.new(vlist))
+                        else:
+                            new_faces.append(face)
 
-                dctNew = {}
-                new_faces = [p.create_bmface(bm, dctNew)[0] for p in new_polygons]
-                if face_oy == 0:
-                    center_face = new_faces[n_new]  # first of second cut series
-                else:
-                    center_face = new_faces[n_new + 1] # second of second cut series
+                center_face = new_faces[4]
+                for face in new_faces:
+                    face.normal_update()
+                    if face.normal.dot(control_poly.normal) < 0:
+                        face.normal_flip()
 
             else:  # bridge edge loops
+                # copy verts if not in dctOld
+                v_outer= []
+                for i in range(len(verts)):
+                    if i in dctOld:
+                        v_outer.append(dctOld[i])
+                        v_outer[-1].co = verts[i].co
+                        dctOld['used'].append(i)
+                    else:
+                        v_outer.append(bm.verts.new(verts[i].co))
+                        v_outer[-1][key_sequence] = i
+                        v_outer[-1][key_opid] = opid
+
+                #control_poly.debug()
                 angle_delta = (2 * math.pi)/ns
                 # odd or even, make symmetrical around vertical axis, odd point at top
                 start_angle = math.pi / 2
@@ -488,9 +574,9 @@ def face_divide(context, oper):
                 center_poly.generate_poly(control_poly.matrix, origin, ns, start_angle)
                 center_poly.stretch_to(inner_min, inner_max)
 
-                center_face, dctNew = center_poly.create_bmface(bm, {})
+                center_face, dctNew = center_poly.create_bmface(bm, {}, dctOld, opid)
                 center_face.normal_update()
-                new_faces = safe_bridge(bm, face, center_face)
+                safe_bridge(bm, v_outer, center_face)
 
             bm.verts.ensure_lookup_table()
             bm.faces.ensure_lookup_table()
@@ -501,11 +587,18 @@ def face_divide(context, oper):
                 for v in center_face.verts:
                     v.co = v.co + center_face.normal * props.extrude_distance
 
-                # curves can make non-flat faces
-                test_faces = [f for f in new_faces if (f is not center_face) and f.is_valid]
-                bmesh.ops.connect_verts_nonplanar(bm, faces=test_faces)
+        used = set(dctOld['used'])
+        del dctOld['used']  # so we can do set math on keys
+        del dctOld['offset']
+        was = set(dctOld.keys())
+        to_remove = was - used
+        if len(to_remove):
+            remove_verts = [dctOld[k] for k in list(to_remove)]
 
-        bmesh.ops.delete(bm, geom=sel_faces, context="FACES_ONLY")
+        if len(sel_faces):
+            bmesh.ops.delete(bm, geom=sel_faces, context="FACES_ONLY")
+        if len(remove_verts):
+            bmesh.ops.delete(bm, geom=remove_verts, context="VERTS")
 
 
 

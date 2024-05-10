@@ -3,8 +3,10 @@ import bpy
 from .floorplan_types import create_floorplan
 from .floorplan_props import FloorplanProperty
 
+from ..base.base_ops import CustomOperator, deselect_all
 
-class QARCH_OT_add_floorplan(bpy.types.Operator):
+
+class QARCH_OT_add_floorplan(CustomOperator):
     """Create a starting building floorplan"""
 
     bl_idname = "qarch.add_floorplan"
@@ -18,7 +20,10 @@ class QARCH_OT_add_floorplan(bpy.types.Operator):
         return context.mode == "OBJECT"
 
     def execute(self, context):
-        return create_floorplan(context, self.props)
+        create_floorplan(context, self.props)
+        opid, controlled, parent_id, b_topo = self.record(context)
 
-    def draw(self, context):
-        self.props.draw(context, self.layout)
+        return {"FINISHED"}
+
+    #def draw(self, context):
+    #    self.props.draw(context, self.layout)
