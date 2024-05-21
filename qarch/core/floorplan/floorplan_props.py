@@ -2,7 +2,7 @@ import bpy
 from bpy.props import FloatProperty
 from ..base.base_props import CustomPropertyBase
 
-class FloorplanProperty(CustomPropertyBase):
+class FloorplanProperty(bpy.types.PropertyGroup): #CustomPropertyBase):
 
     width: FloatProperty(
         name="Width",

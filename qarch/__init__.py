@@ -1,6 +1,7 @@
 import bpy
 from .core import register_core, unregister_core
 from .utils import FaceMap, bmesh_from_active_object
+from .ops import register_ops, unregister_ops
 
 bl_info = {
     "name": "Quick Arch",
@@ -52,8 +53,20 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row.operator("qarch.add_asset", icon="ADD")
 
         row = layout.row(align=True)
-        row.operator("qarch.face_divide")
-        row.operator("qarch.select_op")
+        row.operator("qarch.create_object")
+        row.operator("qarch.set_active_op")
+        row = layout.row(align=True)
+        row.operator("qarch.union_polygon")
+        row.operator("qarch.inset_polygon")
+        row = layout.row(align=True)
+        row.operator("qarch.split_face")
+        row.operator("qarch.grid_divide")
+        row = layout.row(align=True)
+        row.operator("qarch.extrude_fancy")
+        row.operator("qarch.extrude_sweep")
+        row = layout.row(align=True)
+        row.operator("qarch.make_louvers")
+        row.operator("qarch.solidify_edges")
 
 if bpy.app.version < (4,0,0):
     class QARCH_PT_material_tools(bpy.types.Panel):
@@ -191,12 +204,14 @@ classes = (QARCH_PT_mesh_tools, QARCH_PT_material_tools, QARCH_PT_settings)
 
 def register():
     register_core()
+    register_ops()
     for cls in classes:
         bpy.utils.register_class(cls)
 
 
 def unregister():
     unregister_core()
+    unregister_ops()
     for cls in classes:
         bpy.utils.unregister_class(cls)
 
