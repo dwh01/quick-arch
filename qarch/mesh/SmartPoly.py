@@ -189,115 +189,222 @@ class SmartPoly:
             c.co3 = mat @ c.co3
         self.center = mat @ self.center
 
-    def bridge(self, other, mm, insert_perimeter=False):
+    def bridge(self, other, mm, insert_perimeter=False, b_extruding=False):
         """Avoid twist that can happen with bmesh.ops.bridge_loops"""
-        # project inner points onto outer edges
-        # slide to closest end of the edge, that's the line to make
-        # this algorithm fails if one poly is so concave that the point is on the wrong side of center (winding fail)
-        v_offset = self.make_2d(other.center)
-        b_center_out = other.pt_inside(-v_offset) is None
-        other_coord_2d = [self.make_2d(c.co3) for c in other.coord]
+        # this is a crucial routine, we will make it handle many special cases
+        #   for each case, consider if we can only use existing outside points or if we can add more
+        #
+        # 0) aligned rectangle within aligned rectangle
+        # 1) inner polygon center is inside outer
+        #   a)  point on inner is inside outer
+        #   b)  point on inner is outside outer
+        # 2) inner polygon center is outside outer
+        #   a)  point on inner is inside outer
+        #   b)  point on inner is outside outer
+        #
+        # case 0, we want to keep all rectangle patches if allowed to insert on the perimeter, else match corners
+        # otherwise, we calculate the optimal outward angle based on the edges meeting at a corner
+        # in principle, we project that ray from the interior to the exterior, but we must consider the containment
+        # case 1a, all is well
+        # case 2a, all is well, but, for consistency with the points not inside, follow 2b
+        # case 1b, fire ray from polygon center
+        # case 2b, here we probably want to connect "like" corners, so fire the ray from the outer polygon center
+        #
+        # when we find an edge intersection, if we are not allowed to insert a new point
+        #   move to the closest end point except:
+        #   if that makes us go backwards in connection location (don't cross the streams)
+        #   or if that ray intersects the inner polygon
+        #      but if the ray to the next point (the farther one on the edge) also intersects
+        #         then we don't connect this point, make a goofy shaped bridging polygon instead
+        # HOWEVER, for cases (b), we may have to cross self, and it's likely that the user is extruding at the same time
+        #   which makes it ok. So only check the not going backwards test.
+        #
+        # also, we must remember that each 2d coordinate system is relative to the polygon center
+        # we should do intersection in "other-space" because when insert is allowed, then we already have the point
 
-        n = len(other.coord)
-        connections = []
-        alternate = []  # in case we wrap around a corner, can we advance a connection?
-        last_con = None
-        for p in self.coord:
-            dx = math.cos(p.winding)
-            dy = math.sin(p.winding)
+        # how long of a segment do we test? We must account for cosine of plane angles
+        dp = self.normal.dot(other.normal)
+        if round(dp,3) == 0:
+            return []  # failed, planes are perpendicular
+        far = other.box_size.x + other.box_size.y
+        far = far/dp
 
-            # line segment intersection will only work if we start from inside other
-            if b_center_out:
-                a = v_offset  # use other origin, just matching winding direction really, not closest point
+        def test_other_edge(pt3d, ray3d, cases):
+            """Wrap ray test for different cases"""
+            case_0, case_1, case_a = cases
+            if case_0:
+                if ray3d.dot(self.ydir) > 0:
+                    ray3d = self.ydir
+                else:
+                    ray3d = -self.ydir
+            elif case_1:
+                if case_a:
+                    pass
+                else:
+                    pt3d = self.center
             else:
-                e = other.pt_inside(p.co2 - v_offset)
-                if e is None:  # start from center of other
-                    a = v_offset  # other origin
-                else:
-                    a = p.co2
-            b = a + Vector((dx,dy))*(other.box_size.x+other.box_size.y)
+                pt3d = other.center
 
-            b_ok = False
-            for i in range(n):
-                c = other_coord_2d[i]
-                d = other_coord_2d[(i+1) % n]
-                pt_i = mathutils.geometry.intersect_line_line_2d(a, b, c, d)
-                if pt_i is not None:
-                    c_dist = (c - pt_i).length
-                    d_dist = (d - pt_i).length
-                    t_dist = (d-c).length
-                    # if not close to existing point, and we allow it, insert a new point
-                    if insert_perimeter and (c_dist > t_dist/10) and (d_dist > t_dist/10):
-                        # work in other coords to ensure correct placement
-                        f = c_dist / t_dist
-                        pnew = other.coord[i].co3 * (1-f) + other.coord[(i+1) % n].co3 * f
-                        sv = other.splice(i+1, pnew)
-                        other_coord_2d.insert(i+1, self.make_2d(sv.co3))
-                        n = n+1
+            res = other.intersect_projection(pt3d, pt3d + ray3d*far)
+            if res is not None:
+                pt, idx = res
+                pt = other.make_3d(pt)
+                return other.coord[idx % len(other.coord)].co3, other.coord[(idx+1) % len(other.coord)].co3, pt, idx
+            return None
 
-                        b_make = other.coord[i].bm_vert is not None  # do we need to make a bm vert for consistency?
-                        if b_make:
-                            sv.bm_vert = mm.new_vert(sv.co3)
-                        connections.append(i+1)
-                        alternate.append(i+1)
+        def collect_points(i, idx_outer, last_inner, cur_outer, n_other):
+            pts_inside = []
+            if last_inner > i:
+                i = i + len(self.coord)
+            for k in range(last_inner, i + 1):
+                pts_inside.append(self.coord[k % n_inner])
+            pts_outside = []
+            if cur_outer > idx_outer:
+                idx_outer = idx_outer + n_other
+            for k in range(cur_outer, idx_outer + 1):
+                pts_outside.append(other.coord[k % n_other])
+            pts_inside.reverse()
+            pts = pts_outside + pts_inside
+            #print("collect inside ", last_inner, i, "outside ", cur_outer % n_other, idx_outer % n_other)
+            # advance markers
+            cur_outer = idx_outer
+            last_inner = i
+            return cur_outer, last_inner, pts
+
+        case_0 = False
+        case_1 = False
+        case_2 = False
+        if self.is_oriented_rect and other.is_oriented_rect and (insert_perimeter == True):
+            bool_1 = other.bbox[0].x <= self.bbox[0].x <= other.bbox[1].x
+            bool_2 = other.bbox[0].x <= self.bbox[1].x <= other.bbox[1].x
+            bool_3 = other.bbox[0].y <= self.bbox[0].y <= other.bbox[1].y
+            bool_4 = other.bbox[0].y <= self.bbox[0].y <= other.bbox[1].y
+            if bool_1 and bool_2 and bool_3 and bool_4:
+                case_0 = True
+
+        if other.pt_inside(other.make_2d(self.center)):
+            case_1 = True
+        else:
+            case_2 = True
+
+        # the first edge of one poly may be clocked with respect to the other
+        # find alignment
+        pt3d, ray3d = self.outward_ray_idx(0)
+        other_start_idx = None
+        case_a = other.pt_inside(other.make_2d(pt3d))
+        cases = case_0, case_1, case_a
+        res = test_other_edge(pt3d, ray3d, cases)
+        if res is not None:
+            other_start_idx = res[-1]
+
+        assert other_start_idx is not None, "Overly concave polygons?"
+
+        lst_poly = []  # polygons making up the bridge
+        b_make = other.coord[0].bm_vert is not None  # do we need to make a bm vert for inserted points for consistency
+        n_inner = len(self.coord)
+        last_inner = None  # start a polygon here
+        # points run last_inner to cur_inner then jump across and back to cur_outer
+        cur_outer = other_start_idx
+        last_pt = None
+        first_pt = None # for closure polygon
+        for i in range(n_inner):
+            pt3d, ray3d = self.outward_ray_idx(i)
+            case_a = other.pt_inside(other.make_2d(pt3d))
+            cases = case_0, case_1, case_a
+            b_test_self_intersect = case_a or case_0
+            n_other = len(other.coord)
+
+            # no going backwards test
+            if last_pt is not None:
+                ray_last = last_pt - pt3d
+                crs = ray_last.cross(ray3d)
+                if crs.dot(self.normal) < 0:  # advance to point at last connected point
+                    ray3d = ray_last
+                    # actually, why don't we skip the testing!
+                    # self intersection test to make us skip inner point instead of making poly
+                    res2 = None
+                    if b_test_self_intersect:
+                        res2 = self.intersect_projection(self.coord[i].co3, last_pt)
+                    if res2 is None:
+                        cur_outer, last_inner, pts = collect_points(i, cur_outer, last_inner, cur_outer, n_other)
+                        if len(pts) >= 3:
+                            lst_poly.append(pts)
+                            continue
+
+            res = test_other_edge(pt3d, ray3d, cases)
+            pts = []
+            if res is not None:
+                e0, e1, pt_i, idx_outer = res
+                d0 = (pt_i - e0).length
+                d1 = (pt_i - e1).length
+                p_sel = e0  # selected point to connect
+                if round(d1, 3) == 0:  # connect to last point by advancing index
+                    idx_outer = (idx_outer + 1) % n_other
+                    p_sel = e1
+                elif not insert_perimeter:
+                    if d1 < d0:  # advance index so we attach to closest end
+                        idx_outer = (idx_outer + 1) % n_other
+                        p_sel = e1
+
+                if (round(d0, 3) == 0) or (round(d1, 3) == 0) or (not insert_perimeter):  # connect to existing
+                    if last_inner is None:
+                        last_inner = i
+                        first_pt = other.coord[idx_outer % len(other.coord)]
+                        cur_outer = idx_outer # point to new spot, not the corner we found to initialize things
                     else:
-                        if c_dist < d_dist:
-                            connections.append(i)
-                            if c_dist > 0.001:
-                                alternate.append(i+1)
-                            else:
-                                alternate.append(i)
-                        else:
-                            connections.append((i+1) % n)
-                            if d_dist < 0.001:
-                                alternate.append(i+1)
-                            else:
-                                alternate.append((i + 1) % n)
-                    b_ok = True
-                    break
-            if not b_ok:
-                if len(connections):
-                    connections.append(connections[-1]+1)
-                    alternate.append(connections[-1])
-                else:
-                    connections.append(0)
-                    alternate.append(connections[-1])
+                        # self intersection test to make us skip inner point instead of making poly
+                        res2 = None
+                        if b_test_self_intersect:
+                            p_from = self.coord[i].co3 + 0.01 * ray3d # don't hit start vertex!
+                            res2 = self.intersect_projection(p_from, p_sel)
+                            # but don't intersect own line
+                            if res2 and res2[0] in [i, (i+len(self.coord)-1) % len(self.coord)]:
+                                res2 = None
 
-        for i in range(1, len(connections)-1):
-            if connections[i] == connections[i-1]:  # test alternate needed instead of making triangle
-                t = connections[i+1]
-                if t == 0:  # wrap around
-                    t = n
-                if t > connections[i] + 1:  # we skipped ahead on outside
-                    connections[i] = alternate[i]  # so try to make a quad
-            if connections[i] < connections[i-1]:
-                if 0 < i < (len(connections)-1):
-                    connections[i] = connections[i-1]  # don't go backwards
-        if 0:
-            print(self.coord)
-            print(other.coord)
-            print(other_coord_2d)
-            print("conn",connections)
-        lst_points = []
-        nn = len(self.coord)
-        for i in range(nn):
-            i1 = (i+1) % nn
-            pts = [self.coord[i1], self.coord[i]]
+                        if res2 is None:
+                            cur_outer, last_inner, pts = collect_points(i, idx_outer, last_inner, cur_outer, len(other.coord))
+                            last_pt = p_sel
+                else:  # create point
+                    d_tot = (e1-e0).length
+                    f = d0 / d_tot
+                    pt_new = other.coord[idx_outer].co3 * (1 - f) + other.coord[(idx_outer + 1) % n_other].co3 * f
+                    sv = other.splice(idx_outer + 1, pt_new)
+                    if b_make:
+                        sv.bm_vert = mm.new_vert(sv.co3)
 
-            k = connections[i]
-            k1 = connections[i1]
-            if k1 < k:  # wrap around
-                k1 = k1 + n
+                    if cur_outer > idx_outer:
+                        cur_outer = cur_outer + 1
+                    idx_outer = idx_outer + 1
+                    if last_inner is None:
+                        last_inner = i
+                        first_pt = other.coord[idx_outer]
+                        cur_outer = idx_outer  # point to new spot, not the corner we found to initialize things
+                    else:
+                        # self intersection test to make us skip inner point instead of making poly
+                        res2 = None
+                        if b_test_self_intersect:
+                            p_from = self.coord[i].co3 + 0.01 * ray3d  # don't hit start vertex!
+                            res2 = self.intersect_projection(p_from, pt_new)
+                            # but don't intersect own line
+                            if res2 and res2[0] in [i, (i + len(self.coord) - 1) % len(self.coord)]:
+                                res2 = None
+                        if res2 is None:
+                            cur_outer, last_inner, pts = collect_points(i, idx_outer, last_inner, cur_outer, len(other.coord))
+                            last_pt = pt_new
+                if len(pts) >= 3:
+                    lst_poly.append(pts)
 
-            dbg = ["i",i1,i,"o"]
-            for j in range(k, k1+1):
-                pts.append(other.coord[j % n])
-                dbg.append(j % n)
-            lst_points.append(pts)
-            # print(dbg)
+        # closure from n-1 back to 0
+        n_other = len(other.coord)
+        for j in range(cur_outer, cur_outer + n_other):
+            jj = j % n_other
+            if other.coord[jj] is first_pt:
+                cur_outer, last_inner, pts = collect_points(len(self.coord), j, last_inner, cur_outer, len(other.coord))
+                if len(pts) >= 3:
+                    lst_poly.append(pts)
 
         new_faces = []
-        for vlist in lst_points:
+        for vlist in lst_poly:
             tmp = []
             for v in vlist:
                 if v not in tmp:
@@ -305,6 +412,20 @@ class SmartPoly:
             vlist = tmp
             if len(vlist) < 3:
                 continue
+
+            p_new = SmartPoly()
+            p_new.add(vlist)
+            new_faces.append(p_new)
+        return new_faces
+
+    def bridge_by_number(self, other, idx_offset=0):
+        ncp = len(self.coord)
+        assert ncp == len(other.coord)
+        new_faces = []
+        for i in range(ncp):
+            ii = (i+1) % ncp
+            vlist = [self.coord[ii], self.coord[i], other.coord[i], other.coord[ii]]
+
             p_new = SmartPoly()
             p_new.add(vlist)
             new_faces.append(p_new)
@@ -488,29 +609,45 @@ class SmartPoly:
             lines.append("  {:.2f},{:.2f}  @{:.1f}".format(sv.co2.x, sv.co2.y, sv.winding*180/math.pi))
         return "\n".join(lines)
 
-    def generate_arch(self, w, h, n_sides, arch_type):
+    def generate_arch(self, w, h, n_sides, arch_type, thickness):
         """arch_type_list =
         ("JACK", "Jack", "Flat", 1),
         ("ROMAN", "Roman", "Round/Oval (1 pt)", 2),
         ("GOTHIC", "Gothic", "Gothic pointed (2 pt)", 3),
         ("OVAL", "Oval", "Victorian oval (3 pt)", 4),
         ("TUDOR", "Tudor", "Tudor pointed (4 pt)", 5),
+
+        Thickness 0 means just a single poly (or line for JACK)
+        Otherwise you get a returned polygon for the smaller inset
         """
         # thanks to ThisIsCarpentry.com for classic geometric construction algorithms
         lst_pts = []
+        lst_pts2 = [] # for thickness case
         if arch_type == 'JACK':
             # points are spaced in angle, not in distance
             theta_0 = math.atan2(h, w/2)
             theta_1 = math.pi - theta_0
             step = (theta_1 - theta_0) / n_sides
 
-            for i in range(n_sides + 1):
+            for i in range(0, n_sides + 1, n_sides):  # skipping flat points
                 t = step * i + theta_0
                 if t == math.pi/2:
                     x = 0
                 else:
                     x = h / math.tan(t)
                 lst_pts.append(Vector((x, h)))
+                if thickness > 0:
+                    h1 = h - thickness
+                    if t == math.pi / 2:
+                        x = 0
+                    else:
+                        x = h1 / math.tan(t)
+                    lst_pts2.append(Vector((x, h1)))
+            # we really need thickness to make a single Jack arch polygon
+            lst_pts2.reverse()
+            lst_pts = lst_pts + lst_pts2
+            thickness = 0
+            lst_pts2 = []
 
         elif arch_type == 'ROMAN':
             r = w**2/(8*h) + h/2
@@ -526,6 +663,9 @@ class SmartPoly:
                 vx = 0 + r * math.cos(t)
                 vy = d + r * math.sin(t)
                 lst_pts.append(Vector((vx, vy)))
+                if thickness > 0:
+                    offset = thickness * lst_pts[-1].normalized()
+                    lst_pts2.append(lst_pts[-1]-offset)
 
         elif arch_type == 'GOTHIC':
             a = w/4
@@ -560,6 +700,18 @@ class SmartPoly:
                 vx = c + r_arc * math.cos(t)
                 vy = d + r_arc * math.sin(t)
                 lst_pts.append(Vector((vx, vy)))
+                if thickness > 0:
+                    offset = thickness * (lst_pts[-1] - Vector((c, d))).normalized()
+                    if i == n_arc:  # drop point straight down
+                        e = lst_pts[-1] - lst_pts[-2]
+                        if lst_pts2[-1].x > 0:
+                            dy = -e.y / e.x * lst_pts2[-1].x
+                            dx = lst_pts2[-1].x
+                            correction = lst_pts2[-1] + Vector((-dx, dy))
+                            offset = lst_pts[-1] - correction
+                        else:
+                            offset.x = 0
+                    lst_pts2.append(lst_pts[-1]-offset)
 
             theta_1 = math.pi - theta  # for downward stroke
             for i in range(1, n_arc + 1):
@@ -567,6 +719,9 @@ class SmartPoly:
                 vx = -c + r_arc * math.cos(t)
                 vy = d + r_arc * math.sin(t)
                 lst_pts.append(Vector((vx, vy)))
+                if thickness > 0:
+                    offset = thickness * (lst_pts[-1]-Vector((-c,d))).normalized()
+                    lst_pts2.append(lst_pts[-1]-offset)
 
         elif arch_type == 'OVAL':
             r_corner = 2 * (h / 3)
@@ -591,7 +746,7 @@ class SmartPoly:
                 # we sweep points up from horizontal, not from center
                 theta_0 = math.pi / 2 - theta
                 theta_1 = math.pi / 2 + theta
-            print(n_corner, theta_0, theta_1, n_center, n_corner + n_corner + n_corner)
+
             if n_corner > 0:
                 step = theta_0 / n_corner
                 for i in range(n_corner + 1):
@@ -599,6 +754,9 @@ class SmartPoly:
                     vx = c + r_corner * math.cos(t)
                     vy = 0 + r_corner * math.sin(t)
                     lst_pts.append(Vector((vx, vy)))
+                    if thickness > 0:
+                        offset = thickness * (lst_pts[-1]-Vector((c,0))).normalized()
+                        lst_pts2.append(lst_pts[-1] - offset)
             if n_center > 0:
                 step = (2 * theta) / n_center
                 if n_corner == 0:
@@ -610,6 +768,9 @@ class SmartPoly:
                     vx = 0 + r_center * math.cos(t)
                     vy = -d + r_center * math.sin(t)
                     lst_pts.append(Vector((vx, vy)))
+                    if thickness > 0:
+                        offset = thickness * (lst_pts[-1]-Vector((0,-d))).normalized()
+                        lst_pts2.append(lst_pts[-1] - offset)
             if n_corner > 0:
                 step = theta_0 / n_corner
                 for i in range(1, n_corner + 1):
@@ -617,6 +778,9 @@ class SmartPoly:
                     vx = -c + r_corner * math.cos(t)
                     vy = 0 + r_corner * math.sin(t)
                     lst_pts.append(Vector((vx, vy)))
+                    if thickness > 0:
+                        offset = thickness * (lst_pts[-1]-Vector((-c,0))).normalized()
+                        lst_pts2.append(lst_pts[-1] - offset)
 
         elif arch_type == 'TUDOR':
             r_corner = 2 * (h / 3)
@@ -650,7 +814,7 @@ class SmartPoly:
             if n_center % 2 == 1:
                 n_center = n_center + 1  # ensure two halves even if we have extra side
             n_center = n_center // 2
-            print(theta_peak, theta_corner, n_center, n_corner, f_center)
+
             # we sweep points up from horizontal, not from center
             theta_0 = theta_corner
             theta_1 = math.pi - theta_corner
@@ -662,6 +826,9 @@ class SmartPoly:
                     vx = cc + r_corner * math.cos(t)
                     vy = 0 + r_corner * math.sin(t)
                     lst_pts.append(Vector((vx, vy)))
+                    if thickness > 0:
+                        offset = thickness * (lst_pts[-1]-Vector((cc,0))).normalized()
+                        lst_pts2.append(lst_pts[-1] - offset)
             if n_center > 0:
                 if n_corner == 0:
                     c_start = 0
@@ -673,11 +840,26 @@ class SmartPoly:
                     vx = res.x + r_center * math.cos(t)
                     vy = res.y + r_center * math.sin(t)
                     lst_pts.append(Vector((vx, vy)))
+                    if thickness > 0:
+                        offset = thickness * (lst_pts[-1] - Vector((res.x, res.y))).normalized()
+                        if i == n_center:  # drop point straight down
+                            e = lst_pts[-1] - lst_pts[-2]
+                            if lst_pts2[-1].x > 0:
+                                dy = -e.y / e.x * lst_pts2[-1].x
+                                dx = lst_pts2[-1].x
+                                correction = lst_pts2[-1] + Vector((-dx, dy))
+                                offset = lst_pts[-1] - correction
+                            else:
+                                offset.x = 0
+                        lst_pts2.append(lst_pts[-1] - offset)
                 for i in range(1, n_center + 1):  # don't duplicate point at 0
                     t = step * i + math.pi - theta_peak
                     vx = -res.x + r_center * math.cos(t)  # mirror image
                     vy = res.y + r_center * math.sin(t)
                     lst_pts.append(Vector((vx, vy)))
+                    if thickness > 0:
+                        offset = thickness * (lst_pts[-1]-Vector((-res.x,res.y))).normalized()
+                        lst_pts2.append(lst_pts[-1] - offset)
             if n_corner > 0:
                 step = theta_0 / n_corner
                 for i in range(1, n_corner + 1):
@@ -685,12 +867,24 @@ class SmartPoly:
                     vx = -cc + r_corner * math.cos(t)  # mirror
                     vy = 0 + r_corner * math.sin(t)
                     lst_pts.append(Vector((vx, vy)))
+                    if thickness > 0:
+                        offset = thickness * (lst_pts[-1]-Vector((-cc,0))).normalized()
+                        lst_pts2.append(lst_pts[-1] - offset)
 
         for pt in lst_pts:
             co = self.make_3d(pt)
             self.add(co, True)
 
         self.calculate()
+
+        if len(lst_pts2):
+            rval = SmartPoly()
+            for pt in lst_pts2:
+                co = self.make_3d(pt)
+                rval.add(co, True)
+            rval.calculate()
+            return rval
+        return None
 
     def generate_ngon(self, n_sides, start_angle):
         angle_delta = (2 * math.pi) / n_sides
@@ -720,6 +914,32 @@ class SmartPoly:
                 lst_poly += lst
 
         return lst_poly
+
+    def intersect_projection(self, pt1, pt2):
+        """Project segment pt1-pt2 onto plane and test all edges
+        return first edge hit. If a vertex is hit, return the edge that starts there
+        Returns pt, edge_index or None
+        """
+        a = self.make_2d(pt1)
+        b = self.make_2d(pt2)
+        n = len(self.coord)
+        lst_hit = []
+        for idx in range(n):
+            e0 = self.coord[idx].co2
+            e1 = self.coord[(idx + 1) % n].co2
+
+            res = mathutils.geometry.intersect_line_line_2d(a, b, e0, e1)
+            if res is not None:
+                d0 = (e0-res).length
+                d1 = (e1-res).length
+                if d1== 0:
+                    lst_hit.append( ( d1, res, idx+1 ) )
+                else:
+                    lst_hit.append( (d0, res, idx))
+        lst_hit.sort(key = lambda t:t[0])
+        if len(lst_hit):
+            return lst_hit[0][1], lst_hit[0][2]
+        return None
 
     def make_2d(self, pt_3d):
         if isinstance(pt_3d, SmartVec):
@@ -756,6 +976,27 @@ class SmartPoly:
                 pass
             else:
                 pt.bm_vert = mm.new_vert(pt.co3)
+
+    def outward_ray(self, sv1, sv2, sv3):
+        # work in 3d for the cross product testing
+        v1 = sv2.co3 - sv1.co3
+        v2 = sv3.co3 - sv2.co3
+        vz = v1.cross(v2)
+        if vz.dot(self.normal) < 0:  # concave
+            v_out = v2.normalized() - v1.normalized()
+        else:
+            v_out = v1.normalized() - v2.normalized()
+        v_out.normalize()
+        return v_out
+
+    def outward_ray_idx(self, idx):
+        """Get outward start and ray from index number"""
+        n = len(self.coord)
+        sv1 = self.coord[(idx + n - 1) % n]
+        sv2 = self.coord[idx]
+        sv3 = self.coord[(idx + 1) % n]
+        ray_out = self.outward_ray(sv1, sv2, sv3)
+        return sv2.co3, ray_out
 
     def project_to(self, v):
         """Change normal and project shape"""

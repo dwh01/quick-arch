@@ -97,7 +97,7 @@ class QARCH_OT_set_active_op(bpy.types.Operator):
             mm = ManagedMesh(obj)
             lst_sel_info = mm.get_selection_info()
             mm.free()
-            print("enum sel", lst_sel_info)
+
             if len(lst_sel_info):
                 set_ops = set([t[mm.OPID] for t in lst_sel_info])
 

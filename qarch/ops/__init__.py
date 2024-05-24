@@ -13,6 +13,7 @@ from .geom import (
     QARCH_OT_solidify_edges,
     QARCH_OT_make_louvers,
 )
+from .compound import QARCH_OT_add_window
 
 classes = (
     QARCH_OT_load_script,
@@ -27,6 +28,7 @@ classes = (
     QARCH_OT_extrude_sweep,
     QARCH_OT_solidify_edges,
     QARCH_OT_make_louvers,
+    QARCH_OT_add_window,
 )
 
 

@@ -67,6 +67,12 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.make_louvers")
         row.operator("qarch.solidify_edges")
+        row = layout.row(align=True)
+        row.operator("qarch.save_script")
+        row.operator("qarch.load_script")
+        row = layout.row(align=True)
+        row.operator("qarch.add_window")
+
 
 if bpy.app.version < (4,0,0):
     class QARCH_PT_material_tools(bpy.types.Panel):

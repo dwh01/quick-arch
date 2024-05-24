@@ -211,7 +211,7 @@ class ManagedMesh:
             if v[self.key_op] in dct_sets:
                 if v[self.key_seq] in dct_sets[v[self.key_op]]:
                     v.select_set(True)
-
+                    # print("select {} {}".format(v[self.key_op], v[self.key_seq]))
         self.bm.select_flush(True)
 
     def select_operation(self, op_id):
@@ -222,6 +222,13 @@ class ManagedMesh:
             if inf == op_id:
                 v.select_set(True)
         self.bm.select_flush(True)
+
+    def get_current(self):
+        lst_cur = []
+        for v in self.bm.verts:
+            if self.op_id == v[self.key_op]:
+                lst_cur.append(v)
+        return lst_cur
 
     def select_current(self):
         """Select current operation verts"""

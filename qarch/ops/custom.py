@@ -1,9 +1,10 @@
 import bpy
 from collections import defaultdict
-
+import itertools
+import json
 import rna_info
 from ..object import get_obj_data, set_obj_data, ACTIVE_OP_ID
-from ..object import Journal
+from ..object import Journal, merge_record
 from ..mesh import ManagedMesh
 import struct
 
@@ -125,6 +126,7 @@ class CustomOperator(bpy.types.Operator):
 
         # get control points from journal or context object
         journal = Journal(obj)
+        adj = journal['adjusting']
         print("execute: {} active, {} adjusting".format(active_op, journal['adjusting']))
         if active_op > -1:
             lst_controlled = self.execute_active(obj, journal, active_op)
@@ -136,8 +138,26 @@ class CustomOperator(bpy.types.Operator):
             set_obj_data(obj, ACTIVE_OP_ID, active_op)
             self.set_operation_consistent(obj, journal[active_op])
         else:
-            self.execute_faceloop(obj, journal)
-        print("Execute Finished")
+            mm = ManagedMesh(obj)
+            cur_sel = mm.get_selection_info()  # to restore at end
+            mm.free()  # don't hold copy during operations
+            lst_adjusting = self.execute_faceloop(obj, journal)
+            journal = Journal(obj)
+            for semi_active in lst_adjusting:
+                lst_controlled = journal.controlled_list(semi_active)
+                for child_id in lst_controlled:  # compound operations can have children on first pass
+                    replay_history(context, child_id)
+            # just in case children change state, but we want adjust-last to work properly
+            set_obj_data(obj, ACTIVE_OP_ID, active_op)
+            mm = ManagedMesh(obj)
+            mm.set_selection_info(cur_sel)
+            mm.to_mesh()
+            mm.free()
+
+        journal = Journal(obj)
+        journal['adjusting'] = adj
+        journal.flush()
+        print("Execute Finished {}".format(active_op))
         return {"FINISHED"}
 
     def execute_active(self, obj, journal, active_op):
@@ -210,6 +230,7 @@ class CustomOperator(bpy.types.Operator):
             if len(lst_adjusting) <= i_face:
                 record = journal.new_record(control_op, self.bl_idname)
                 op_id = record['op_id']
+                record['control_points'] = face_sel_info
                 print("face selection {} made new op {}".format(face_sel_info, op_id))
                 journal['adjusting'].append(op_id)
             else:
@@ -217,14 +238,15 @@ class CustomOperator(bpy.types.Operator):
                 record = journal[op_id]
                 face_sel_info = record['control_points']
                 print("face selection {} adjusting op {}".format(face_sel_info, op_id))
-            record['control_points'] = face_sel_info
+
             record['properties'] = self.props.to_dict()
+            print(record)
             journal.flush()
             # selection state is not guaranteed
             # so operator implementations should rely on finding the control points
             self.function(obj, face_sel_info, op_id, record['properties'])
 
-        #journal.flush()
+        return lst_adjusting
 
     @staticmethod
     def get_active_record(context):
@@ -241,6 +263,8 @@ class CustomOperator(bpy.types.Operator):
     def is_face_selected(cls, context):
         """Used for some poll routines"""
         if (context.object is None) or (context.mode != "EDIT_MESH"):
+            return False
+        if get_obj_data(context.object, ACTIVE_OP_ID) is None:
             return False
 
         obj = context.object
@@ -276,6 +300,8 @@ class CustomOperator(bpy.types.Operator):
         active = -1
         if record:
             active = record['op_id']
+            if active not in journal['adjusting']:
+                journal['adjusting'] = [active]
         print("Invoke {} active, {} adjusting, loaded {}".format(active, journal['adjusting'], loaded))
         if ('UNDO' not in self.bl_options) and (not loaded):  # no adjust last panel to pop up
             wm = context.window_manager
@@ -287,7 +313,9 @@ class CustomOperator(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         """Most of our operations should happen in edit mode, if not, customize in derived class"""
-        return (context.object is not None) and (context.mode == "EDIT_MESH")
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            return get_obj_data(context.object, ACTIVE_OP_ID) is not None
+        return False
 
     @staticmethod
     def set_operation_consistent(obj, record):
@@ -321,12 +349,120 @@ class CustomOperator(bpy.types.Operator):
             set_obj_data(obj, ACTIVE_OP_ID, -1)
             return False  # stored ops only ever have one operation id
 
-        elif (len(lst_sel_info) > 0) and lst_sel_info[0][mm.OPID] != active_op:
-            print("Wrong operation points selected")
-            set_obj_data(obj, ACTIVE_OP_ID, -1)
-            return False  # the wrong points are selected
+        elif len(lst_sel_info) > 0:
+            # when we activate before edit, the active op verts are selected, not the parent verts
+            if lst_sel_info[0][mm.OPID] == active_op:  # convert over to parent op
+                CustomOperator.set_operation_consistent(obj, record)
+            elif lst_sel_info[0][mm.OPID] != record['control_points'][0][mm.OPID]:
+                print("Wrong operation points selected for active {}".format(active_op))
+                print(lst_sel_info)
+                print(record['control_points'])
+                set_obj_data(obj, ACTIVE_OP_ID, -1)
+                return False  # the wrong points are selected
 
         return True
+
+
+def copy_points(self, obj, sel_info, op_id, prop_dict):
+    """Used by compound operator to make points the children can build from"""
+    mm = ManagedMesh(obj)
+
+    sel_bmv = mm.get_sel_verts(sel_info)  # need to flatten
+
+    mm.set_op(op_id)
+    mm.deselect_all()
+    mm.select_operation(op_id)
+    existing = mm.get_selection_info()
+
+    sel_flat = itertools.chain.from_iterable([l[1] for l in sel_info])
+    sel_flat = set(sel_flat)
+    exist_flat = itertools.chain.from_iterable([l[1] for l in existing])
+    exist_flat = set(exist_flat)
+    err = sel_flat ^ exist_flat
+
+    if len(err):
+        set_done = set()
+        mm.delete_current_verts()
+
+        mm.bm.verts.ensure_lookup_table()
+        #print("bmv", [v.index for lst in sel_bmv for v in lst])
+
+        for lst in sel_bmv:
+            for v in lst:
+                if v in set_done:
+                    continue
+                vnew = mm.new_vert(v.co)
+                set_done.add(v)
+
+        mm.to_mesh()
+
+    mm.free()
+
+    return [[op_id, list(range(len(sel_flat)))]]
+
+
+class CompoundOperator(CustomOperator):
+    """Inserts a sequence like you would load from a script"""
+    function = copy_points  # this just copies the selected verts and gives the copy our operation id
+    delete_control_face = True  # override if you need to leave the control face in place
+
+    def ensure_children(self, context):
+        """Called by invoke to make sure the child script is in place"""
+        obj = context.object
+        journal, record = self.get_active_record(context)
+        if record is None:  # new call
+            script = self.get_script()
+            subset = json.loads(script)
+
+            mm = ManagedMesh(obj)
+            face_sel_info = mm.get_selection_info()
+            mm.free()
+            if len(face_sel_info):
+                control_op = face_sel_info[0][ManagedMesh.OPID]
+            else:
+                control_op = -1
+
+            journal = Journal(obj)
+            record = journal.new_record(control_op, self.bl_idname)
+            record['control_points'] = face_sel_info
+            record['properties'] = self.props.to_dict()
+            op_id = record['op_id']
+            journal['adjusting'] = [op_id]  # need either this or active for push/pull properties
+            journal.flush()
+
+            child_sel_info = copy_points(self, obj, face_sel_info, op_id, {})
+
+            first_op_id = merge_record(obj, subset, child_sel_info, record['op_id'])
+
+    def get_script(self):
+        """Returns the same kind of script you get by exporting something"""
+        # make something, export it, and copy the script into your class
+        assert False, "implement this function"
+        return ""
+
+    def push_properties(self, context):
+        """After this operator properties are updated, push them down to the script operators
+        by updating the journal text
+        """
+        assert False, "implement this function"
+        return
+
+    def pull_properties(self, context):
+        """Get the properties from the script and put them into this operator's properties
+        """
+        assert False, "implement this function"
+        return
+
+    def invoke(self, context, event):
+        self.ensure_children(context)  # only has effect for new operator, not for active
+        self.pull_properties(context)
+        return self.execute(context)
+
+    def execute(self, context):
+        self.push_properties(context)
+        if self.delete_control_face:  # delete control face option
+            pass
+        return super().execute(context)
 
 
 def replay_history(context, active_op):

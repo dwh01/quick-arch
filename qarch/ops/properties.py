@@ -18,7 +18,7 @@ class ArchShapeProperty(CustomPropertyBase):
 
     field_layout = [
         ["num_sides"],
-        ["arch_type"]
+        ["arch_type"],
     ]
 
     topology_lock = ['arch_type', 'num_sides']
@@ -119,47 +119,68 @@ class UnionPolygonProperty(CustomPropertyBase):
     topology_lock = []
 
 
+def update_inset_enum(self, context):
+    t = self.inset_type
+    if t == 'NGON':
+        self.use_ngon = True
+        self.use_arch = False
+    elif t == 'ARCH':
+        self.use_ngon = False
+        self.use_arch = True
+    else:
+        self.use_ngon = False
+        self.use_arch = False
+
+    # Redraw panel
+    for region in context.area.regions:
+        if region.type == "UI":
+            region.tag_redraw()
+
+
 class InsetPolygonProperty(CustomPropertyBase):
-    # TODO enum ngon, arch, or self-similar
+    inset_type_list = [
+        ("NGON", "Regular Polygon", "N-sided polygon", 1),
+        ("ARCH", "Arch", "Arch shape", 2),
+        ("SELF", "Self Similar", "Current shape resized", 3),
+        ]
+
+    inset_type: EnumProperty(name="Inset Type", default="SELF", items=inset_type_list, update=update_inset_enum)
+
     # but need to use the update function of enum to toggle visibility of the shape pointers
     position: PointerProperty(name="Position", type=PositionProperty)
     size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
-    use_ngon: BoolProperty(name="Use NGon", description="Use n-gon method", default=True)
+    use_ngon: BoolProperty(name="Use NGon", description="Use n-gon method", default=False)
     poly: PointerProperty(name="Poly", type=PolygonProperty)
-    use_arch: BoolProperty(name="Use Arch", description="Use arch method", default=True)
+    use_arch: BoolProperty(name="Use Arch", description="Use arch method", default=False)
     arch: PointerProperty(name="Arch", type=ArchShapeProperty)
     extrude_distance: FloatProperty(name="Extrude Distance", default=0.0, unit="LENGTH", description="Extrude distance")
     add_perimeter: BoolProperty(name="Add Perimeter Points", description="Add points to perimeter to match if needed", default=False)
+    thickness: FloatProperty(name="Frame Thickness", min=0, default=0.1, description="Polygon donut instead of solid face")
 
     field_layout = [
         ('', 'position'),
         ('', 'size'),
+        ['inset_type'],
         ('use_ngon', 'poly'),
         ('use_arch', 'arch'),
-        ['extrude_distance', 'add_perimeter']
+        ['extrude_distance', 'add_perimeter'],
+        ['thickness']
     ]
 
-    topology_lock = ['use_ngon', 'use_arch', 'add_perimeter']
+    topology_lock = ['use_ngon', 'use_arch', 'add_perimeter', 'thickness']
+
 
 class SolidifyEdgesProperty(CustomPropertyBase):
-    edge_items = [
-        ("TOP", "Top", "Within 45 degrees of up", 1),
-        ("BOTTOM", "Bottom", "Within 45 degrees of bottom", 2),
-        ("LEFT", "Left", "Within 45 degrees of left", 4),
-        ("RIGHT", "Right", "Within 45 degrees of right", 8),
-        ("INSIDE", "Inside", "Only interior of selected region", 16),
-        ("OUTSIDE", "Outside", "Only outside of selected region", 32),
-    ]
-    section: PointerProperty(name="Section", type=PolygonProperty, description="Cross-section to apply")
+    poly: PointerProperty(name="Cross Section", type=PolygonProperty, description="Cross-section to apply")
     size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
-    sides: EnumProperty(name="Sides", description="Sides to solidify", items=edge_items, options={'ENUM_FLAG'},
-                        default={'TOP', 'BOTTOM', 'LEFT', 'RIGHT'})
+    do_horizontal: BoolProperty(name="Do Horizontal", default=True, description="Solidify horizontal-ish edges")
+    do_vertical: BoolProperty(name="Do Vertical", default=True, description="Solidify vertical-ish edges")
     z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
 
     field_layout = [
-        ('', 'section'),
+        ('', 'poly'),
         ('', 'size'),
-        ('', 'sides'),
+        ['do_horizontal', 'do_vertical'],
         ['z_offset']
     ]
     topology_lock = ['sides']
@@ -225,45 +246,14 @@ class MakeLouversProperty(CustomPropertyBase):
     topology_lock = ['count_x', 'count_y', 'flip_xy']
 
 
-class FrameShapeProperty(CustomPropertyBase):
-    lintel_thickness: FloatProperty(name="Thickness", min=0.0, default=.1, unit="LENGTH", description="Vertical thickness of lintel")
-    lintel_side: FloatProperty(name="Side Extension", min=0.0, default=0, unit="LENGTH", description="Extend lintel past frame sides")
-    lintel_front: FloatProperty(name="Front Extrude", default=0, unit="LENGTH", description="Distance to extrude in front of wall")
-    lintel_back: FloatProperty(name="Back Extrude", default=0, unit="LENGTH", description="Distance to extrude in back of wall")
-    arched_lintel: BoolProperty(name="Arched Lintel", default=False)
-    lintel_arch_prop: PointerProperty(name="Top Arch", type=ArchShapeProperty)
-
-    side_thickness: FloatProperty(name="Thickness", min=0.0, default=.1, unit="LENGTH", description="Horizontal thickness of sides")
-    side_front: FloatProperty(name="Front Extrude", default=0, unit="LENGTH", description="Distance to extrude in front of wall")
-    side_back: FloatProperty(name="Back Extrude", default=0, unit="LENGTH", description="Distance to extrude in back of wall")
-
-    sill_thickness: FloatProperty(name="Thickness", min=0.0, default=.1, unit="LENGTH",  description="Vertical thickness of sill")
-    sill_side: FloatProperty(name="Side Extension", min=0.0, default=0, unit="LENGTH", description="Extend sill past frame sides")
-    sill_front: FloatProperty(name="Front Extrude", default=0, unit="LENGTH", description="Distance to extrude in front of wall")
-    sill_back: FloatProperty(name="Back Extrude", default=0, unit="LENGTH", description="Distance to extrude in back of wall")
-    arched_sill: BoolProperty(name="Arched Sill", default=False)
-    sill_arch_prop: PointerProperty(name="Bottom Arch", type=ArchShapeProperty)
-
-    front_recess: FloatProperty(name="Recess", default=.1, unit="LENGTH", description="Inset interior of frame (from wall)")
-    inner_thickness: FloatProperty(name="Inner Thickness", min=0.0, default=0.01, unit="LENGTH", description="Panel thickness inside frame")
+class InsetPolyProperty(CustomPropertyBase):  # demo case
+    num_sides: IntProperty(name="Sides", min=3, default=5, description="Number of sides")
 
     field_layout = [
-        "Top",
-        ["lintel_thickness", "lintel_side"],
-        ["lintel_front", "lintel_back"],
-        ("arched_lintel", "lintel_arch_prop"),
-        "Sides",
-        ["side_thickness"],
-        ["side_front", "side_back"],
-        "Bottom",
-        ["sill_thickness", "sill_side"],
-        ["sill_front", "sill_back"],
-        ("arched_sill", "sill_arch_prop"),
-        "Inside",
-        ["front_recess", "arched_sill"]
+        ["num_sides"]
     ]
 
-    topology_lock = ['arched_lintel', 'arched_sill']
+    topology_lock = []
 
 
 class NewObjectProperty(CustomPropertyBase):
@@ -312,15 +302,6 @@ class MeshImportProperty(CustomPropertyBase):
     topology_lock = ['filepath', 'obj_name']
 
 
-class ScriptImportProperty(CustomPropertyBase):
-    filepath: StringProperty(name="Filename", description="Script to load", subtype="FILE_PATH")
-    field_layout = [
-        ['filepath']
-    ]
-
-    topology_lock = ['filepath']
-
-
 # order might matter
 ops_properties = [
     ArchShapeProperty,
@@ -336,8 +317,7 @@ ops_properties = [
     SweepProperty,
     SolidifyEdgesProperty,
     MakeLouversProperty,
-    FrameShapeProperty,  # --
+InsetPolyProperty,
     RoomProperty,  # --
     MeshImportProperty,
-    ScriptImportProperty,
 ]

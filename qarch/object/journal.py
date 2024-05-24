@@ -193,7 +193,7 @@ def export_record(obj, operation_id, filename, do_screenshot):
         outfile.write(text)
 
     if do_screenshot:  # assume current window is all set up for us
-        bpy.ops.screen.screenshot_area(file_path.with_suffix(".png"))
+        bpy.ops.screen.screenshot_area(filepath=str(file_path.with_suffix(".png")), check_existing=False)
 
 
 def extract_record(obj, operation_id):
@@ -218,7 +218,7 @@ def extract_record(obj, operation_id):
             new_id_number = new_id_number + 1
             dct_new_ids[old_id] = op_id
 
-        record = copy.deepcopy(journal[old_id])
+        record = copy.deepcopy(journal[wrap_id(old_id)])
         record['op_id'] = op_id
 
         # this works because we work top down in processing
@@ -286,13 +286,15 @@ def merge_record(obj, dct_operation, new_control_points, new_control_op):
             dct_new_id[old_id] = op_id
 
         # this record can be overwritten and inserted into journal
+        record['op_id'] = op_id
         if record['control_op'] == -1:  # root operation
             control_op = new_control_op
             record['control_points'] = new_control_points
         else:
             control_op = dct_new_id[record['control_op']]
         record['control_op'] = control_op
-
+        print("merged = ")
+        print(record)
         if control_op > -1:  # object creation has no parent, else update parent map
             journal['controlled'][wrap_id(control_op)].append(op_id)
 

@@ -64,7 +64,10 @@ def create_object(collection, name):
 
 def get_obj_data(obj, field):
     """Return object data field, or None"""
-    obj_dict = json.loads(obj[BT_OBJ_DATA])
+    try:
+        obj_dict = json.loads(obj[BT_OBJ_DATA])
+    except KeyError:
+        return None
     return obj_dict.get(field, None)
 
 
