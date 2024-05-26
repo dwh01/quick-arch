@@ -103,6 +103,9 @@ class ManagedMesh:
         lst_del = [v for v in self.bm.verts if v[self.key_op] == self.op_id]
         bmesh.ops.delete(self.bm, geom=lst_del, context='VERTS')
 
+        self.cur_seq = 0
+        self.existing = {}
+
     def delete_face(self, face):
         try:
             bmesh.ops.delete(self.bm, geom=[face], context='FACES_ONLY')

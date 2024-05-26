@@ -2,7 +2,7 @@ import bpy
 
 from .properties import ops_properties
 from .assets import QARCH_OT_load_script, QARCH_OT_save_script
-from .state import QARCH_OT_set_active_op, QARCH_OT_create_object
+from .state import QARCH_OT_set_active_op, QARCH_OT_create_object, QARCH_OT_rebuild_object, QARCH_OT_remove_operation
 from .geom import (
     QARCH_OT_union_polygon,
     QARCH_OT_inset_polygon,
@@ -29,6 +29,8 @@ classes = (
     QARCH_OT_solidify_edges,
     QARCH_OT_make_louvers,
     QARCH_OT_add_window,
+    QARCH_OT_rebuild_object,
+    QARCH_OT_remove_operation,
 )
 
 

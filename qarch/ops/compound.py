@@ -65,37 +65,32 @@ class QARCH_OT_add_window(CompoundOperator):
                 "compound_count": 0
             }}"""
 
-
-    def push_properties(self, context):
+    def write_props_to_journal(self, op_id):
         """After this operator properties are updated, push them down to the script operators
         by updating the journal text
         """
-        journal = Journal(context.object)
-        if len(journal['adjusting']) == 1:
-            op_id = journal['adjusting'][0]
-        else:
-            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
-        assert op_id != -1
-        clist = journal.controlled_list(op_id)
+        child_list = self.journal.controlled_list(op_id)
+
+        # normal operator properties
+        self.journal[op_id]['properties'] = self.props.to_dict()
 
         # in this case, we have one child
-        child_rec = journal[clist[0]]
+        child_rec = self.journal[child_list[0]]
         child_rec['properties']['poly']['num_sides'] = self.props.num_sides
         child_rec['properties']['arch']['num_sides'] = self.props.num_sides
-        journal.flush()
 
-    def pull_properties(self, context):
+        self.journal.flush()
+
+    def read_props_from_journal(self, op_id):
         """Get the properties from the script and put them into this operator's properties
         """
-        journal = Journal(context.object)
-        if len(journal['adjusting']) == 1:
-            op_id = journal['adjusting'][0]
-        else:
-            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
-        assert op_id != -1
-        clist = journal.controlled_list(op_id)
+        child_list = self.journal.controlled_list(op_id)
+
+        # normal operator properties
+        record = self.journal[op_id]
+        self.props.from_dict(record['properties'])
 
         # in this case, we have one child
-        child_op = clist[0]
-        child_rec = journal[child_op]
-        self.props.num_sides = child_rec['properties']['poly']['num_sides'] = self.props.num_sides
+        child_rec = self.journal[child_list[0]]
+        # the polygon sides take precedence
+        self.props.num_sides = child_rec['properties']['poly']['num_sides']

@@ -2,7 +2,7 @@
 import bpy
 from bpy.props import PointerProperty, EnumProperty, StringProperty
 from .custom import *
-from ..object import create_object, Journal, wrap_id
+from ..object import create_object, Journal, wrap_id, delete_record
 from ..mesh import ManagedMesh
 from .properties import NewObjectProperty
 
@@ -149,6 +149,86 @@ class QARCH_OT_set_active_op(bpy.types.Operator):
     def invoke(self, context, event):
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
+
+class QARCH_OT_rebuild_object(bpy.types.Operator):
+    """For cleanup when old faces are left behind"""
+    bl_idname = "qarch.rebuild_object"
+    bl_label = "Rebuild"
+    bl_description = "Rebuild object from script"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+            if op_id is not None:
+                return True
+        return False
+
+    def execute(self, context):
+        active_op = get_obj_data(context.object, ACTIVE_OP_ID)
+        journal = Journal(context.object)
+        dct, lst = journal.child_ops(active_op)
+
+        mm = ManagedMesh(context.object)
+        for op_id in lst:
+            mm.set_op(op_id)
+            mm.delete_current_verts()
+
+        if active_op > -1:
+            lst_sel_info = journal[active_op]['control_points']
+            print("set consistent by selecting ", lst_sel_info)
+            mm.set_selection_info(lst_sel_info)
+        mm.to_mesh()
+        mm.free()
+
+        if active_op == -1:
+            lst_tops = journal.controlled_list(-1)
+            for op in lst_tops:
+                replay_history(context, op)
+        else:
+            replay_history(context, active_op)
+        return {'FINISHED'}
+
+class QARCH_OT_remove_operation(bpy.types.Operator):
+    """For cleanup when old faces are left behind"""
+    bl_idname = "qarch.remove_operation"
+    bl_label = "Remove Op"
+    bl_description = "Remove operation and child features"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+            if op_id is not None:
+                return op_id > -1
+        return False
+
+    def execute(self, context):
+        active_op = get_obj_data(context.object, ACTIVE_OP_ID)
+        journal = Journal(context.object)
+
+        lst_sel_info = journal[active_op]['control_points']
+        lst = delete_record(context.object, active_op)
+        lst.append(active_op)
+
+        mm = ManagedMesh(context.object)
+        for op_id in lst:
+            mm.set_op(op_id)
+            mm.delete_current_verts()
+
+        # remake faces
+        for lst in lst_sel_info:
+            mm.set_op(lst[mm.OPID])
+            vlist = mm.get_sel_verts([lst])
+            if len(vlist) >= 3:
+                mm.new_face(vlist)
+
+        mm.to_mesh()
+        mm.free()
+
+        return {'FINISHED'}
 
 # operator to set face category
 # operator to set wall thickness

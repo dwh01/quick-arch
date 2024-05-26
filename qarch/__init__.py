@@ -56,6 +56,9 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row.operator("qarch.create_object")
         row.operator("qarch.set_active_op")
         row = layout.row(align=True)
+        row.operator("qarch.rebuild_object")
+        row.operator("qarch.remove_operation")
+        row = layout.row(align=True)
         row.operator("qarch.union_polygon")
         row.operator("qarch.inset_polygon")
         row = layout.row(align=True)
@@ -72,6 +75,7 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row.operator("qarch.load_script")
         row = layout.row(align=True)
         row.operator("qarch.add_window")
+
 
 
 if bpy.app.version < (4,0,0):

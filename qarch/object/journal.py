@@ -239,21 +239,21 @@ def extract_record(obj, operation_id):
 
 def delete_record(obj, operation_id):
     """Removes instructions for all trailing operations, returns op ids so verts can be deleted"""
-    journal = get_journal(obj)
-    parent_id = journal[wrap_id(operation_id)]['control_op']
+    journal = Journal(obj)
+    parent_id = journal[operation_id]['control_op']
 
     dct_children, lst_children = journal.child_ops(operation_id)
     lst_children.insert(0, operation_id)
 
     lst_children.reverse()  # doesn't matter, but remove lowest level first
     for op_id in lst_children:
-        del journal['controlled'][wrap_id(op_id)]
-        del journal[wrap_id(op_id)]
+        del journal.jj['controlled'][wrap_id(op_id)]
+        del journal.jj[wrap_id(op_id)]
 
     lst = journal['controlled'][wrap_id(parent_id)]
     lst.remove(operation_id)
 
-    set_journal(obj, journal)
+    journal.flush()
     return lst_children
 
 

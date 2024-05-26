@@ -19,6 +19,7 @@ BT_OBJ_DATA = 'bt_data'
 
 # things stored in object data
 ACTIVE_OP_ID = "op_id"  # used to force re-editing of old operation and replay of sequences
+REPLAY_OP_ID = "replay_id"
 JOURNAL_PROP_NAME = "journal_name"  # object custom property name
 
 
@@ -48,6 +49,7 @@ def create_object(collection, name):
 
     # no operation will match -1
     set_obj_data(obj, ACTIVE_OP_ID, -1)
+    set_obj_data(obj, REPLAY_OP_ID, -1)
 
     # setup layers for mesh based data
     key = obj.data.attributes.new(FACE_CATEGORY, 'INT', 'FACE')

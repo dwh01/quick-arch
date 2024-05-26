@@ -194,7 +194,7 @@ class SmartPoly:
         # this is a crucial routine, we will make it handle many special cases
         #   for each case, consider if we can only use existing outside points or if we can add more
         #
-        # 0) aligned rectangle within aligned rectangle
+        # 0) aligned rectangle within
         # 1) inner polygon center is inside outer
         #   a)  point on inner is inside outer
         #   b)  point on inner is outside outer
@@ -274,13 +274,12 @@ class SmartPoly:
         case_0 = False
         case_1 = False
         case_2 = False
-        if self.is_oriented_rect and other.is_oriented_rect and (insert_perimeter == True):
-            bool_1 = other.bbox[0].x <= self.bbox[0].x <= other.bbox[1].x
-            bool_2 = other.bbox[0].x <= self.bbox[1].x <= other.bbox[1].x
-            bool_3 = other.bbox[0].y <= self.bbox[0].y <= other.bbox[1].y
-            bool_4 = other.bbox[0].y <= self.bbox[0].y <= other.bbox[1].y
-            if bool_1 and bool_2 and bool_3 and bool_4:
-                case_0 = True
+        if self.is_oriented_rect and (insert_perimeter == True):
+            b_inside = True
+            for i in range(4):
+                check = other.pt_inside(other.make_2d(self.coord[i].co3))
+                b_inside = b_inside and check
+            case_0 = b_inside
 
         if other.pt_inside(other.make_2d(self.center)):
             case_1 = True

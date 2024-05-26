@@ -8,6 +8,7 @@ from .utils import (
     VERT_OP_ID,
     VERT_OP_SEQUENCE,
     ACTIVE_OP_ID,
+    REPLAY_OP_ID,
 )
 
 from .journal import (
