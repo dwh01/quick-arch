@@ -8,7 +8,8 @@ import copy
 import pathlib
 from collections import defaultdict
 
-from .utils import get_obj_data, JOURNAL_PROP_NAME
+from .utils import get_obj_data, JOURNAL_PROP_NAME, SelectionInfo, wrap_id, unwrap_id
+
 
 class Journal:
     """Encapsulate the history function"""
@@ -39,8 +40,15 @@ class Journal:
     def ancestors(self, op_id):
         """Get chain of operations leading to this one"""
         if op_id > -1:
-            record = self.jj[wrap_id(op_id)]
-            lst = self.ancestors(record['control_op'])
+            inf = self.get_sel_info(op_id)
+            parents = inf.op_list()
+            lst = []
+            for p_id in parents:
+                cur_ancestors = self.ancestors(p_id)
+                # avoid duplicates
+                for a_id in cur_ancestors:
+                    if a_id not in lst:
+                        lst.append(a_id)
         else:
             lst = []
         lst.append(op_id)
@@ -72,13 +80,17 @@ class Journal:
         op = getattr(getattr(bpy.ops, "qarch"), opname)
         return op
 
+    def get_sel_info(self, op_id):
+        record = self[op_id]
+        inf = SelectionInfo(record['control_points'])
+        return inf
+
     def make_op_tree(self, start_ops):
         """Tree of common ancestors to start_ops"""
         dct_ops = defaultdict(list)
 
         for op_start in start_ops:
             lst_ancestor = self.ancestors(op_start)
-
             # force roots to appear even if this is the only op in the list
             dct_ops[lst_ancestor[0]] = []
 
@@ -87,24 +99,25 @@ class Journal:
                 c_id = lst_ancestor[i]
                 dct_ops[p_id].append(c_id)
 
-            return dct_ops
+        return dct_ops
 
-    def new_record(self, control_op, op_name):
+    def new_record(self, sel_info, op_name):
         rec = blank_record()
         new_id = self.jj['max_id'] + 1
         rec['op_id'] = new_id
-        rec['control_op'] = control_op
         rec['op_name'] = op_name
+        rec['control_points'] = sel_info.to_dict()
 
         self.jj['max_id'] = new_id
         self.jj[wrap_id(new_id)] = rec
 
         # update control dictionary
-        c_key = wrap_id(control_op)
         c_dict = self.jj['controlled']
-        if c_key not in c_dict:
-            c_dict[c_key] = []
-        c_dict[c_key].append(new_id)
+        for control_op in sel_info.op_list():
+            c_key = wrap_id(control_op)
+            if c_key not in c_dict:
+                c_dict[c_key] = []
+            c_dict[c_key].append(new_id)
         c_dict[wrap_id(new_id)] = []
 
         return rec
@@ -131,13 +144,33 @@ class Journal:
         # print(op.bl_rna_get_subclass()) -- requires a type argument
         # print(op.bl_rna_get_subclass_py())
 
+    def operator(self, op_id):
+        record = self.jj[wrap_id(op_id)]
+        opname = record['op_name']
+        op = getattr(bpy.types, opname)
+        return op
+
+    def parents(self, op_id):
+        """Get controlling operations leading to this one"""
+        if op_id > -1:
+            inf = self.get_sel_info(op_id)
+            parents = inf.op_list()
+        else:
+            parents = []
+        return parents
+
+    def set_sel_info(self, op_id, inf):
+        record = self[op_id]
+        record['control_points'] = inf.to_dict()
+
 
 def blank_journal():
     """Return start of a journal dictionary with minimum keys"""
     journal = {
         'max_id': -1,  # add 1 to get next operation id
-        'controlled': {},  # map operation to children
+        'controlled': {wrap_id(-1):[]},  # map operation to children
         'adjusting': [],  # using adjust last panel on these op ids
+        'face_tags': [],  # face tags for this object
     }
     return journal
 
@@ -146,14 +179,12 @@ def blank_record():
     """Return record dictionary for filling out"""
     # mostly here as a reference
     # to support export and import, there needs to be a mesh independent way to specify vertices:
-    #    we combine mesh data (op_id, sequence_id) to uniquely identify the verts we want
-    #    but we keep in separate lists because set(control_ops) tells us how many and which parents we have
+    #    in control points we combine mesh data (op_id, sequence_id) to uniquely identify the verts we want
     record = {
         'op_id': 0,  # sequential id
         'op_name': '',  # operator name for ability to restart the operator
         'properties': {},  # operator properties as run
-        'control_points': [],  # vertex sequence numbers
-        'control_op': -1,       # operation that created control_points
+        'control_points': {},  # selection info dict
         'compound_count': 0  # set this for compound operations to know how many following ops are auto-inserted
     }
     return record
@@ -198,12 +229,16 @@ def export_record(obj, operation_id, filename, do_screenshot):
 
 def extract_record(obj, operation_id):
     """Get dict ready for file export or cut-paste"""
-    journal = get_journal(obj)
+    journal = Journal(obj)
 
     dct_subset = blank_journal()  # the bit to store
     new_id_number = 0  # renumbering stored operations from zero
     queued_operations = [operation_id]
-    dct_new_ids = {}  # as we come across them, assign new ids to operations
+    dct_new_ids = {-1:-1}  # as we come across them, assign new ids to operations
+
+    parents = journal.parents(operation_id)
+    for p_id in parents:  # all parents now point to root
+        dct_new_ids[p_id] = -1
 
     while len(queued_operations):
         old_id = queued_operations.pop(0)
@@ -218,16 +253,17 @@ def extract_record(obj, operation_id):
             new_id_number = new_id_number + 1
             dct_new_ids[old_id] = op_id
 
-        record = copy.deepcopy(journal[wrap_id(old_id)])
+        record = copy.deepcopy(journal[old_id])
         record['op_id'] = op_id
+        inf = SelectionInfo(record['control_points'])
+        inf.renumber_ops(dct_new_ids)
+        record['control_points'] = inf.to_dict()
 
         # this works because we work top down in processing
-        # -1 will represent the root when we import this into another object
-        control_op = dct_new_ids.get(record['control_op'], -1)
-        record['control_op'] = control_op
-
-        if control_op > -1:  # update parent control map to show this relationship
-            dct_subset['controlled'][wrap_id(control_op)].append(op_id)
+        parents = journal.parents(old_id)
+        for control_op in parents:
+            new_control = dct_new_ids[control_op]
+            dct_subset['controlled'][wrap_id(new_control)].append(op_id)
 
         dct_subset['controlled'][wrap_id(op_id)] = []  # prepare for children of this operation
 
@@ -240,7 +276,7 @@ def extract_record(obj, operation_id):
 def delete_record(obj, operation_id):
     """Removes instructions for all trailing operations, returns op ids so verts can be deleted"""
     journal = Journal(obj)
-    parent_id = journal[operation_id]['control_op']
+    parents = journal.parents(operation_id)
 
     dct_children, lst_children = journal.child_ops(operation_id)
     lst_children.insert(0, operation_id)
@@ -250,8 +286,9 @@ def delete_record(obj, operation_id):
         del journal.jj['controlled'][wrap_id(op_id)]
         del journal.jj[wrap_id(op_id)]
 
-    lst = journal['controlled'][wrap_id(parent_id)]
-    lst.remove(operation_id)
+    for parent_id in parents:
+        lst = journal['controlled'][wrap_id(parent_id)]
+        lst.remove(operation_id)
 
     journal.flush()
     return lst_children
@@ -266,13 +303,14 @@ def import_record(filename):
     return json.loads(text)
 
 
-def merge_record(obj, dct_operation, new_control_points, new_control_op):
+def merge_record(obj, dct_operation, sel_info):
     """Add dictionary steps, but replace control points and control operations as indicated
     return operation id
     """
     journal = get_journal(obj)
-    dct_new_id = {}  # map id changes
-    first_op_id = journal['max_id']+1  # we will return this so the system can build from here down
+    first_op_id = journal['max_id'] + 1  # we will return this so the system can build from here down
+    top_op = sel_info.op_list()[0]
+    dct_new_id = {-1:top_op}  # map id changes
 
     for old_id in range(0, dct_operation['max_id']+1):
         op_str = wrap_id(old_id)
@@ -287,16 +325,30 @@ def merge_record(obj, dct_operation, new_control_points, new_control_op):
 
         # this record can be overwritten and inserted into journal
         record['op_id'] = op_id
-        if record['control_op'] == -1:  # root operation
-            control_op = new_control_op
-            record['control_points'] = new_control_points
+        if op_id == first_op_id:
+            old_inf = SelectionInfo(record['control_points'])
+            # is the vertex count compatible? We should test more but usually we apply to one face or to
+            # similar faces
+            vtest1 = old_inf.face_list(old_inf.op_list()[0])
+            vtest2 = sel_info.face_list(sel_info.op_list()[0])
+            for f1, f2 in zip(vtest1, vtest2):
+                if len(f1) != len(f2):
+                    return "Topology mismatch with selection vertex count"
+
+            inf = sel_info
         else:
-            control_op = dct_new_id[record['control_op']]
-        record['control_op'] = control_op
+            inf = SelectionInfo(record['control_points'])
+            inf.renumber_ops(dct_new_id)
+        record['control_points'] = inf.to_dict()
+
         print("merged = ")
         print(record)
-        if control_op > -1:  # object creation has no parent, else update parent map
-            journal['controlled'][wrap_id(control_op)].append(op_id)
+
+        for control_op in inf.op_list():
+            new_control = control_op  # inf already renumbered
+            if wrap_id(new_control) not in journal['controlled']:
+                journal['controlled'][wrap_id(new_control)] = []
+            journal['controlled'][wrap_id(new_control)].append(op_id)
 
         journal['controlled'][wrap_id(op_id)] = []  # prepare for children
 
@@ -325,11 +377,4 @@ def update_block(text_block, journal):
     text_block.write(text)
 
 
-# these last two functions are because json turns integer keys into strings
-# we don't want to forget and get confused why 1 != "1"
-def unwrap_id(op_str):
-    return int(op_str[2:])
 
-
-def wrap_id(op_id):
-    return f'op{op_id}'

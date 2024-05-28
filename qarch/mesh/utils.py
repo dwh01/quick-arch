@@ -3,8 +3,11 @@ import bmesh
 import mathutils
 import struct
 from contextlib import contextmanager
-from ..object import VERT_OP_ID, VERT_OP_SEQUENCE
+from ..object import VERT_OP_ID, VERT_OP_SEQUENCE,FACE_THICKNESS, FACE_CATEGORY, FACE_UV_MODE, FACE_UV_ORIGIN
+from ..object import SelectionInfo
+
 from collections import defaultdict
+import itertools
 
 @contextmanager
 def managed_bm(obj):
@@ -31,7 +34,6 @@ def managed_bm(obj):
 
 class ManagedMesh:
     """Wraps bmesh with utility functions"""
-    OPID, OPSEQ = 0, 1  # order in sel_info pairs
 
     def __init__(self, obj):
         self.obj = obj
@@ -54,6 +56,17 @@ class ManagedMesh:
 
             self.key_op = self.bm.verts.layers.int[VERT_OP_ID]
             self.key_seq = self.bm.verts.layers.int[VERT_OP_SEQUENCE]
+            self.key_tag = self.bm.faces.layers.int[FACE_CATEGORY]
+            self.key_thick = self.bm.faces.layers.float[FACE_THICKNESS]
+            self.key_uv = self.bm.faces.layers.int[FACE_UV_MODE]
+            self.key_uv_orig = self.bm.faces.layers.float_vector[FACE_UV_ORIGIN]
+        else:
+            self.key_op = None
+            self.key_seq = None
+            self.key_tag = None
+            self.key_thick = None
+            self.key_uv = None
+            self.key_uv_orig = None
 
         # tracking as we add
         self.cur_seq = 0
@@ -108,7 +121,8 @@ class ManagedMesh:
 
     def delete_face(self, face):
         try:
-            bmesh.ops.delete(self.bm, geom=[face], context='FACES_ONLY')
+            face.hide = True
+            face[self.key_tag] = -1  # delete tag, just in case user un-hides by accident
         except Exception:
             pass
 
@@ -147,77 +161,64 @@ class ManagedMesh:
 
     def get_selection_info(self):
         """Return current selected vert info"""
+        sel_info = SelectionInfo()
         if self.bm is None:
-            return [(-1, [])]
-        lst_sel_info = []
+            return SelectionInfo()
+
+        dct_skip = {}
         for f in self.bm.faces:
-            if f.select:
+            sel_op = f.verts[0][self.key_op]
+            all_sel = True
+            for v in f.verts:
+                all_sel = all_sel and v.select
+
+            if all_sel:
                 sel_seq = [v[self.key_seq] for v in f.verts]
-                sel_op = f.verts[0][self.key_op]
-                lst_sel_info.append([sel_op, sel_seq])
-        if len(lst_sel_info) == 0:
-            sel_seq = []
-            sel_op = -1
-            for v in self.bm.verts:
-                if v.select:
-                    sel_op = v[self.key_op]
-                    sel_seq.append(v[self.key_seq])
-            lst_sel_info.append([sel_op, sel_seq])
-        return lst_sel_info
+                sel_info.add_face(sel_op, sel_seq)
+            else:
+                dct_skip[sel_op] = True
 
-    def _sel_info_to_test(self, lst_sel_info):
-        test = defaultdict(list)
-        for inf in lst_sel_info:
-            lst = test[inf[self.OPID]]
-            lst = lst + inf[self.OPSEQ]
-            test[inf[self.OPID]] = lst
+        for op in sel_info.op_list():
+            if op not in dct_skip:
+                sel_info.flag_op(op, sel_info.ALL_FACES)
 
-        # use sets to avoid duplicates
-        dct_sets = {}
-        for op_id, lst_seq in test.items():
-            dct_sets[op_id] = set(lst_seq)
-
-        return dct_sets
-
-    def get_sel_verts(self, sel_op_seq):
-        if self.bm is None:
-            return []
-
-        dct_sets = self._sel_info_to_test(sel_op_seq)
-
-        dct_found = {}
+        lst_flat = sel_info.vert_list()
+        lst_flat = set(lst_flat)
+        dct_skip = {}
         for v in self.bm.verts:
-            if v[self.key_op] in dct_sets:
-                if v[self.key_seq] in dct_sets[v[self.key_op]]:
-                    dct_found[(v[self.key_op], v[self.key_seq])] = v
+            sel_op = v[self.key_op]
+            if v.select:
+                sel_id = v[self.key_seq]
+                if (sel_op, sel_id) not in lst_flat:
+                    sel_info.add_vert(sel_op, sel_id)
+            else:
+                dct_skip[sel_op] = True
 
-        rval = []
-        for op, lst in sel_op_seq:
-            cur = []
-            for i in lst:
-                if (op,i) in dct_found:
-                    cur.append(dct_found[(op,i)])
-            rval.append(cur)
+        for op in sel_info.op_list():
+            if op not in dct_skip:
+                sel_info.flag_op(op, sel_info.ALL_VERTS)
 
-        return rval
+        return sel_info
 
-    def set_selection_info(self, sel_op_seq):
+    def set_selection_info(self, sel_info):
+        """Make selection state match sel_info"""
         if self.bm is None:
             return
 
         self.deselect_all()
-        # identify by just operation and sequence
-        # use set for quick hash lookup
-        dct_sets = self._sel_info_to_test(sel_op_seq)
+
+        vlist = sel_info.vert_list()
+        quicker = set(vlist)
 
         for v in self.bm.verts:
-            if v[self.key_op] in dct_sets:
-                if v[self.key_seq] in dct_sets[v[self.key_op]]:
-                    v.select_set(True)
-                    # print("select {} {}".format(v[self.key_op], v[self.key_seq]))
+            t = (v[self.key_op], v[self.key_seq])
+            if t in quicker:
+                v.select_set(True)
+
         self.bm.select_flush(True)
 
     def select_operation(self, op_id):
+        """Select all verts for operation, does not deselect first"""
         if self.bm is None:
             return
         for v in self.bm.verts:
@@ -227,6 +228,7 @@ class ManagedMesh:
         self.bm.select_flush(True)
 
     def get_current(self):
+        """Returns bmverts for current op_id"""
         lst_cur = []
         for v in self.bm.verts:
             if self.op_id == v[self.key_op]:
@@ -234,7 +236,8 @@ class ManagedMesh:
         return lst_cur
 
     def select_current(self):
-        """Select current operation verts"""
+        """Select current operation verts, deselects others"""
+        self.deselect_all()
         self.select_operation(self.op_id)
 
     def new_vert(self, v):
@@ -243,13 +246,21 @@ class ManagedMesh:
             bmv.co = v
         else:
             bmv = self.bm.verts.new(v)
-        bmv[self.key_op] = self.op_id
-        bmv[self.key_seq] = self.cur_seq
-        self.cur_seq += 1
+            bmv[self.key_op] = self.op_id
+            bmv[self.key_seq] = self.cur_seq
+            self.cur_seq += 1
+
         return bmv
 
-    def new_face(self, vlist):
+    def new_face(self, vlist, uv_origin=None, uv_mode=None):
+        from ..ops import uv_mode_to_int
+
         face = self.find_face_by_bmvert(vlist)
         if face is None:
             face = self.bm.faces.new(vlist)
+        if uv_origin is not None:
+            face[self.key_uv_orig] = uv_origin
+        if uv_mode is not None:
+            uv_int = uv_mode_to_int(uv_mode)
+            face[self.key_uv] = uv_int
         return face

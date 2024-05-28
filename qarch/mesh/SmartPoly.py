@@ -116,10 +116,14 @@ class SmartVec:
         self.changed = False
 
     def __str__(self):
-        return "SV({:.2f},{:.2f}|{:.1f})".format(self.co2.x, self.co2.y, self.winding*180/math.pi)
+        if self.co2 is not None:
+            return "SV({:.2f},{:.2f}|{:.1f})".format(self.co2.x, self.co2.y, self.winding*180/math.pi)
+        return "SV({:.2f},{:.2f},{:.2f})".format(self.co3.x, self.co3.y, self.co3.z)
 
     def __repr__(self):
-        return "SV({:.2f},{:.2f}|{:.1f})".format(self.co2.x, self.co2.y, self.winding*180/math.pi)
+        if self.co2 is not None:
+            return "SV({:.2f},{:.2f}|{:.1f})".format(self.co2.x, self.co2.y, self.winding*180/math.pi)
+        return "SV({:.2f},{:.2f},{:.2f})".format(self.co3.x, self.co3.y, self.co3.z)
 
 
 class SmartPoly:
@@ -148,6 +152,10 @@ class SmartPoly:
             self.ydir = Vector(matrix[1])
             self.normal = Vector(matrix[2])
             self.inverse = matrix.transposed()
+
+        # arches need special handling, others can use bbox[0] and FACE_XY
+        self.uv_origin = None
+        self.uv_mode = None
 
     def add(self, pt, break_link=False):
         """Handles lots of things that could be points"""
@@ -278,10 +286,14 @@ class SmartPoly:
             b_inside = True
             for i in range(4):
                 check = other.pt_inside(other.make_2d(self.coord[i].co3))
-                b_inside = b_inside and check
+                b_inside = b_inside and (check is not None)
+                if not check:
+                    print("rect failed {}".format(self.coord[i]))
+                    print(other.make_2d(self.coord[i].co3))
+                    print(other.bbox)
             case_0 = b_inside
 
-        if other.pt_inside(other.make_2d(self.center)):
+        if other.pt_inside(other.make_2d(self.center)) is not None:
             case_1 = True
         else:
             case_2 = True
@@ -414,6 +426,7 @@ class SmartPoly:
 
             p_new = SmartPoly()
             p_new.add(vlist)
+            p_new.uv_origin = self.center  # for xy, doesn't really matter, but allows polar frame if desired
             new_faces.append(p_new)
         return new_faces
 
@@ -427,6 +440,7 @@ class SmartPoly:
 
             p_new = SmartPoly()
             p_new.add(vlist)
+            p_new.uv_origin = self.center  # for xy, doesn't really matter, but allows polar frame if desired
             new_faces.append(p_new)
         return new_faces
 
@@ -602,13 +616,12 @@ class SmartPoly:
             f"Poly {self.name}",
             "ctr={:.2f},{:.2f},{:.2f}".format(self.center.x, self.center.y, self.center.z),
             "X={:.2f},{:.2f},{:.2f}  Z={:.2f},{:.2f},{:.2f}".format(self.xdir.x, self.xdir.y, self.xdir.z, self.normal.x, self.normal.y, self.normal.z),
-            "bbox={:.2f},{:.2f}-{:.2f},{:.2f}, size={:.2f},{:.2f}".format(self.bbox[0].x, self.bbox[0].y, self.bbox[1].x, self.bbox[1].y, self.box_size.x, self.box_size.y)
+            "bbox={:.2f},{:.2f}-{:.2f},{:.2f}, size={:.2f},{:.2f}".format(self.bbox[0].x, self.bbox[0].y, self.bbox[1].x, self.bbox[1].y, self.box_size.x, self.box_size.y),
+            "  {}".format(self.coord),
         ]
-        for sv in self.coord:
-            lines.append("  {:.2f},{:.2f}  @{:.1f}".format(sv.co2.x, sv.co2.y, sv.winding*180/math.pi))
         return "\n".join(lines)
 
-    def generate_arch(self, w, h, n_sides, arch_type, thickness):
+    def generate_arch(self, w, h, n_sides, arch_type, thickness, mm):
         """arch_type_list =
         ("JACK", "Jack", "Flat", 1),
         ("ROMAN", "Roman", "Round/Oval (1 pt)", 2),
@@ -617,12 +630,32 @@ class SmartPoly:
         ("TUDOR", "Tudor", "Tudor pointed (4 pt)", 5),
 
         Thickness 0 means just a single poly (or line for JACK)
-        Otherwise you get a returned polygon for the smaller inset
+        Otherwise return a list of polygons (each has different uv origin) for the frame
+        self will be the interior of the arch
         """
         # thanks to ThisIsCarpentry.com for classic geometric construction algorithms
         lst_pts = []
-        lst_pts2 = [] # for thickness case
+        lst_pts2 = []  # for thickness case
+        lst_poly = []  # TODO
+
+        def trailing_poly(lst_pts, lst_pts2, ctr):
+            i = len(lst_pts)-1
+            frame_poly = SmartPoly(self.matrix)
+            frame_poly.center = self.center
+            frame_poly.add(lst_pts[i-1])
+            frame_poly.add(lst_pts[i])
+            frame_poly.add(lst_pts2[i])
+            frame_poly.add(lst_pts2[i-1])
+            frame_poly.calculate()
+            frame_poly.uv_origin = ctr
+            frame_poly.uv_mode = 'FACE_POLAR'
+            frame_poly.make_verts(mm)  # so they are shared with inside face
+            return frame_poly
+
         if arch_type == 'JACK':
+            # we really need thickness to make a single Jack arch polygon
+            if thickness == 0:
+                thickness = h/10
             # points are spaced in angle, not in distance
             theta_0 = math.atan2(h, w/2)
             theta_1 = math.pi - theta_0
@@ -642,9 +675,16 @@ class SmartPoly:
                     else:
                         x = h1 / math.tan(t)
                     lst_pts2.append(Vector((x, h1)))
-            # we really need thickness to make a single Jack arch polygon
-            lst_pts2.reverse()
-            lst_pts = lst_pts + lst_pts2
+
+            frame_poly = trailing_poly(lst_pts, lst_pts2, self.make_3d(Vector((0,0))))
+            lst_poly.append(frame_poly)
+
+            # face under arch
+            self.add(Vector((lst_pts2[0].x, 0)))
+            self.add(frame_poly.coord[-1])
+            self.add(frame_poly.coord[-2])
+            self.add(Vector((lst_pts2[-1].x, 0)))
+
             thickness = 0
             lst_pts2 = []
 
@@ -665,6 +705,17 @@ class SmartPoly:
                 if thickness > 0:
                     offset = thickness * lst_pts[-1].normalized()
                     lst_pts2.append(lst_pts[-1]-offset)
+                    if i > 0:
+                        ctr = self.make_3d(Vector((0, d)))
+                        frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                        lst_poly.append(frame_poly)
+            if thickness > 0:
+                # inside face
+                for p in lst_poly:
+                    self.add(p.coord[-1])
+                self.add(lst_poly[-1].coord[-2])
+            else:
+                self.add(lst_pts)
 
         elif arch_type == 'GOTHIC':
             a = w/4
@@ -711,6 +762,10 @@ class SmartPoly:
                         else:
                             offset.x = 0
                     lst_pts2.append(lst_pts[-1]-offset)
+                    if i > 0:
+                        ctr = self.make_3d(Vector((c, d)))
+                        frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                        lst_poly.append(frame_poly)
 
             theta_1 = math.pi - theta  # for downward stroke
             for i in range(1, n_arc + 1):
@@ -721,6 +776,18 @@ class SmartPoly:
                 if thickness > 0:
                     offset = thickness * (lst_pts[-1]-Vector((-c,d))).normalized()
                     lst_pts2.append(lst_pts[-1]-offset)
+                    if True:
+                        ctr = self.make_3d(Vector((-c, d)))
+                        frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                        lst_poly.append(frame_poly)
+
+            if thickness > 0:
+                # inside face
+                for p in lst_poly:
+                    self.add(p.coord[-1])
+                self.add(lst_poly[-1].coord[-2])
+            else:
+                self.add(lst_pts)
 
         elif arch_type == 'OVAL':
             r_corner = 2 * (h / 3)
@@ -756,6 +823,11 @@ class SmartPoly:
                     if thickness > 0:
                         offset = thickness * (lst_pts[-1]-Vector((c,0))).normalized()
                         lst_pts2.append(lst_pts[-1] - offset)
+                        if i > 0:
+                            ctr = self.make_3d(Vector((c, 0)))
+                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                            lst_poly.append(frame_poly)
+
             if n_center > 0:
                 step = (2 * theta) / n_center
                 if n_corner == 0:
@@ -770,6 +842,11 @@ class SmartPoly:
                     if thickness > 0:
                         offset = thickness * (lst_pts[-1]-Vector((0,-d))).normalized()
                         lst_pts2.append(lst_pts[-1] - offset)
+                        if len(lst_pts) > 0:
+                            ctr = self.make_3d(Vector((0, -d)))
+                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                            lst_poly.append(frame_poly)
+
             if n_corner > 0:
                 step = theta_0 / n_corner
                 for i in range(1, n_corner + 1):
@@ -780,6 +857,17 @@ class SmartPoly:
                     if thickness > 0:
                         offset = thickness * (lst_pts[-1]-Vector((-c,0))).normalized()
                         lst_pts2.append(lst_pts[-1] - offset)
+                        if True:
+                            ctr = self.make_3d(Vector((-c, 0)))
+                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                            lst_poly.append(frame_poly)
+            if thickness > 0:
+                # inside face
+                for p in lst_poly:
+                    self.add(p.coord[-1])
+                self.add(lst_poly[-1].coord[-2])
+            else:
+                self.add(lst_pts)
 
         elif arch_type == 'TUDOR':
             r_corner = 2 * (h / 3)
@@ -828,6 +916,10 @@ class SmartPoly:
                     if thickness > 0:
                         offset = thickness * (lst_pts[-1]-Vector((cc,0))).normalized()
                         lst_pts2.append(lst_pts[-1] - offset)
+                        if i > 0:
+                            ctr = self.make_3d(Vector((cc, 0)))
+                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                            lst_poly.append(frame_poly)
             if n_center > 0:
                 if n_corner == 0:
                     c_start = 0
@@ -851,6 +943,10 @@ class SmartPoly:
                             else:
                                 offset.x = 0
                         lst_pts2.append(lst_pts[-1] - offset)
+                        if len(lst_pts) > 0:
+                            ctr = self.make_3d(Vector((res.x, res.y)))
+                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                            lst_poly.append(frame_poly)
                 for i in range(1, n_center + 1):  # don't duplicate point at 0
                     t = step * i + math.pi - theta_peak
                     vx = -res.x + r_center * math.cos(t)  # mirror image
@@ -859,6 +955,10 @@ class SmartPoly:
                     if thickness > 0:
                         offset = thickness * (lst_pts[-1]-Vector((-res.x,res.y))).normalized()
                         lst_pts2.append(lst_pts[-1] - offset)
+                        if len(lst_pts) > 0:
+                            ctr = self.make_3d(Vector((-res.x, res.y)))
+                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                            lst_poly.append(frame_poly)
             if n_corner > 0:
                 step = theta_0 / n_corner
                 for i in range(1, n_corner + 1):
@@ -869,21 +969,68 @@ class SmartPoly:
                     if thickness > 0:
                         offset = thickness * (lst_pts[-1]-Vector((-cc,0))).normalized()
                         lst_pts2.append(lst_pts[-1] - offset)
+                        if len(lst_pts) > 0:
+                            ctr = self.make_3d(Vector((-cc, 0)))
+                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
+                            lst_poly.append(frame_poly)
 
-        for pt in lst_pts:
-            co = self.make_3d(pt)
-            self.add(co, True)
+            if thickness > 0:
+                # inside face
+                for p in lst_poly:
+                    self.add(p.coord[-1])
+                self.add(lst_poly[-1].coord[-2])
+            else:
+                self.add(lst_pts)
 
         self.calculate()
 
-        if len(lst_pts2):
-            rval = SmartPoly()
-            for pt in lst_pts2:
-                co = self.make_3d(pt)
-                rval.add(co, True)
-            rval.calculate()
-            return rval
-        return None
+        return lst_poly
+
+    def generate_inset(self, thickness):
+        lst_v_in = []
+        n = len(self.coord)
+        for i in range(n):
+            j = (i+1) % n
+            e = self.coord[j].co3 - self.coord[i].co3
+            e.normalize()
+            v_in = self.normal.cross(e).normalized()
+            lst_v_in.append(v_in)
+
+        lst_pts = []
+        b_skip = False
+        for i in range(n):
+            if b_skip:
+                b_skip = False
+                continue
+            h = (i+n-1) % n
+            j = (i+1) % n
+            m = (i+2) % n
+            a = self.coord[h].co3 + lst_v_in[h]*thickness
+            b = self.coord[i].co3 + lst_v_in[h]*thickness
+            c = self.coord[i].co3 + lst_v_in[i]*thickness
+            d = self.coord[j].co3 + lst_v_in[i]*thickness
+            pts = mathutils.geometry.intersect_line_line(a, b, c, d)
+            if pts is not None:
+                # make sure we don't have a small edge disappearing
+                # should test multiple next points, but we just test one
+                c = self.coord[j].co3 + lst_v_in[j] * thickness
+                d = self.coord[m].co3 + lst_v_in[j] * thickness
+                pts2 = mathutils.geometry.intersect_line_line(a, b, c, d)
+                if pts2 is not None:
+                    dist1 = (pts[0] - a).length
+                    dist2 = (pts2[0] - a).length
+                    if dist2 < dist1:
+                        lst_pts.append(pts2[0])
+                        b_skip = True
+                    else:
+                        lst_pts.append(pts[0])
+                else:
+                    lst_pts.append(pts[0])
+
+        poly = SmartPoly()
+        poly.add(lst_pts)
+        poly.calculate()
+        return poly
 
     def generate_ngon(self, n_sides, start_angle):
         angle_delta = (2 * math.pi) / n_sides
@@ -931,7 +1078,7 @@ class SmartPoly:
             if res is not None:
                 d0 = (e0-res).length
                 d1 = (e1-res).length
-                if d1== 0:
+                if d1 == 0:
                     lst_hit.append( ( d1, res, idx+1 ) )
                 else:
                     lst_hit.append( (d0, res, idx))
@@ -964,7 +1111,7 @@ class SmartPoly:
                 pt.bm_vert = mm.new_vert(pt.co3)
                 vlist.append(pt.bm_vert)
         if len(vlist) > 2:
-            return mm.new_face(vlist)
+            return mm.new_face(vlist, uv_origin=self.uv_origin, uv_mode=self.uv_mode)
         else:
             print("< 3 verts")
         return None
@@ -1018,7 +1165,7 @@ class SmartPoly:
                 tri_p3 = self.coord[i].co2
                 if mathutils.geometry.intersect_point_tri_2d(v, tri_p1, tri_p2, tri_p3):
                     return i_last, i
-                return None
+
             i_last = i
             a_last = a_cur
         return None
@@ -1085,16 +1232,22 @@ class SmartPoly:
         n = len(self.coord)
 
         vlist1 = [self.coord[k % n] for k in range(i, j + 1)]
-        poly = SmartPoly()
-        poly.add(vlist1)
-        poly.calculate()
-        new_poly.append(poly)
+        if len(vlist1):
+            poly = SmartPoly()
+            poly.add(vlist1)
+            poly.calculate()
+            if poly.normal.dot(self.normal) < 0:
+                poly.flip_z()
+            new_poly.append(poly)
 
         vlist2 = [self.coord[k % n] for k in range(j, i+n + 1)]
-        poly = SmartPoly()
-        poly.add(vlist2)
-        poly.calculate()
-        new_poly.append(poly)
+        if len(vlist2):
+            poly2 = SmartPoly()
+            poly2.add(vlist2)
+            poly2.calculate()
+            if poly2.normal.dot(self.normal) < 0:
+                poly2.flip_z()
+            new_poly.append(poly2)
 
         return new_poly
 
@@ -1196,6 +1349,30 @@ class SmartPoly:
             if remainder:
                 new_poly.append(remainder)
         return new_poly
+
+    def union(self, lst_poly):
+        """Create a merged polygon"""
+        self_pts = [c.co2 for c in self.coord]
+        print(self_pts)
+        self_poly = Polygon.Polygon(self_pts)
+        Polygon.setTolerance(1e-4)
+        for other in lst_poly:
+            v_offset = self.make_2d(other.center)
+            other_pts = [c.co2 + v_offset for c in other.coord]
+            self_poly.addContour(other_pts)
+
+        self_poly.simplify()
+
+        contour = self_poly.contour(0)  # no holes
+        s_pts = [Vector(v) for v in contour]
+        if self_poly.orientation(0) == -1:
+            s_pts.reverse()
+        verts = [self.make_3d(v) for v in s_pts]
+
+        u_poly = SmartPoly()
+        u_poly.add(verts)
+        u_poly.calculate()
+        return u_poly
 
     def update_3d(self):
         for pt in self.coord:

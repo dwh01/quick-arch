@@ -19,15 +19,13 @@ from .properties import MeshImportProperty
 # load script and apply to selected face
 # load mesh from blend file and add to current mesh
 # save active op and children to script file
-def load_script(obj, face_sel_info, filepath):
+def load_script(obj, sel_info, filepath):
     subset = import_record(filepath)
 
-    if len(face_sel_info):
-        control_op = face_sel_info[0][ManagedMesh.OPID]
-    else:
-        control_op = -1
-    print("load onto {} with control points".format(control_op), face_sel_info)
-    first_op_id = merge_record(obj, subset, face_sel_info, control_op)
+    first_op_id = merge_record(obj, subset, sel_info)
+    if isinstance(first_op_id, str):
+        return first_op_id
+
     replay_history(bpy.context, first_op_id)
 
 
@@ -55,8 +53,12 @@ class QARCH_OT_load_script(bpy.types.Operator):
         op_id = -1
 
         mm = ManagedMesh(obj)
-        face_sel_info = mm.get_selection_info()
-        load_script(obj, face_sel_info, self.filepath)
+        sel_info = mm.get_selection_info()
+        ret = load_script(obj, sel_info, self.filepath)
+        if ret is not None:
+            self.report({"ERROR_INVALID_CONTEXT"}, ret)
+            return {'CANCELLED'}
+
         set_obj_data(obj, ACTIVE_OP_ID, -1)
 
         journal = Journal(obj)

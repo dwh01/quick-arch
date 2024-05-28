@@ -10,7 +10,9 @@ from ..mesh import (
     extrude_fancy,
     extrude_sweep,
     solidify_edges,
-    make_louvers
+    make_louvers,
+    set_face_tags,
+    ManagedMesh,
 )
 
 
@@ -24,9 +26,6 @@ class QARCH_OT_union_polygon(CustomOperator):
     props: bpy.props.PointerProperty(type=UnionPolygonProperty)
 
     function = union_polygon
-
-    def check_topology(self, props, prop_dict):
-        return True  # any change can cause vertex count to change
 
 
 class QARCH_OT_inset_polygon(CustomOperator):
@@ -139,6 +138,24 @@ class QARCH_OT_make_louvers(CustomOperator):
     @classmethod
     def poll(cls, context):
         return cls.is_face_selected(context)
+
+
+class QARCH_OT_set_face_tag(CustomOperator):
+    bl_idname = "qarch.set_face_tag"
+    bl_label = "Set Face Tag"
+    bl_options = {"REGISTER", "UNDO"}
+
+    props: PointerProperty(type=FaceTagProperties)
+
+    function = set_face_tags
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+    # we could load the face settings from the mesh, since they are sometimes set without an operator
+    # but then what if we have more than one face selected?
+    # perhaps make a read only display in the panel to let you see what the active face has
 
 
 geom_classes = (

@@ -5,10 +5,12 @@ from .utils import (
     FACE_CATEGORY,
     FACE_UV_MODE,
     FACE_THICKNESS,
+    FACE_UV_ORIGIN,
     VERT_OP_ID,
     VERT_OP_SEQUENCE,
     ACTIVE_OP_ID,
     REPLAY_OP_ID,
+    SelectionInfo,
 )
 
 from .journal import (

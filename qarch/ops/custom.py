@@ -6,10 +6,14 @@ import itertools
 import json
 import rna_info
 from ..object import get_obj_data, set_obj_data, ACTIVE_OP_ID, REPLAY_OP_ID
-from ..object import Journal, merge_record
+from ..object import Journal, merge_record, SelectionInfo
 from ..mesh import ManagedMesh
 import struct
 
+_do_debug = True
+def debug_print(s):
+    if _do_debug:
+        print(s)
 
 class CustomPropertyBase(bpy.types.PropertyGroup):
     """Set up common routines with simple layout and to/from dict methods
@@ -90,39 +94,16 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
 class CustomOperator(bpy.types.Operator):
     """Geometry operations support for history
     derived class needs a member called function to do the work:
-    function(obj, control_op, control_points, op_id, prop_dict)
+    function(obj, sel_info, op_id, prop_dict)
 
     override single_face if operator takes a region selection to work on
     """
     def control_points_match(self, sel_info, control_info, op_id):
         """if the selection is the active op, that's ok, else must match control"""
-        print("control points match?")
-        b_all_current = True
-        b_all_match = True
-        for i, sub in enumerate(sel_info):
-            if sub[ManagedMesh.OPID] != op_id:
-                b_all_current = False
-                "Points not all current"
-
-            if i < len(control_info):
-                comp = control_info[i]
-                if sub[ManagedMesh.OPID] != comp[ManagedMesh.OPID]:
-                    b_all_match = False
-                    print("op_id mismatch")
-                else:
-                    if len(sub) != len(comp):
-                        b_all_match = False
-                        print("sel len mismatch")
-                    else:
-                        for a,b in zip(sub, comp):
-                            if a != b:
-                                b_all_match = False
-                                print("seq id mismatch")
-                                break
-            if not (b_all_match or b_all_current):
-                return False
-        print("Match")
-        return True
+        sel_ops = sel_info.op_list()
+        if (len(sel_ops) == 1) and (op_id == sel_ops[0]):
+            return True
+        return control_info.matches(sel_info)
 
     def draw(self, context):
         """Simple case, override if needed
@@ -147,10 +128,21 @@ class CustomOperator(bpy.types.Operator):
 
     def divide_selections(self, initial_sel_info):
         """Separate to single faces"""
-        # some operators might work on regions, so you can override this
-        # or we can make a class variable to switch between modes
-        # single face per operation, flat region per operation, all faces together, etc
-        return [initial_sel_info]
+        lst = []
+        if self.addon_prefs.select_mode == 'SINGLE':
+            for op in initial_sel_info.op_list():
+                for f in initial_sel_info.face_list(op):
+                    sel = SelectionInfo()
+                    sel.add_face(op, f)
+                    sel.set_mode(self.addon_prefs.select_mode)
+                    lst.append(sel)
+        elif self.addon_prefs.select_mode == 'GROUP':
+            initial_sel_info.set_mode(self.addon_prefs.select_mode)
+            lst = [initial_sel_info]
+        else:
+            initial_sel_info.set_mode(self.addon_prefs.select_mode)
+            lst = [initial_sel_info]
+        return lst
 
     def ensure_children(self, op_id):
         """A compound operator uses this to merge the script on the first call"""
@@ -164,27 +156,36 @@ class CustomOperator(bpy.types.Operator):
             op_id = self.active_id
         else:
             op_id = -1
-        print("Execute found {}".format(op_id))
+
+        preferences = context.preferences
+        self.addon_prefs = preferences.addons['qarch'].preferences  # note: self is passed to functions
+
+        debug_print(f"Execute: Active {self.active_id}, Replay {self.replay_id}, op_id {op_id}")
+
         prop_dict = self.props.to_dict()
         selections = self.divide_selections(self.initial_sel_info)
         for i_region in range(len(selections)):
             sel_info = selections[i_region]
-            print("region {} sel info {}".format(i_region, sel_info))
+
+            debug_print("i_region {} sel_info {}".format(i_region, sel_info))
+
             if i_region < len(self.adjusting_ids):  # during adjust loop, need to track all the new op ids
-                op_id = self.adjusting_ids[i_region]
-                print("Execute adjust op to {} and set consistent".format(op_id))
-                sel_info = self.set_operation_consistent(op_id)
+                cur_op_id = self.adjusting_ids[i_region]
+                debug_print("adjusting_ids[{}]={}".format(i_region, cur_op_id))
+                sel_info = self.set_operation_consistent(cur_op_id)
 
             else:
                 if op_id == -1:
-                    op_id = self.new_record(sel_info)
-                    print("Execute new op {} and add to adjusting".format(op_id))
-                self.adjusting_ids.append(op_id)
+                    cur_op_id = self.new_record(sel_info)
+                    debug_print("Execute new op {} and add to adjusting".format(cur_op_id))
+                else:
+                    cur_op_id = op_id
+                self.adjusting_ids.append(cur_op_id)
 
             # child operations list
-            lst_controlled = self.journal.controlled_list(op_id)
+            lst_controlled = self.journal.controlled_list(cur_op_id)
 
-            topo_change = self.test_topology(op_id)
+            topo_change = self.test_topology(cur_op_id)
             if topo_change:
                 if len(lst_controlled) > 0:
                     self.report({"ERROR_INVALID_INPUT"}, "Topology change could delete verts that children depend on")
@@ -192,18 +193,20 @@ class CustomOperator(bpy.types.Operator):
                     return {"CANCELLED"}
 
                 else:  # delete old geometry so the mesh doesn't get corrupted
-                    self.remove_verts(op_id)
+                    debug_print("Removing old verts because of topo change")
+                    self.remove_verts(cur_op_id)
 
-            print("function {} {}".format(sel_info, op_id))
+            debug_print("{} function({}, {})".format(self.bl_idname, sel_info, cur_op_id))
+
             # selection state is not guaranteed
             # so operator implementations should rely on finding the control points
-            ret = self.function(self.obj, sel_info, op_id, prop_dict)
+            ret = self.function(self.obj, sel_info, cur_op_id, prop_dict)
             if ret == {'CANCELLED'}:
                 self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
                 return {'CANCELLED'}
 
-            lst_controlled = self.ensure_children(op_id)  # this is so compound operations can add children
-            self.write_props_to_journal(op_id)  # includes a journal flush, after ensure children for compound operators
+            lst_controlled = self.ensure_children(cur_op_id)  # this is so compound operations can add children
+            self.write_props_to_journal(cur_op_id)  # includes a journal flush, after ensure children for compound operators
 
             for child_id in lst_controlled:  # compound operations can have children on first pass
                 self.set_operation_consistent(child_id)  # otherwise child poll failure might prevent invoke
@@ -217,6 +220,7 @@ class CustomOperator(bpy.types.Operator):
             self.journal.jj['adjusting'] = self.adjusting_ids
 
         self.journal.flush()
+        debug_print("restoring state")
         self.restore_state()
         return {"FINISHED"}
 
@@ -229,7 +233,7 @@ class CustomOperator(bpy.types.Operator):
             self.replay_id = -1
             self.journal = None
             self.initial_journal = None
-            self.initial_sel_info = []
+            self.initial_sel_info = SelectionInfo()
 
         else:
             self.active_id = get_obj_data(self.obj, ACTIVE_OP_ID)
@@ -253,11 +257,13 @@ class CustomOperator(bpy.types.Operator):
         if obj is not None:
             mm = ManagedMesh(obj)
             sel_info = mm.get_selection_info()
-            if len(sel_info) == 0:
+            ops = sel_info.op_list()
+            if len(ops) == 0:
                 return False
-            if sel_info[0][mm.OPID] == -1:
-                return len(sel_info[0][mm.OPSEQ]) > 2
-            return True
+            faces_list = sel_info.face_list(ops[0])
+            if len(faces_list):
+                return len(faces_list[0]) > 2
+            print(sel_info)
 
         return False
 
@@ -276,7 +282,8 @@ class CustomOperator(bpy.types.Operator):
 
         else:  # a new operation is being invoked
             op_id = -1
-        print("invoke found {}".format(op_id))
+
+        debug_print(f"Invoke: Active {self.active_id}, Replay {self.replay_id}, op_id {op_id}")
         # adjusting used within the execute loop undo call back cycle, if we hit invoke, clear it
         if len(self.adjusting_ids):
             self.adjusting_ids.clear()
@@ -293,15 +300,9 @@ class CustomOperator(bpy.types.Operator):
         # otherwise we call execute now
         return self.execute(context)
 
-    def new_record(self, control_points):
-        if len(control_points):
-            control_op = control_points[0][ManagedMesh.OPID]
-        else:
-            control_op = -1
-
-        record = self.journal.new_record(control_op, self.bl_idname)
+    def new_record(self, sel_info):
+        record = self.journal.new_record(sel_info, self.bl_idname)
         op_id = record['op_id']
-        record['control_points'] = control_points
         self.journal.flush()
 
         return op_id
@@ -322,7 +323,8 @@ class CustomOperator(bpy.types.Operator):
         if self.obj:
             set_obj_data(self.obj, REPLAY_OP_ID, self.replay_id)
             set_obj_data(self.obj, ACTIVE_OP_ID, self.active_id)
-            if len(self.initial_sel_info):
+            if self.initial_sel_info.count_faces() or self.initial_sel_info.count_verts():
+                print("Restore selection to {}".format(self.initial_sel_info))
                 mm = ManagedMesh(self.obj)
                 mm.set_selection_info(self.initial_sel_info)
                 mm.to_mesh()
@@ -338,15 +340,16 @@ class CustomOperator(bpy.types.Operator):
 
     def set_operation_consistent(self, op_id):
         """Make selection state correct for this operation to execute"""
-        record = self.journal[op_id]
-        lst_sel_info = record['control_points']
-        print("set consistent by selecting ", lst_sel_info)
+        sel_info = self.journal.get_sel_info(op_id)
+        if debug_print:
+            print("set {} consistent by selecting {}".format(op_id, sel_info))
+
         mm = ManagedMesh(self.obj)
-        mm.set_selection_info(lst_sel_info)
+        mm.set_selection_info(sel_info)
         mm.to_mesh()
         mm.free()
 
-        return lst_sel_info
+        return sel_info
 
     def test_operation_consistent(self, op_id):
         """Make sure selection state of mesh matches what this operation needs"""
@@ -358,11 +361,12 @@ class CustomOperator(bpy.types.Operator):
         lst_sel_info = mm.get_selection_info()
         mm.free()  # without update
 
-        lst_sel_control = self.journal[op_id]['control_points']
-        print("testing consistent {}".format(op_id))
-        print(lst_sel_control)
-        print(lst_sel_info)
-        return self.control_points_match(lst_sel_info, lst_sel_control, op_id)
+        sel_control = self.journal.get_sel_info(op_id)
+        debug_print("testing consistent {}".format(op_id))
+        b_ok = self.control_points_match(lst_sel_info, sel_control, op_id)
+        if not b_ok:
+            debug_print("Expected {} != Test {}".format(sel_control, lst_sel_info))
+        return b_ok
 
     def test_topology(self, op_id):
         """are we changing topology?"""
@@ -395,7 +399,7 @@ def copy_points(self, obj, sel_info, op_id, prop_dict):
     mm.set_op(op_id)
     mm.delete_current_verts()
 
-    sel_bmv = mm.get_sel_verts(sel_info)
+    sel_bmv = sel_info.get_face_verts(mm)
     set_done = set()
     for lst in sel_bmv:
         for v in lst:
@@ -431,7 +435,7 @@ class CompoundOperator(CustomOperator):
             mm.free()
 
             # add the script
-            first_op_id = merge_record(self.obj, subset, child_sel_info, op_id)
+            first_op_id = merge_record(self.obj, subset, child_sel_info)
 
             self.journal = Journal(self.obj)  # update our copy
             lst_controlled = self.journal.controlled_list(op_id)
@@ -452,6 +456,7 @@ def replay_history(context, active_op):
 
     journal = Journal(obj)
     op = journal.get_operator(active_op)
+    debug_print("replay {}".format(active_op))
     ret = op('INVOKE_DEFAULT')
 
     set_obj_data(obj, REPLAY_OP_ID, -1)

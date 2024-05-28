@@ -19,6 +19,7 @@ class QARCH_OT_add_window(CompoundOperator):
                 "op0": []
             },
             "adjusting": [],
+            "face_tags": [],
             "op0": {
                 "op_id": 0,
                 "op_name": "QARCH_OT_inset_polygon",

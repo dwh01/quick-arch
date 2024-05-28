@@ -1,10 +1,11 @@
-"""Operators that change selection state and layer data"""
+"""Operators that change selection state and layer data,
+many are not derived from CustomOperator"""
 import bpy
-from bpy.props import PointerProperty, EnumProperty, StringProperty
+from bpy.props import PointerProperty, EnumProperty, StringProperty, FloatProperty
 from .custom import *
-from ..object import create_object, Journal, wrap_id, delete_record
+from .properties import face_tag_to_int
+from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo
 from ..mesh import ManagedMesh
-from .properties import NewObjectProperty
 
 
 class QARCH_OT_create_object(bpy.types.Operator):
@@ -97,12 +98,9 @@ class QARCH_OT_set_active_op(bpy.types.Operator):
             mm = ManagedMesh(obj)
             lst_sel_info = mm.get_selection_info()
             mm.free()
-
-            if len(lst_sel_info):
-                set_ops = set([t[mm.OPID] for t in lst_sel_info])
-
+            if lst_sel_info.count_faces():
                 journal = Journal(obj)
-                dct_op_tree = journal.make_op_tree(set_ops)
+                dct_op_tree = journal.make_op_tree(lst_sel_info.op_list())
 
                 lst_enum = build_op_enums(dct_op_tree, 0, journal, 0)
 
@@ -127,6 +125,10 @@ class QARCH_OT_set_active_op(bpy.types.Operator):
         mm.select_current()
         mm.to_mesh()
         mm.free()
+
+        journal = Journal(context.object)
+        journal['adjusting'].clear()
+        journal.flush()
 
         return {"FINISHED"}
 
@@ -176,7 +178,7 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
             mm.delete_current_verts()
 
         if active_op > -1:
-            lst_sel_info = journal[active_op]['control_points']
+            lst_sel_info = SelectionInfo(journal[active_op]['control_points'])
             print("set consistent by selecting ", lst_sel_info)
             mm.set_selection_info(lst_sel_info)
         mm.to_mesh()
@@ -208,8 +210,9 @@ class QARCH_OT_remove_operation(bpy.types.Operator):
     def execute(self, context):
         active_op = get_obj_data(context.object, ACTIVE_OP_ID)
         journal = Journal(context.object)
+        journal['adjusting'].clear()
+        sel_info = journal.get_sel_info(active_op)
 
-        lst_sel_info = journal[active_op]['control_points']
         lst = delete_record(context.object, active_op)
         lst.append(active_op)
 
@@ -219,17 +222,53 @@ class QARCH_OT_remove_operation(bpy.types.Operator):
             mm.delete_current_verts()
 
         # remake faces
-        for lst in lst_sel_info:
-            mm.set_op(lst[mm.OPID])
-            vlist = mm.get_sel_verts([lst])
+        for vlist in sel_info.get_face_verts(mm):
             if len(vlist) >= 3:
                 mm.new_face(vlist)
 
         mm.to_mesh()
         mm.free()
 
+        set_obj_data(context.object, ACTIVE_OP_ID, -1)
+
         return {'FINISHED'}
 
-# operator to set face category
-# operator to set wall thickness
-# operator to prune operation
+
+class QARCH_OT_add_face_tags(bpy.types.Operator):
+    """For cleanup when old faces are left behind"""
+    bl_idname = "qarch.add_face_tags"
+    bl_label = "Add Face Tags"
+    bl_description = "Add object specific tags"
+    bl_options = {"REGISTER"}
+    bl_property = "tag_list"
+
+    tag_list: StringProperty(name="Tag List", description="Comma separated tags to add")
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+            if op_id is not None:
+                return True
+        return False
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        self.tag_list = ""
+        return wm.invoke_props_dialog(self)
+
+    def execute(self, context):
+        new_tags = [s.strip() for s in self.tag_list.split(",")]
+        journal = Journal(context.object)
+        tags = journal['face_tags']
+
+        b_dirty = False
+        for s in new_tags:
+            i = face_tag_to_int(s)
+            if i is None:
+                tags.append(s)
+                b_dirty = True
+
+        if b_dirty:
+            journal.flush()
+        return {'FINISHED'}

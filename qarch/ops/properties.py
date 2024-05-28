@@ -1,7 +1,9 @@
 import bpy
 from bpy.props import IntProperty, FloatProperty, BoolProperty, PointerProperty, EnumProperty, StringProperty
+from bpy.types import AddonPreferences
 import math
 from .custom import CustomPropertyBase
+from collections import OrderedDict
 
 
 class ArchShapeProperty(CustomPropertyBase):
@@ -176,12 +178,13 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     do_horizontal: BoolProperty(name="Do Horizontal", default=True, description="Solidify horizontal-ish edges")
     do_vertical: BoolProperty(name="Do Vertical", default=True, description="Solidify vertical-ish edges")
     z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
+    inset: FloatProperty(name="Inset Offset", description="Distance off edge", default=0)
 
     field_layout = [
         ('', 'poly'),
         ('', 'size'),
         ['do_horizontal', 'do_vertical'],
-        ['z_offset']
+        ['z_offset', 'inset']
     ]
     topology_lock = ['sides']
 
@@ -302,8 +305,119 @@ class MeshImportProperty(CustomPropertyBase):
     topology_lock = ['filepath', 'obj_name']
 
 
+class BTAddonPreferences(AddonPreferences):
+    # this must match the add-on name, use '__package__'
+    # when defining this in a submodule of a python package.
+    bl_idname = "qarch"
+
+    asset_path: StringProperty(name="Asset Path", subtype='FILE_PATH', )
+    select_mode: EnumProperty(
+        name="Selection Mode", description="How to handle multiple face selection",
+        items=[('SINGLE','Single Faces','Each face gets separate property record'),
+               ('GROUP','Group of Faces','Each face gets same property record'),
+               ('REGION', 'Region', 'Treat as one big face')
+               ], default='SINGLE',)
+    user_tags: StringProperty(name="Face tags", description="Comma separated list of custom tags")
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Build Tools Preferences")
+        layout.prop(self, "asset_path")
+        layout.prop(self, "select_mode")
+        layout.prop(self, "face_tags")
+
+
+lst_FaceEnums = [
+    ("DELETE", "Delete", "Delete face at end"),
+    ("NOTHING", "Nothing", "No special tag"),
+    ("WALL", "Wall", "Wall face"),
+    ("GLASS", "Glass", "Glass face"),
+    ("TRIM", "Trim", "Framing around door or window"),
+    ("DOOR", "Door", "Face of door, may become vertex group"),
+]
+
+dct_hold_face_enums = OrderedDict()
+
+
+def face_tag_to_int(s):
+    global dct_hold_face_enums
+    for i, e in enumerate(dct_hold_face_enums.keys()):
+        if e == s:
+            return i
+    return None
+
+
+def get_face_tag_enum(self, context):
+    from ..object import Journal
+    global lst_FaceEnums
+    global dct_hold_face_enums
+
+    lst_enum = []
+
+    set_used = set()
+    for e in lst_FaceEnums:
+        if e[0] not in dct_hold_face_enums:
+            dct_hold_face_enums[e[0]] = e
+        set_used.add(e[0])
+        lst_enum.append(e + (len(lst_enum)-1,))
+
+    preferences = context.preferences
+    addon_prefs = preferences.addons['qarch'].preferences
+    user_tags = [s.strip() for s in addon_prefs.user_tags.split(",")]
+    for s in user_tags:
+        if s not in set_used:
+            e = (s, s, "tag from user preferences")
+            if s not in dct_hold_face_enums:
+                dct_hold_face_enums[s] = e
+            lst_enum.append(dct_hold_face_enums[s]+ (len(lst_enum)-1,))
+            set_used.add(s)
+
+    journal = Journal(context.object)
+    obj_tags = [s.strip() for s in journal['face_tags']]
+    for s in obj_tags:
+        if s not in set_used:
+            e = (s, s, "tag from user preferences")
+            if s not in dct_hold_face_enums:
+                dct_hold_face_enums[s] = e
+            lst_enum.append(dct_hold_face_enums[s]+ (len(lst_enum)-1,))
+            set_used.add(s)
+
+    return lst_enum
+
+
+uv_mode_list = [
+        ('GLOBAL_XY', 'Global XY', 'Use real units projected to face'),
+        ('FACE_XY', 'Face XY', 'Use face x/y in real units'),
+        ('FACE_BBOX', 'Bounding Box', 'Set bounding box 0-1'),
+        ('FACE_POLAR', 'FACE Polar', 'Use face polar coordinates from centroid'),
+        ('NONE', 'None', 'Do not auto-calculate UV'),  # so we don't erase something the user did
+    ]
+
+
+def uv_mode_to_int(s):
+    for i, e in enumerate(uv_mode_list):
+        if e[0] == s:
+            return i
+    return 0
+
+
+class FaceTagProperties(CustomPropertyBase):
+    face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
+    face_thickness: FloatProperty(name="Face Thickness", default=0, min=0, description="Wall thickness after finalization")
+    face_uv_mode: EnumProperty(name="UV Mode", description="Method of UV assignment", items=uv_mode_list, default="GLOBAL_XY")
+
+    field_layout = [
+        ['face_tag'],
+        ['face_thickness'],
+        ['face_uv_mode']
+    ]
+
+    topology_lock = []
+
+
 # order might matter
 ops_properties = [
+    FaceTagProperties,
     ArchShapeProperty,
     ArrayProperty,
     DirectionProperty,
@@ -317,7 +431,9 @@ ops_properties = [
     SweepProperty,
     SolidifyEdgesProperty,
     MakeLouversProperty,
-InsetPolyProperty,
+    InsetPolyProperty,
     RoomProperty,  # --
     MeshImportProperty,
+    BTAddonPreferences,
+
 ]

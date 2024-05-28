@@ -7,7 +7,8 @@ from .geom import (
     extrude_fancy,
     extrude_sweep,
     solidify_edges,
-    make_louvers
+    make_louvers,
+    set_face_tags,
 )
 
 # from .assets import mesh_import

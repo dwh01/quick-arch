@@ -75,6 +75,9 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row.operator("qarch.load_script")
         row = layout.row(align=True)
         row.operator("qarch.add_window")
+        row = layout.row(align=True)
+        row.operator("qarch.set_face_tag")
+        row.operator("qarch.add_face_tags")
 
 
 
@@ -207,6 +210,11 @@ class QARCH_PT_settings(bpy.types.Panel):
         col.use_property_split = True
         col.use_property_decorate = False
         col.prop(context.scene.qarch_settings, "libpath")
+
+        preferences = context.preferences
+        addon_prefs = preferences.addons['qarch'].preferences
+        col.prop(addon_prefs, "asset_path")
+        col.prop(addon_prefs, "select_mode")
 
 
 classes = (QARCH_PT_mesh_tools, QARCH_PT_material_tools, QARCH_PT_settings)
