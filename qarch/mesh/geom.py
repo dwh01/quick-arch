@@ -69,7 +69,6 @@ def union_polygon(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info)
     mm.set_op(op_id)
     for control_poly in lst_orig_poly:
-
         poly = prop_dict['poly']
         n, start_ang = poly['num_sides'], poly['start_angle']
 
@@ -670,3 +669,59 @@ def set_face_tags(self, obj, sel_info, op_id, prop_dict):
 
     mm.to_mesh()
     mm.free()
+
+
+def calc_uvs(self, obj, sel_info, op_id, prop_dict):
+    from ..ops.properties import uv_mode_list
+    # 'GLOBAL_XY', project 0,0,0 to face, measure from there
+    #    good to make fragments of a wall have seamless texture
+    # 'FACE_XY', start from face origin
+    #    good to keep adjacent polys not seamless (like planks)
+    # 'FACE_BBOX', map box 0-1
+    #    good for signs and images that should overlay an odd shape without distortion
+    # 'FACE_POLAR', uses radius and circumfrential distance (not angle)
+    #    allows for arches to have brickwork
+    from ..ops.properties import face_tag_to_int, uv_mode_to_int
+
+    b_override = prop_dict['override_origin']
+    v_override = prop_dict['origin']
+
+    mm = ManagedMesh(obj)
+    uv_layer = mm.bm.loops.layers.uv.active
+    # ignore selection mode, set for each face
+    lst_vlist = sel_info.get_face_verts(mm)
+    for vlist in lst_vlist:
+        face = mm.find_face_by_bmvert(vlist)
+        if (face is not None) and face.is_valid:
+            mode = face[mm.key_uv]
+            orig = face[mm.key_uv_orig]
+
+            poly = SmartPoly()
+            for v in face.verts:
+                poly.add(v)
+            poly.calculate()
+
+            mode = uv_mode_list[mode][0]
+            if b_override:
+                v = poly.make_2d(v_override)
+            elif mode == 'GLOBAL_XY':
+                v = Vector((0,0,0))
+                v = poly.make_2d(v)
+            elif mode == 'FACE_XY':
+                v = Vector((0,0))
+            elif mode == 'FACE_BBOX':
+                v = poly.bbox[0]
+            elif mode == 'FACE_POLAR':
+                v = poly.make_2d(orig)  # note that default is (0,0,0)
+            else:  # none
+                continue
+
+            n = len(face.verts)
+            for i in range(n):
+                xy = poly.coord[i].co2 - v
+                if mode == 'FACE_POLAR':
+                    r = xy.length
+                    s = r * math.atan2(xy.y, xy.x)
+                    xy = Vector((r, s))  # arch bricks are long in the radial direction, so r is x
+                face.loops[uv_layer] = xy
+    mm.to_mesh()

@@ -96,8 +96,25 @@ class CustomOperator(bpy.types.Operator):
     derived class needs a member called function to do the work:
     function(obj, sel_info, op_id, prop_dict)
 
-    override single_face if operator takes a region selection to work on
+    override set consistent
     """
+    # invoke checks object custom data for "replay" or "active"
+    # if found, load properties and selection info from journal
+    # and resets "adjusting" in the journal
+    #
+    # execute loops through selected faces
+    # if adjusting, use that op id, load selection info
+    # else if replay or active, make it adjusting and use that op_id and selection info
+    #  clear active id (one time flag to load the properties)
+    # else make new id and add to adjusting. Use current selection on mesh and store to new record
+    # then test consistent:
+    #   if the desired selection doesn't work because verts changed, can we upgrade?
+    # call function
+    # replay child loop (sets replay flag, clears replay flag after call)
+    # restore adjusting in case children changed it
+    # if we are user invoked, the prop dialog will continue to call
+    # execute where we will see the adjusting value
+
     def control_points_match(self, sel_info, control_info, op_id):
         """if the selection is the active op, that's ok, else must match control"""
         sel_ops = sel_info.op_list()
@@ -449,7 +466,7 @@ class CompoundOperator(CustomOperator):
         return ""
 
 
-def replay_history(context, active_op):
+def replay_history(context, active_op, undo=False):
     """Read opid from journal and call the appropriate operator"""
     obj = context.object
     set_obj_data(obj, REPLAY_OP_ID, active_op)
@@ -457,7 +474,7 @@ def replay_history(context, active_op):
     journal = Journal(obj)
     op = journal.get_operator(active_op)
     debug_print("replay {}".format(active_op))
-    ret = op('INVOKE_DEFAULT')
+    ret = op('INVOKE_DEFAULT', undo)
 
     set_obj_data(obj, REPLAY_OP_ID, -1)
     return ret

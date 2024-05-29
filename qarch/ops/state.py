@@ -86,7 +86,6 @@ def build_op_enums(dct_op_tree, op_id, journal, level):
 class QARCH_OT_set_active_op(bpy.types.Operator):
     bl_idname = "qarch.set_active_op"
     bl_label = "Set Active Operation"
-    bl_options = {"REGISTER"}
     bl_property = "enum_prop"
 
     def fill_enum_list(self, context):
@@ -119,16 +118,17 @@ class QARCH_OT_set_active_op(bpy.types.Operator):
         # store in object custom property
         set_obj_data(context.object, ACTIVE_OP_ID, op_id)
 
+        journal = Journal(context.object)
+        journal['adjusting'].clear()
+        journal.flush()
+        return replay_history(context, op_id, True)
+
         mm = ManagedMesh(context.object)
         mm.deselect_all()
         mm.set_op(op_id)
         mm.select_current()
         mm.to_mesh()
         mm.free()
-
-        journal = Journal(context.object)
-        journal['adjusting'].clear()
-        journal.flush()
 
         return {"FINISHED"}
 
@@ -235,7 +235,7 @@ class QARCH_OT_remove_operation(bpy.types.Operator):
 
 
 class QARCH_OT_add_face_tags(bpy.types.Operator):
-    """For cleanup when old faces are left behind"""
+    """Add object tags"""
     bl_idname = "qarch.add_face_tags"
     bl_label = "Add Face Tags"
     bl_description = "Add object specific tags"
@@ -271,4 +271,41 @@ class QARCH_OT_add_face_tags(bpy.types.Operator):
 
         if b_dirty:
             journal.flush()
+        return {'FINISHED'}
+
+
+class QARCH_OT_select_tags(bpy.types.Operator):
+    """Select by tags"""
+    bl_idname = "qarch.select_tags"
+    bl_label = "Select Tags"
+    bl_description = "Select by face tags"
+    bl_options = {"REGISTER", "UNDO"}
+    bl_property = "tag_list"
+
+    tag_list: StringProperty(name="Tag List", description="Comma separated tags to select")
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+            if op_id is not None:
+                return True
+        return False
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        return wm.invoke_props_dialog(self)
+
+    def execute(self, context):
+        sel_tags = [s.strip() for s in self.tag_list.split(",")]
+        sel_ints = [face_tag_to_int(s) for s in sel_tags]
+
+        mm = ManagedMesh(context)
+        for face in mm.bm.faces:
+            if face[mm.key_tag] in sel_ints:
+                face.select_set(True)
+        mm.bm.select_flush(True)
+        mm.to_mesh()
+        mm.free()
+
         return {'FINISHED'}

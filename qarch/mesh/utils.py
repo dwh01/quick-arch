@@ -244,11 +244,12 @@ class ManagedMesh:
         if self.cur_seq in self.existing:
             bmv = self.existing[self.cur_seq]
             bmv.co = v
+            # print("existing vert at {} {}".format(self.cur_seq, v))
         else:
             bmv = self.bm.verts.new(v)
             bmv[self.key_op] = self.op_id
             bmv[self.key_seq] = self.cur_seq
-            self.cur_seq += 1
+        self.cur_seq += 1
 
         return bmv
 
