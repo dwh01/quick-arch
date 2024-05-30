@@ -42,6 +42,8 @@ class Journal:
         if op_id > -1:
             inf = self.get_sel_info(op_id)
             parents = inf.op_list()
+            if len(parents) == 0:
+                parents = [-1]
             lst = []
             for p_id in parents:
                 cur_ancestors = self.ancestors(p_id)
@@ -113,7 +115,10 @@ class Journal:
 
         # update control dictionary
         c_dict = self.jj['controlled']
-        for control_op in sel_info.op_list():
+        op_list = sel_info.op_list()
+        if len(op_list) == 0:
+            op_list = [-1]
+        for control_op in op_list:
             c_key = wrap_id(control_op)
             if c_key not in c_dict:
                 c_dict[c_key] = []
@@ -331,9 +336,8 @@ def merge_record(obj, dct_operation, sel_info):
             # similar faces
             vtest1 = old_inf.face_list(old_inf.op_list()[0])
             vtest2 = sel_info.face_list(sel_info.op_list()[0])
-            for f1, f2 in zip(vtest1, vtest2):
-                if len(f1) != len(f2):
-                    return "Topology mismatch with selection vertex count"
+            if len(vtest1) != len(vtest2):
+                return "Topology mismatch with selection vertex count"  # TODO make it possible
 
             inf = sel_info
         else:

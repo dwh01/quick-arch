@@ -167,36 +167,39 @@ class CustomOperator(bpy.types.Operator):
 
     def execute(self, context):
         self.get_state(context)
-        if self.replay_id > -1:
-            op_id = self.replay_id
-        elif self.active_id > -1:
-            op_id = self.active_id
-        else:
-            op_id = -1
+        op_id = self.active_id
 
         preferences = context.preferences
         self.addon_prefs = preferences.addons['qarch'].preferences  # note: self is passed to functions
 
-        debug_print(f"Execute: Active {self.active_id}, Replay {self.replay_id}, op_id {op_id}")
-
         prop_dict = self.props.to_dict()
-        selections = self.divide_selections(self.initial_sel_info)
-        for i_region in range(len(selections)):
-            sel_info = selections[i_region]
+        debug_print("Execute props {}".format(self.props.to_dict()))
 
-            debug_print("i_region {} sel_info {}".format(i_region, sel_info))
+        if len(self.adjusting_ids):  # in a redo loop with the user
+            n_region = len(self.adjusting_ids)
+            selections = [
+                SelectionInfo(self.journal[adj_id]['control_points']) for adj_id in self.adjusting_ids
+            ]
+        elif op_id > -1:  # was invoked on an existing op
+            n_region = 1
+            selections = [self.active_sel_info]
+        else:  # new op
+            selections = self.divide_selections(self.initial_sel_info)
+            n_region = len(selections)
+
+        for i_region in range(n_region):
+            sel_info = selections[i_region]
 
             if i_region < len(self.adjusting_ids):  # during adjust loop, need to track all the new op ids
                 cur_op_id = self.adjusting_ids[i_region]
-                debug_print("adjusting_ids[{}]={}".format(i_region, cur_op_id))
-                sel_info = self.set_operation_consistent(cur_op_id)
-
+                debug_print("Execute op {} i_region {} adjusting {} sel={}".format(op_id, i_region, cur_op_id, sel_info))
             else:
                 if op_id == -1:
                     cur_op_id = self.new_record(sel_info)
-                    debug_print("Execute new op {} and add to adjusting".format(cur_op_id))
+                    debug_print("Execute new op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
                 else:
                     cur_op_id = op_id
+                    debug_print("Execute existing op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
                 self.adjusting_ids.append(cur_op_id)
 
             # child operations list
@@ -213,8 +216,6 @@ class CustomOperator(bpy.types.Operator):
                     debug_print("Removing old verts because of topo change")
                     self.remove_verts(cur_op_id)
 
-            debug_print("{} function({}, {})".format(self.bl_idname, sel_info, cur_op_id))
-
             # selection state is not guaranteed
             # so operator implementations should rely on finding the control points
             ret = self.function(self.obj, sel_info, cur_op_id, prop_dict)
@@ -223,10 +224,12 @@ class CustomOperator(bpy.types.Operator):
                 return {'CANCELLED'}
 
             lst_controlled = self.ensure_children(cur_op_id)  # this is so compound operations can add children
-            self.write_props_to_journal(cur_op_id)  # includes a journal flush, after ensure children for compound operators
+
+            self.write_props_to_journal(cur_op_id)  # includes a journal flush
+            debug_print("Write props {}".format(cur_op_id))
+            # flush after ensure children for compound operators, also pushes self.adjusting_ids
 
             for child_id in lst_controlled:  # compound operations can have children on first pass
-                self.set_operation_consistent(child_id)  # otherwise child poll failure might prevent invoke
                 ret = replay_history(context, child_id)
                 if ret == {'CANCELLED'}:
                     self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
@@ -236,9 +239,15 @@ class CustomOperator(bpy.types.Operator):
             self.journal = Journal(self.obj)
             self.journal.jj['adjusting'] = self.adjusting_ids
 
-        self.journal.flush()
-        debug_print("restoring state")
-        self.restore_state()
+        self.journal.flush()  # pushes self.adjusting_ids for the redo-loop
+        # for poll = edit mode, don't care what is selected
+        # many ops need a face selected, this should make sure it happens
+        # but if not, override restore state
+        if len(self.adjusting_ids) == 0:
+            restore_op = -1
+        else:
+            restore_op = self.adjusting_ids[0]
+        self.restore_state(restore_op, context)
         return {"FINISHED"}
 
     def get_state(self, context):
@@ -251,6 +260,7 @@ class CustomOperator(bpy.types.Operator):
             self.journal = None
             self.initial_journal = None
             self.initial_sel_info = SelectionInfo()
+            self.active_sel_info = None
 
         else:
             self.active_id = get_obj_data(self.obj, ACTIVE_OP_ID)
@@ -261,6 +271,11 @@ class CustomOperator(bpy.types.Operator):
 
             mm = ManagedMesh(self.obj)
             self.initial_sel_info = mm.get_selection_info()
+            mm.free()
+
+            if self.active_id > -1:
+                self.active_sel_info = SelectionInfo(self.journal[self.active_id]['control_points'])
+
 
     @ classmethod
     def is_face_selected(cls, context):
@@ -279,37 +294,29 @@ class CustomOperator(bpy.types.Operator):
                 return False
             faces_list = sel_info.face_list(ops[0])
             if len(faces_list):
-                return len(faces_list[0]) > 2
-            print(sel_info)
+                return True
 
         return False
 
     def invoke(self, context, event):
         """Initialize operator with history (not called by adjust-last panel)"""
         self.get_state(context)
-        if self.replay_id > -1:  # a child operation is being executed, load the parameters
-            op_id = self.replay_id
-
-        elif self.active_id > -1:  # an operation was selected for revision, load the parameters
+        if self.active_id > -1:  # an operation was selected for revision, load the parameters
             op_id = self.active_id
-            if not self.test_operation_consistent(op_id):  # probably meant to reset active id
-                set_obj_data(self.obj, ACTIVE_OP_ID, -1)
-                self.active_id = -1
-                op_id = -1
-
         else:  # a new operation is being invoked
             op_id = -1
 
-        debug_print(f"Invoke: Active {self.active_id}, Replay {self.replay_id}, op_id {op_id}")
         # adjusting used within the execute loop undo call back cycle, if we hit invoke, clear it
+        # because it was left over from a parent execution loop
         if len(self.adjusting_ids):
             self.adjusting_ids.clear()
             self.journal.flush()
 
         if op_id > -1:
+            debug_print("Invoke op {} read props".format(op_id))
             self.read_props_from_journal(op_id)
-            self.set_operation_consistent(op_id)
         else:
+            debug_print("Invoke op {} new props".format(op_id))
             if 'UNDO' not in self.bl_options:  # no adjust last panel to pop up
                 wm = context.window_manager
                 return wm.invoke_props_dialog(self)
@@ -328,6 +335,7 @@ class CustomOperator(bpy.types.Operator):
     def poll(cls, context):
         """Most of our operations should happen in edit mode, if not, customize in derived class"""
         if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            # test that this is the kind of object we manage
             return get_obj_data(context.object, ACTIVE_OP_ID) is not None
         return False
 
@@ -336,16 +344,21 @@ class CustomOperator(bpy.types.Operator):
         record = self.journal[op_id]
         self.props.from_dict(record['properties'])
 
-    def restore_state(self):
+    def restore_state(self, op_id, context):
         if self.obj:
-            set_obj_data(self.obj, REPLAY_OP_ID, self.replay_id)
-            set_obj_data(self.obj, ACTIVE_OP_ID, self.active_id)
-            if self.initial_sel_info.count_faces() or self.initial_sel_info.count_verts():
-                print("Restore selection to {}".format(self.initial_sel_info))
-                mm = ManagedMesh(self.obj)
+            set_obj_data(self.obj, ACTIVE_OP_ID, -1)
+
+            mm = ManagedMesh(self.obj)
+            mm.rehide()  # hidden faces can't be selected
+            if op_id > -1:
+                mm.select_operation(op_id)  # select current operation faces
+            mm.to_mesh()
+
+            if not self.poll(context):  # well then, better select the way it was before; this unhides as needed
                 mm.set_selection_info(self.initial_sel_info)
-                mm.to_mesh()
-                mm.free()
+            mm.to_mesh()
+
+            mm.free()
 
     def remove_verts(self, op_id):
         mm = ManagedMesh(self.obj)
@@ -354,19 +367,6 @@ class CustomOperator(bpy.types.Operator):
         mm.delete_current_verts()
         mm.to_mesh()
         mm.free()
-
-    def set_operation_consistent(self, op_id):
-        """Make selection state correct for this operation to execute"""
-        sel_info = self.journal.get_sel_info(op_id)
-        if debug_print:
-            print("set {} consistent by selecting {}".format(op_id, sel_info))
-
-        mm = ManagedMesh(self.obj)
-        mm.set_selection_info(sel_info)
-        mm.to_mesh()
-        mm.free()
-
-        return sel_info
 
     def test_operation_consistent(self, op_id):
         """Make sure selection state of mesh matches what this operation needs"""
@@ -409,32 +409,43 @@ class CustomOperator(bpy.types.Operator):
         self.journal.flush()
 
 
-def copy_points(self, obj, sel_info, op_id, prop_dict):
+def copy_faces(self, obj, sel_info, op_id, prop_dict):
     """Used by compound operator to make points the children can build from"""
     mm = ManagedMesh(obj)
 
     mm.set_op(op_id)
     mm.delete_current_verts()
 
-    sel_bmv = sel_info.get_face_verts(mm)
-    set_done = set()
+    sel_bmv = mm.get_face_verts(sel_info)
+    dct_done = {}
+    new_sel_info = SelectionInfo()
     for lst in sel_bmv:
+        vlist = []
         for v in lst:
-            if v in set_done:
-                continue
-            vnew = mm.new_vert(v.co)
-            set_done.add(v)
+            key = (v[mm.key_op], v[mm.key_seq])
+            if key in dct_done:
+                vnew = dct_done[key]
+            else:
+                vnew = mm.new_vert(v.co)
+                dct_done[key] = vnew
+            vlist.append(vnew)
+        face = mm.new_face(vlist)
+        #print("copied face {} {}".format(face[mm.key_face_op], face[mm.key_face_seq]))
+        #print([(v[mm.key_op], v[mm.key_seq]) for v in vlist])
+        new_sel_info.add_faces(face[mm.key_face_op], [face[mm.key_face_seq]])
 
-        mm.to_mesh()
+    for face in mm.get_faces(sel_info):
+        mm.delete_face(face)
 
+    mm.to_mesh()
     mm.free()
 
-    return [[op_id, list(range(len(set_done)))]]
+    return new_sel_info
 
 
 class CompoundOperator(CustomOperator):
     """Inserts a sequence like you would load from a script"""
-    function = copy_points  # this just copies the selected verts and gives the copy our operation id
+    function = copy_faces  # this just copies the selected verts and gives the copy our operation id
     delete_control_face = True  # override if you need to leave the control face in place
 
     def ensure_children(self, op_id):
@@ -446,7 +457,7 @@ class CompoundOperator(CustomOperator):
 
             # Points were just generated for us to attach to. Find them
             mm = ManagedMesh(self.obj)
-            mm.set_op(op_id)
+            mm.deselect_all()
             mm.select_operation(op_id)
             child_sel_info = mm.get_selection_info()
             mm.free()
@@ -466,15 +477,30 @@ class CompoundOperator(CustomOperator):
         return ""
 
 
+def set_operation_consistent(obj, op_id):
+    """Make selection state correct for this operation to execute"""
+    journal = Journal(obj)
+    sel_info = journal.get_sel_info(op_id)
+    debug_print("set {} consistent by selecting {}".format(op_id, sel_info))
+
+    mm = ManagedMesh(obj)
+    mm.set_selection_info(sel_info)
+    mm.to_mesh()
+    mm.free()
+
+    return sel_info
+
+
 def replay_history(context, active_op, undo=False):
     """Read opid from journal and call the appropriate operator"""
     obj = context.object
-    set_obj_data(obj, REPLAY_OP_ID, active_op)
+    set_obj_data(obj, ACTIVE_OP_ID, active_op)
+    set_operation_consistent(obj, active_op)  # prevent poll failure
 
     journal = Journal(obj)
     op = journal.get_operator(active_op)
-    debug_print("replay {}".format(active_op))
+    debug_print("replay {} undo={}".format(active_op, undo))
     ret = op('INVOKE_DEFAULT', undo)
 
-    set_obj_data(obj, REPLAY_OP_ID, -1)
+    set_obj_data(obj, ACTIVE_OP_ID, -1)
     return ret

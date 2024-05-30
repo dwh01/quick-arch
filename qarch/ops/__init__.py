@@ -9,6 +9,7 @@ from .state import (
     QARCH_OT_remove_operation,
     QARCH_OT_add_face_tags,
     QARCH_OT_select_tags,
+    QARCH_OT_redo_op,
 )
 from .geom import (
     QARCH_OT_union_polygon,
@@ -42,6 +43,7 @@ classes = (
     QARCH_OT_set_face_tag,
     QARCH_OT_add_face_tags,
     QARCH_OT_select_tags,
+    QARCH_OT_redo_op,
 )
 
 

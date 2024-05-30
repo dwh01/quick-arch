@@ -2,6 +2,7 @@ import bpy
 from .core import register_core, unregister_core
 from .utils import FaceMap, bmesh_from_active_object
 from .ops import register_ops, unregister_ops
+from .object import get_obj_data, ACTIVE_OP_ID
 
 bl_info = {
     "name": "Quick Arch",
@@ -54,9 +55,16 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("qarch.create_object")
-        row.operator("qarch.set_active_op")
-        row = layout.row(align=True)
         row.operator("qarch.rebuild_object")
+        row = layout.row(align=True)
+        row.operator("qarch.set_active_op")
+        if context.object:
+            active = "Active = " + str(get_obj_data(context.object, ACTIVE_OP_ID))
+        else:
+            active = "Active = "
+        row.label(text=active)
+        row = layout.row(align=True)
+        row.operator("qarch.redo_op")
         row.operator("qarch.remove_operation")
         row = layout.row(align=True)
         row.operator("qarch.union_polygon")

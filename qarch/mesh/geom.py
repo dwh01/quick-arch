@@ -9,7 +9,7 @@ from collections import defaultdict
 
 def _common_start(obj, sel_info, break_link=False):
     mm = ManagedMesh(obj)
-    vlist_nested = sel_info.get_face_verts(mm)
+    vlist_nested = mm.get_face_verts(sel_info)
     lst_out = []
     for vlist in vlist_nested:
         control_poly = SmartPoly(name="control")
@@ -45,7 +45,7 @@ def _extract_offset(size_dict, box_size):
     if rel_x:
         sx = box_size.x * sx
     if rel_y:
-        sy = box_size.x * sx
+        sy = box_size.y * sy
     return sx, sy
 
 
@@ -55,7 +55,7 @@ def _extract_size(size_dict, box_size):
     if rel_x:
         sx = box_size.x * sx
     if rel_y:
-        sy = box_size.x * sy
+        sy = box_size.y * sy
     return sx, sy
 
 def _extract_vector(direction_dict):
@@ -68,6 +68,9 @@ def _extract_vector(direction_dict):
 def union_polygon(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info)
     mm.set_op(op_id)
+    if len(lst_orig_poly) == 0:  # ok to add to none
+        lst_orig_poly.append(SmartPoly())
+
     for control_poly in lst_orig_poly:
         poly = prop_dict['poly']
         n, start_ang = poly['num_sides'], poly['start_angle']
@@ -337,6 +340,10 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
     mm.set_op(op_id)
     for control_poly in lst_orig_poly:
         sx0, sy0 = _extract_size(prop_dict['size'], control_poly.box_size)
+        if control_poly.box_size.x != 0:
+            sx0 = sx0 / control_poly.box_size.x
+        if control_poly.box_size.y != 0:
+            sy0 = sy0 / control_poly.box_size.y
 
         dz0 = prop_dict['distance']
         da0 = prop_dict['twist']
@@ -659,7 +666,7 @@ def set_face_tags(self, obj, sel_info, op_id, prop_dict):
     thick = prop_dict['face_thickness']
     uv = uv_mode_to_int(prop_dict['face_uv_mode'])
 
-    lst_vlist = sel_info.get_face_verts(mm)
+    lst_vlist = mm.get_face_verts(sel_info)
     for vlist in lst_vlist:
         face = mm.find_face_by_bmvert(vlist)
         if (face is not None) and face.is_valid:
@@ -689,7 +696,7 @@ def calc_uvs(self, obj, sel_info, op_id, prop_dict):
     mm = ManagedMesh(obj)
     uv_layer = mm.bm.loops.layers.uv.active
     # ignore selection mode, set for each face
-    lst_vlist = sel_info.get_face_verts(mm)
+    lst_vlist = mm.get_face_verts(sel_info)
     for vlist in lst_vlist:
         face = mm.find_face_by_bmvert(vlist)
         if (face is not None) and face.is_valid:

@@ -14,57 +14,104 @@ class QARCH_OT_add_window(CompoundOperator):
         """Returns the same kind of script you get by exporting something"""
         # make something, export it, and copy the script into your class
         return r"""{
-            "max_id": 0,
-            "controlled": {
-                "op0": []
-            },
-            "adjusting": [],
-            "face_tags": [],
-            "op0": {
-                "op_id": 0,
-                "op_name": "QARCH_OT_inset_polygon",
-                "properties": {
-                    "position": {
-                        "offset_x": 0.25,
-                        "is_relative_x": true,
-                        "offset_y": 0.25,
-                        "is_relative_y": true
-                    },
-                    "size": {
-                        "size_x": 0.5,
-                        "is_relative_x": true,
-                        "size_y": 0.5,
-                        "is_relative_y": true
-                    },
-                    "inset_type": "NGON",
-                    "use_ngon": true,
-                    "poly": {
-                        "num_sides": 5,
-                        "start_angle": -0.7853981852531433
-                    },
-                    "use_arch": false,
-                    "arch": {
-                        "num_sides": 12,
-                        "arch_type": "ROMAN",
-                        "thickness": 0.10000000149011612
-                    },
-                    "extrude_distance": 0.0,
-                    "add_perimeter": true
+        "max_id": 1,
+        "controlled": {
+            "op-1": [
+                0
+            ],
+            "op0": [
+                1
+            ],
+            "op1": []
+        },
+        "adjusting": [],
+        "face_tags": [],
+        "op0": {
+            "op_id": 0,
+            "op_name": "QARCH_OT_inset_polygon",
+            "properties": {
+                "position": {
+                    "offset_x": 0.25,
+                    "is_relative_x": true,
+                    "offset_y": 0.25,
+                    "is_relative_y": true
                 },
-                "control_points": [
-                    [
-                        0,
-                        [
-                            0,
-                            1,
-                            2,
-                            3
-                        ]
+                "size": {
+                    "size_x": 0.5,
+                    "is_relative_x": true,
+                    "size_y": 0.5,
+                    "is_relative_y": true
+                },
+                "inset_type": "NGON",
+                "use_ngon": true,
+                "poly": {
+                    "num_sides": 4,
+                    "start_angle": -0.7853981852531433
+                },
+                "use_arch": false,
+                "arch": {
+                    "num_sides": 12,
+                    "arch_type": "ROMAN"
+                },
+                "extrude_distance": 0.0,
+                "add_perimeter": true,
+                "thickness": 0.10000000149011612
+            },
+            "control_points": {
+                "faces": {
+                    "op-1": [
+                        0
                     ]
-                ],
-                "control_op": -1,
-                "compound_count": 0
-            }}"""
+                },
+                "verts": {
+                    "op-1": [
+                        0
+                    ]
+                },
+                "flags": {
+                    "op-1": 3
+                },
+                "mode": "GROUP"
+            },
+            "compound_count": 0
+        },
+        "op1": {
+            "op_id": 1,
+            "op_name": "QARCH_OT_extrude_fancy",
+            "properties": {
+                "distance": 0.10000000149011612,
+                "steps": 1,
+                "on_axis": false,
+                "axis": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 1.0
+                },
+                "twist": 0.0,
+                "align_end": false,
+                "size": {
+                    "size_x": 1.0,
+                    "is_relative_x": true,
+                    "size_y": 1.0,
+                    "is_relative_y": true
+                }
+            },
+            "control_points": {
+                "faces": {
+                    "op0": [
+                        4,
+                        5,
+                        6,
+                        7
+                    ]
+                },
+                "verts": {},
+                "flags": {},
+                "mode": "GROUP"
+            },
+            "compound_count": 0
+        }
+        }"""
 
     def write_props_to_journal(self, op_id):
         """After this operator properties are updated, push them down to the script operators

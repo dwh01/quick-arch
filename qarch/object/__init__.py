@@ -6,6 +6,8 @@ from .utils import (
     FACE_UV_MODE,
     FACE_THICKNESS,
     FACE_UV_ORIGIN,
+    FACE_OP_ID,
+    FACE_OP_SEQUENCE,
     VERT_OP_ID,
     VERT_OP_SEQUENCE,
     ACTIVE_OP_ID,

@@ -52,6 +52,8 @@ class QARCH_OT_create_object(bpy.types.Operator):
         bpy.context.view_layer.objects.active = obj
         # enter edit mode to start making things
         bpy.ops.object.mode_set(mode='EDIT')
+        #bpy.ops.mesh.select_mode(type="FACE", action='ENABLE')
+        #bpy.ops.mesh.select_mode(type="VERT", action='DISABLE')
         return {'FINISHED'}
 
 
@@ -81,30 +83,29 @@ def build_op_enums(dct_op_tree, op_id, journal, level):
 
     return lst_enum
 
+def fill_enum_list(self, context):
+    global dct_Enums
+
+    obj = context.object
+    lst_enum = []
+    if obj is not None:
+        mm = ManagedMesh(obj)
+        lst_sel_info = mm.get_selection_info()
+        mm.free()
+        if lst_sel_info.count_faces():
+            journal = Journal(obj)
+            dct_op_tree = journal.make_op_tree(lst_sel_info.op_list())
+
+            lst_enum = build_op_enums(dct_op_tree, 0, journal, 0)
+
+    lst_enum.append(dct_Enums[-1])
+    return lst_enum
 
 
 class QARCH_OT_set_active_op(bpy.types.Operator):
     bl_idname = "qarch.set_active_op"
     bl_label = "Set Active Operation"
     bl_property = "enum_prop"
-
-    def fill_enum_list(self, context):
-        global dct_Enums
-
-        obj = context.object
-        lst_enum = []
-        if obj is not None:
-            mm = ManagedMesh(obj)
-            lst_sel_info = mm.get_selection_info()
-            mm.free()
-            if lst_sel_info.count_faces():
-                journal = Journal(obj)
-                dct_op_tree = journal.make_op_tree(lst_sel_info.op_list())
-
-                lst_enum = build_op_enums(dct_op_tree, 0, journal, 0)
-
-        lst_enum.append(dct_Enums[-1])
-        return lst_enum
 
     enum_prop: EnumProperty(items=fill_enum_list, name='Active Operation', default=-1)
 
@@ -121,7 +122,6 @@ class QARCH_OT_set_active_op(bpy.types.Operator):
         journal = Journal(context.object)
         journal['adjusting'].clear()
         journal.flush()
-        return replay_history(context, op_id, True)
 
         mm = ManagedMesh(context.object)
         mm.deselect_all()
@@ -134,23 +134,44 @@ class QARCH_OT_set_active_op(bpy.types.Operator):
 
     def draw(self, context):
         global dct_Enums
-        # update enum value if the active object has changed
-        if context.object:
-            active_op = get_obj_data(context.object, ACTIVE_OP_ID)
-            if active_op in dct_Enums:
-                display_item = dct_Enums[active_op][1]
-            else:
-                display_item = dct_Enums[-1][1]
-
-            row = self.layout.row()
-            row.label(text="Active: " + display_item)
         row = self.layout.row()
-        # row.props_enum(self, "enum_prop")
         row.prop_menu_enum(self, "enum_prop")
 
     def invoke(self, context, event):
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
+
+class QARCH_OT_redo_op(bpy.types.Operator):
+    bl_idname = "qarch.redo_op"
+    bl_label = "Redo Operation"
+    bl_property = "enum_prop"
+
+    enum_prop: EnumProperty(items=fill_enum_list, name='Active Operation', default=-1)
+
+    @classmethod
+    def poll(cls, context):
+        return (context.object is not None) and (context.mode == "EDIT_MESH")
+
+    def execute(self, context):
+        print("redo ", self.enum_prop)
+        op_id = int(self.enum_prop[2:])
+        # store in object custom property
+        set_obj_data(context.object, ACTIVE_OP_ID, op_id)
+
+        journal = Journal(context.object)
+        journal['adjusting'].clear()
+        journal.flush()
+        return replay_history(context, op_id, True)
+
+    def draw(self, context):
+        global dct_Enums
+        row = self.layout.row()
+        row.prop_menu_enum(self, "enum_prop")
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        return wm.invoke_props_dialog(self)
+
 
 class QARCH_OT_rebuild_object(bpy.types.Operator):
     """For cleanup when old faces are left behind"""
@@ -222,7 +243,7 @@ class QARCH_OT_remove_operation(bpy.types.Operator):
             mm.delete_current_verts()
 
         # remake faces
-        for vlist in sel_info.get_face_verts(mm):
+        for vlist in mm.get_face_verts(sel_info):
             if len(vlist) >= 3:
                 mm.new_face(vlist)
 

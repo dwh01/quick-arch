@@ -250,7 +250,7 @@ class MakeLouversProperty(CustomPropertyBase):
 
 
 class InsetPolyProperty(CustomPropertyBase):  # demo case
-    num_sides: IntProperty(name="Sides", min=3, default=5, description="Number of sides")
+    num_sides: IntProperty(name="Sides", min=3, default=4, description="Number of sides")
 
     field_layout = [
         ["num_sides"]

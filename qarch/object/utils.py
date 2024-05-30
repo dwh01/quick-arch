@@ -12,6 +12,8 @@ FACE_CATEGORY = 'bt_face_cat'
 FACE_THICKNESS = 'bt_face_thick'
 FACE_UV_MODE = 'bt_uv_mode'
 FACE_UV_ORIGIN = 'bt_uv_origin'
+FACE_OP_ID = 'bt_face_op'
+FACE_OP_SEQUENCE = 'bt_face_seq'
 VERT_OP_ID = 'bt_op_id'
 VERT_OP_SEQUENCE = 'bt_sequence'
 
@@ -42,6 +44,7 @@ class SelectionInfo:
 
     def __init__(self, from_dict=None, other=None, copy_op=None):
         self.sel_face = {}
+        self.sel_vert = {}
         self.op_flag = {}
         self.mode = 'SINGLE'
 
@@ -51,30 +54,35 @@ class SelectionInfo:
         elif (other is not None) and (copy_op is not None):
             key = wrap_id(copy_op)
             self.sel_face[key] = other.sel_face.get(key, [])
+            self.sel_vert[key] = other.sel_vert.get(key, [])
             self.op_flag[key] = other.op_flag.get(key, self.NORMAL)
 
     def __repr__(self):
         return "SelectionInfo(" + str(self.to_dict()) + ")"
 
-    def add_face(self, op_id, seq_list):
+    def add_face(self, op_id, seq_id):
         key = wrap_id(op_id)
-        if not key in self.sel_face:
+        if key not in self.sel_face:
             self.sel_face[key] = []
-        self.sel_face[key].append(seq_list)
+        self.sel_face[key].append(seq_id)
+
+    def add_faces(self, op_id, face_list):
+        key = wrap_id(op_id)
+        if key not in self.sel_face:
+            self.sel_face[key] = []
+        self.sel_face[key] += face_list
 
     def add_vert(self, op_id, seq_id):
         key = wrap_id(op_id)
-        if not key in self.sel_face:
-            self.sel_face[key] = []
-        self.sel_face[key].append([seq_id])
+        if key not in self.sel_vert:
+            self.sel_vert[key] = []
+        self.sel_vert[key].append(seq_id)
 
     def count_faces(self):
         """Number of faces total"""
         c = 0
         for v in self.sel_face.values():
-            for l in v:
-                if len(l) >= 3:
-                    c = c + 1
+            c = c + len(v)
         return c
 
     def count_ops(self):
@@ -84,14 +92,12 @@ class SelectionInfo:
     def count_verts(self):
         """Number of verts not part of a face"""
         c = 0
-        for v in self.sel_face.values():
-            for l in v:
-                if len(l) < 3:
-                    c = c + 1
+        for v in self.sel_vert.values():
+            c = c + len(v)
         return c
 
     def face_list(self, op_id):
-        """List of lists, inner values are sequence id of the verts not bmesh index"""
+        """List of face sequence not bmesh index"""
         return self.sel_face.get(wrap_id(op_id), [])
 
     def flag_op(self, op_id, code):
@@ -100,6 +106,7 @@ class SelectionInfo:
 
     def from_dict(self, d):
         self.sel_face = d['faces']
+        self.sel_vert = d.get('verts', [])
         self.op_flag = d['flags']
         self.mode = d.get('mode', 'SINGLE')
 
@@ -109,27 +116,10 @@ class SelectionInfo:
     def get_mode(self):
         return self.mode
 
-    def get_face_verts(self, mm):
-        """Return verts sorted in lists by face
-        expects a ManagedMesh object"""
-        lst_bmv = []
-        map_verts = {}
-        for v in mm.bm.verts:
-            if wrap_id(v[mm.key_op]) in self.sel_face:
-                t = (v[mm.key_op], v[mm.key_seq])
-                map_verts[t] = v
-
-        for k, lst in self.sel_face.items():
-            for slist in lst:
-                lst = [map_verts[(unwrap_id(k), i)] for i in slist]
-                lst_bmv.append(lst)
-        return lst_bmv
-
-    def includes(self, op_id, seq_id):
-        for lst in self.sel_face[op_id]:
-            for vlist in lst:
-                if seq_id in vlist:
-                    return True
+    def includes(self, op_id, face_seq_id):
+        lst = self.sel_face[op_id]
+        if face_seq_id in lst:
+            return True
         return False
 
     def matches(self, other):
@@ -141,9 +131,8 @@ class SelectionInfo:
             if len(v) != len(v2):
                 return False
             for a, b in zip(v, v2):
-                for i in a:
-                    if i not in b:
-                        return False
+                if a != b:
+                    return False
         return True
 
     def op_list(self):
@@ -168,18 +157,11 @@ class SelectionInfo:
         self.mode = mode
 
     def to_dict(self):
-        d = {'faces': self.sel_face, 'flags': self.op_flag, 'mode':self.mode}
+        d = {'faces': self.sel_face, 'verts':self.sel_vert, 'flags': self.op_flag, 'mode': self.mode}
         return d
 
-    def vert_list(self):
-        """Flat list of (op,sequence) with no repeats"""
-        lst = []
-        for k, vlists in self.sel_face.items():
-            for v in vlists:
-                tups = [(unwrap_id(k), i) for i in v if (unwrap_id(k), i) not in lst]
-                lst = lst+tups
-
-        return lst
+    def vert_list(self, op_id):
+        return self.sel_vert.get(op_id,[])
 
 
 def create_object(collection, name):
@@ -215,6 +197,8 @@ def create_object(collection, name):
     key = obj.data.attributes.new(FACE_UV_MODE, 'INT', 'FACE')
     key = obj.data.attributes.new(FACE_THICKNESS, 'FLOAT', 'FACE')
     key = obj.data.attributes.new(FACE_UV_ORIGIN, 'FLOAT_VECTOR', 'FACE')
+    key = obj.data.attributes.new(FACE_OP_SEQUENCE, 'INT', 'FACE')
+    key = obj.data.attributes.new(FACE_OP_ID, 'INT', 'FACE')
 
     key = obj.data.attributes.new(VERT_OP_ID, 'INT', 'POINT')
     attribute_values = [-1]
