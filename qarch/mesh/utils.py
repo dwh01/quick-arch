@@ -4,8 +4,8 @@ import mathutils
 import struct
 from contextlib import contextmanager
 from ..object import VERT_OP_ID, VERT_OP_SEQUENCE
-from ..object import FACE_THICKNESS, FACE_CATEGORY, FACE_UV_MODE, FACE_UV_ORIGIN, FACE_OP_ID, FACE_OP_SEQUENCE
-from ..object import SelectionInfo
+from ..object import FACE_THICKNESS, FACE_CATEGORY, FACE_UV_MODE, FACE_UV_ORIGIN, FACE_OP_ID, FACE_OP_SEQUENCE, FACE_UV_ROTATE
+from ..object import SelectionInfo, LOOP_UV_W
 
 from collections import defaultdict
 import itertools
@@ -63,6 +63,8 @@ class ManagedMesh:
             self.key_uv_orig = self.bm.faces.layers.float_vector[FACE_UV_ORIGIN]
             self.key_face_seq = self.bm.faces.layers.int[FACE_OP_SEQUENCE]
             self.key_face_op = self.bm.faces.layers.int[FACE_OP_ID]
+            self.key_uv_w = self.bm.loops.layers.float[LOOP_UV_W]
+            self.key_uv_rot = self.bm.faces.layers.float_vector[FACE_UV_ROTATE]
 
         else:
             self.key_op = None
@@ -73,6 +75,8 @@ class ManagedMesh:
             self.key_uv_orig = None
             self.key_face_seq = None
             self.key_face_op = None
+            self.key_uv_w = None
+            self.key_uv_rot = None
 
         # tracking as we add
         self.cur_seq = 0
@@ -104,7 +108,14 @@ class ManagedMesh:
         else:
             self.bm.to_mesh(self.obj.data)
 
-    def cube(self, x, y, z):
+    def cleanup(self):
+        lst_del = [
+            face for face in self.bm.faces if face[self.key_tag]==-1
+        ]
+        print("deleting {} faces".format(len(lst_del)))
+        bmesh.ops.delete(self.bm, geom=lst_del, context="FACES_ONLY")
+
+    def cube(self, x, y, z, tag=None):
         mat = mathutils.Matrix.Identity(4)
         mat[0][0] = x
         mat[1][1] = y
@@ -114,7 +125,14 @@ class ManagedMesh:
             bmv[self.key_op] = self.op_id
             bmv[self.key_seq] = self.cur_seq
             self.cur_seq += 1
+        if tag is not None:
+            for face in res['faces']:
+                face[self.key_tag] = tag
         return res['verts']
+
+    def delete_all(self):
+        """Clear mesh"""
+        bmesh.ops.delete(self.bm, geom=list(self.bm.verts), context='VERTS')
 
     def delete_current_verts(self):
         """Delete verts matching current operation"""
@@ -168,7 +186,32 @@ class ManagedMesh:
 
     def find_face_by_smart_vec(self, sv_list):
         vlist = [sv.bm_vert for sv in sv_list]
-        return self.find_face_by_bmvert(vlist)
+        if len(vlist) < 3:
+            return None
+
+        if vlist[0] is None:
+            vlist = [sv.co3 for sv in sv_list]
+            return self.find_face_by_vectors(vlist)
+        else:
+            return self.find_face_by_bmvert(vlist)
+
+    def find_face_by_vectors(self, vlist):
+        def t_func(v):
+            return round(v.x, 6), round(v.y, 6), round(v.z, 6)
+
+        check_list = [t_func(v) for v in vlist]
+        for face in self.bm.faces:
+            if len(face.verts) != len(check_list):
+                continue
+            b_ok = True
+            test_list = [t_func(v.co) for v in face.verts]
+            for a, b in zip(check_list, test_list):
+                if a != b:
+                    b_ok = False
+                    break
+            if b_ok:
+                return face
+        return None
 
     def get_selection_info(self):
         """Return current selected vert info"""
@@ -212,7 +255,19 @@ class ManagedMesh:
 
         return sel_info
 
+    def get_face_attrs(self, face):
+        from ..ops.properties import int_to_face_tag, int_to_uv_mode
+        dct = {}
+        dct[self.key_tag] = int_to_face_tag(face[self.key_tag])
+        dct[self.key_thick] = face[self.key_thick]
+        dct[self.key_uv_rot] = face[self.key_uv_rot]
+        dct[self.key_uv_orig] = face[self.key_uv_orig]
+        dct[self.key_uv] = int_to_uv_mode(face[self.key_uv])
+
+        return dct
+
     def get_faces(self, sel_info):
+        """Return selected bmfaces"""
         lst_face = []
         for face in self.bm.faces:
             op = face[self.key_face_op]
@@ -259,6 +314,28 @@ class ManagedMesh:
             cat = face[self.key_tag]
             if cat == -1:
                 face.hide = True
+
+    def set_face_attrs(self, face, dct):
+        from ..ops.properties import face_tag_to_int, uv_mode_to_int
+
+        for key, value in dct.items():
+            if isinstance(value, str):
+                if key == self.key_uv:
+                    value = uv_mode_to_int(value)
+                elif key == self.key_tag:
+                    value = face_tag_to_int(value)
+
+            face[key] = value
+            if key == self.key_tag:
+                if -1 < value < len(self.obj.data.materials):
+                    face.material_index = value
+
+    def set_facesel_attr(self, sel_info, key, value):
+        faces = self.get_faces(sel_info)
+        for face in faces:
+            if face.is_valid:
+                self.set_face_attrs(face, {key: value})
+
 
     def set_selection_info(self, sel_info):
         """Make selection state match sel_info"""
@@ -316,9 +393,9 @@ class ManagedMesh:
 
         return bmv
 
-    def new_face(self, vlist, uv_origin=None, uv_mode=None):
-        from ..ops import uv_mode_to_int
-        cat = 0
+    def new_face(self, vlist, uv_origin=None, uv_mode=None, thickness=None, tag="NOTHING"):
+        from ..ops import uv_mode_to_int, face_tag_to_int
+
         face = None
         if self.cur_face_seq in self.existing_face:
             face = self.existing_face[self.cur_face_seq]
@@ -334,7 +411,6 @@ class ManagedMesh:
                         break
                 if not match:
                     del self.existing_face[self.cur_face_seq]
-                    cat = face[self.key_tag]
                     print("true delete face {} {}".format(face[self.key_face_op], face[self.key_face_seq]))
                     bmesh.ops.delete(self.bm, geom=[face], context='FACES_ONLY')
                     face = None
@@ -347,20 +423,22 @@ class ManagedMesh:
                 face[self.key_face_op] = self.op_id
                 face[self.key_face_seq] = self.cur_face_seq
             else:
-                print("new face cur={}, exist={}".format(self.cur_face_seq, self.existing_face))
+                #print("new face cur={}, exist={}".format(self.cur_face_seq, self.existing_face))
                 print("face found by bmvert?")
 
-        if cat==-1:
-            print("face {} {} cat {}".format(face[self.key_face_op], face[self.key_face_seq], cat))
-        face[self.key_tag] = cat
-        # if face[self.key_tag] == -1:  # was deleted, maybe that op was erased and we are rebuilding
-        #    face[self.key_tag] = 0  # otherwise, replay will set this back to -1 with a delete request
+        if tag is not None:
+            tag = face_tag_to_int(tag)
+            face[self.key_tag] = tag
+            if -1 < tag < len(self.obj.data.materials):
+                face.material_index = tag
 
         if uv_origin is not None:
             face[self.key_uv_orig] = uv_origin
         if uv_mode is not None:
             uv_int = uv_mode_to_int(uv_mode)
             face[self.key_uv] = uv_int
+        if thickness is not None:
+            face[self.key_thick] = thickness
 
         self.cur_face_seq += 1
         return face

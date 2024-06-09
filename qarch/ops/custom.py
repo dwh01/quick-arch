@@ -1,12 +1,13 @@
 import copy
 
 import bpy
-from collections import defaultdict
+from mathutils import Vector
+from collections import defaultdict, OrderedDict
 import itertools
 import json
 import rna_info
 from ..object import get_obj_data, set_obj_data, ACTIVE_OP_ID, REPLAY_OP_ID
-from ..object import Journal, merge_record, SelectionInfo
+from ..object import Journal, merge_record, SelectionInfo, TopologyInfo, wrap_id
 from ..mesh import ManagedMesh
 import struct
 
@@ -17,14 +18,15 @@ def debug_print(s):
 
 class CustomPropertyBase(bpy.types.PropertyGroup):
     """Set up common routines with simple layout and to/from dict methods
-    derived class needs two class member variables:
+    derived class needs 2 class member variables:
     1) field_layout which is nested list of rows of fields to display
     [[field_1, field2],[field_3]...]
     except a tuple means the first field is a boolean that toggles visibility of the second (pointer usually)
 
-    2) topology_lock which is a list of fields that should be read only once child operations exist
+    2) topology_lock which is a list of fields that could be read only once child operations exist
     because we can't change the number of vertices safely. Changing position is ok.
     """
+
     def draw(self, context, layout, lock=False):
         """Requires a field_layout list to be defined"""
         col = layout.column(align=True)
@@ -41,15 +43,28 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
     def draw_row_list(self, context, col, row_list, lock):
         if isinstance(row_list, tuple):  # boolean toggle for pointer
             pname, pointer = row_list
-            row = col.row(align=True)
-            if pname != "":
+            row = col
+            if isinstance(pname, dict):  # reference previously drawn attribute
+                toggle_param, value = next(iter(pname.items()))
+                if isinstance(value, set):
+                    if getattr(self, toggle_param) not in value:
+                        return
+                elif getattr(self, toggle_param) != value:
+                    return
+            elif (pname != "") and hasattr(self, pname):  # boolean to draw here
+                row = col.row(align=True)
                 row.prop(self, pname)
                 if not getattr(self, pname):
                     return
-            else:
-                row.label(text=pname)
+            else:  # draw label for next section
                 row = col.row(align=True)
-            getattr(self, pointer).draw(context, col, lock)
+                row.label(text=pname)
+
+            prop = getattr(self, pointer)
+            if hasattr(prop, 'to_dict'):
+                prop.draw(context, col, lock)
+            else:
+                row.prop(self, pointer)
 
         else:
             row = col.row(align=True)
@@ -64,7 +79,10 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
                 rna = self.bl_rna.properties[pname]
                 if isinstance(rna, bpy.types.EnumProperty):
                     row.label(text=getattr(self, pname))
-                    row.prop_menu_enum(self, pname)
+                    if pname == "category_item":  # preview
+                        row.template_icon_view(self, pname, show_labels=True)
+                    else:
+                        row.prop_menu_enum(self, pname)
                 else:
                     row.prop(self, pname)
 
@@ -74,7 +92,17 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
             if isinstance(v, dict):
                 getattr(self, k).from_dict(v)
             else:
-                setattr(self, k, v)
+                rna = self.bl_rna.properties[k]
+                if isinstance(rna, bpy.types.EnumProperty): # handle dynamic enums
+                    if v not in ['', 'N\A', '0']:
+                        try:
+                            setattr(self, k, v)
+                        except Exception:  # no longer available?
+                            pass
+                else:
+                    if isinstance(v, tuple):
+                        v = Vector(v)
+                    setattr(self, k, v)
 
     def to_dict(self):
         """Helper for saving persistent data"""
@@ -82,21 +110,26 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
         for row_list in self.field_layout:
             if isinstance(row_list, tuple):
                 pname, pointer = row_list
-                if pname != "":
-                    d[pname] = getattr(self, pname)
-                d[pointer] = getattr(self, pointer).to_dict()
+                if (type(pname) is not dict) and (pname != ""):
+                    if hasattr(self, pname):
+                        d[pname] = getattr(self, pname)  # boolean toggle
+                prop = getattr(self, pointer)
+                if hasattr(prop, 'to_dict'):
+                    d[pointer] = prop.to_dict()
+                else:  # simple property toggled by boolean
+                    d[pointer] = prop
             else:
                 for pname in row_list:
                     d[pname] = getattr(self, pname)
+                    if isinstance(d[pname], Vector):
+                        d[pname] = tuple(d[pname])
         return d
 
 
 class CustomOperator(bpy.types.Operator):
     """Geometry operations support for history
-    derived class needs a member called function to do the work:
-    function(obj, sel_info, op_id, prop_dict)
-
-    override set consistent
+    derived class needs a member called function to do the work
+    which takes (self, obj, SelectionInfo, op_id, prop_dict) and returns TopologyInfo
     """
     # invoke checks object custom data for "replay" or "active"
     # if found, load properties and selection info from journal
@@ -115,19 +148,12 @@ class CustomOperator(bpy.types.Operator):
     # if we are user invoked, the prop dialog will continue to call
     # execute where we will see the adjusting value
 
-    def control_points_match(self, sel_info, control_info, op_id):
-        """if the selection is the active op, that's ok, else must match control"""
-        sel_ops = sel_info.op_list()
-        if (len(sel_ops) == 1) and (op_id == sel_ops[0]):
-            return True
-        return control_info.matches(sel_info)
-
     def draw(self, context):
         """Simple case, override if needed
         Passes draw_locked flag in context to make some fields read only
         """
         should_lock = self.draw_locked(context)
-        self.props.draw(context, self.layout, should_lock)
+        self.props.draw(context, self.layout, False)  # should_lock)
 
     def draw_locked(self, context):
         """True means lock topology changing variables because children exist"""
@@ -173,7 +199,7 @@ class CustomOperator(bpy.types.Operator):
         self.addon_prefs = preferences.addons['qarch'].preferences  # note: self is passed to functions
 
         prop_dict = self.props.to_dict()
-        debug_print("Execute props {}".format(self.props.to_dict()))
+        debug_print("Execute {} {} props {}".format(self.bl_idname, op_id, self.props.to_dict()))
 
         if len(self.adjusting_ids):  # in a redo loop with the user
             n_region = len(self.adjusting_ids)
@@ -192,54 +218,69 @@ class CustomOperator(bpy.types.Operator):
 
             if i_region < len(self.adjusting_ids):  # during adjust loop, need to track all the new op ids
                 cur_op_id = self.adjusting_ids[i_region]
-                debug_print("Execute op {} i_region {} adjusting {} sel={}".format(op_id, i_region, cur_op_id, sel_info))
+                debug_print("  Execute op {} i_region {} adjusting {} sel={}".format(op_id, i_region, cur_op_id, sel_info))
             else:
                 if op_id == -1:
                     cur_op_id = self.new_record(sel_info)
-                    debug_print("Execute new op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
+                    debug_print("  Execute new op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
                 else:
                     cur_op_id = op_id
-                    debug_print("Execute existing op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
+                    debug_print("  Execute existing op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
                 self.adjusting_ids.append(cur_op_id)
-
+                self.journal.flush()
             # child operations list
             lst_controlled = self.journal.controlled_list(cur_op_id)
 
             topo_change = self.test_topology(cur_op_id)
             if topo_change:
-                if len(lst_controlled) > 0:
-                    self.report({"ERROR_INVALID_INPUT"}, "Topology change could delete verts that children depend on")
-                    self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
-                    return {"CANCELLED"}
-
-                else:  # delete old geometry so the mesh doesn't get corrupted
-                    debug_print("Removing old verts because of topo change")
-                    self.remove_verts(cur_op_id)
+                # if len(lst_controlled) > 0:
+                #     self.report({"ERROR_INVALID_INPUT"}, "Topology change could delete verts that children depend on")
+                #     self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
+                #     return {"CANCELLED"}
+                #
+                # else:  # delete old geometry so the mesh doesn't get corrupted
+                debug_print("    Removing old verts because of topo change")
+                self.remove_verts(cur_op_id)
 
             # selection state is not guaranteed
             # so operator implementations should rely on finding the control points
             ret = self.function(self.obj, sel_info, cur_op_id, prop_dict)
             if ret == {'CANCELLED'}:
+                print("cancelled by function")
                 self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
                 return {'CANCELLED'}
+            else:
+                self.journal[cur_op_id]['gen_info'] = ret.to_dict()  # topology info
 
-            lst_controlled = self.ensure_children(cur_op_id)  # this is so compound operations can add children
+            # this first so compound operations can add children, which might need to be updated by the write_props call
+            lst_controlled = self.ensure_children(cur_op_id)
 
             self.write_props_to_journal(cur_op_id)  # includes a journal flush
-            debug_print("Write props {}".format(cur_op_id))
-            # flush after ensure children for compound operators, also pushes self.adjusting_ids
+            debug_print("    Write props {}".format(cur_op_id))
+
+            # this so that if we changed face count, child control points can be intelligently updated
+            if len(lst_controlled) > 0:
+                if self.update_topology(ret, cur_op_id) == False:
+                    print("cancelled by topology")
+                    self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
+                    self.report({"ERROR_INVALID_INPUT"}, "Topology change could not be handled")
+                    return {'CANCELLED'}
+                else:
+                    self.journal.flush()  # push updates so replay will use them
 
             for child_id in lst_controlled:  # compound operations can have children on first pass
                 ret = replay_history(context, child_id)
                 if ret == {'CANCELLED'}:
+                    print("cancelled by child {}".format(child_id))
                     self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
                     return {'CANCELLED'}
 
             # before next loop, reload journal to include child changes
             self.journal = Journal(self.obj)
-            self.journal.jj['adjusting'] = self.adjusting_ids
+            self.set_adjusting(context, self.adjusting_ids)
 
         self.journal.flush()  # pushes self.adjusting_ids for the redo-loop
+        self.initial_journal = self.journal  # just in case
         # for poll = edit mode, don't care what is selected
         # many ops need a face selected, this should make sure it happens
         # but if not, override restore state
@@ -250,9 +291,34 @@ class CustomOperator(bpy.types.Operator):
         self.restore_state(restore_op, context)
         return {"FINISHED"}
 
+    def get_adjusting(self, context):
+        # from .dynamic_enums import qarch_asset_dir
+        # tmpfile = qarch_asset_dir / "temp/adjusting.txt"
+        # if not tmpfile.exists():
+        #     with open(tmpfile, "w") as f:
+        #         f.write("[]")
+        # with open(tmpfile, "r") as f:
+        #     line = f.readline()
+        #     lst = eval(line)
+        lst = self.journal['adjusting']
+        #print("get adjusting",lst)
+        return lst
+
+    def set_adjusting(self, context, lst):
+        # from .dynamic_enums import qarch_asset_dir
+        # tmpfile = qarch_asset_dir / "temp/adjusting.txt"
+        # with open(tmpfile, "w") as f:
+        #     line = str(lst)
+        #     f.write(line)
+        self.journal['adjusting'] = lst
+        self.journal.flush()
+        #print("set adjusting", lst)
+
     def get_state(self, context):
         """Setup internal variables to help us"""
         self.obj = context.object
+        self.context = context
+
         if context.object is None:
             self.active_id = -1
             self.adjusting_ids = []
@@ -267,7 +333,11 @@ class CustomOperator(bpy.types.Operator):
             self.replay_id = get_obj_data(self.obj, REPLAY_OP_ID)
             self.journal = Journal(self.obj)
             self.initial_journal = Journal(self.obj)
-            self.adjusting_ids = self.journal['adjusting']
+            possible = self.get_adjusting(context)
+            # because adjusting lives outside the undo context, sometimes the journal has
+            # rolled back to where these ids don't exist
+            self.adjusting_ids = [op_id for op_id in possible if wrap_id(op_id) in self.journal.jj]
+            # print(" accepted", self.adjusting_ids, " from ", possible)
 
             mm = ManagedMesh(self.obj)
             self.initial_sel_info = mm.get_selection_info()
@@ -309,14 +379,20 @@ class CustomOperator(bpy.types.Operator):
         # adjusting used within the execute loop undo call back cycle, if we hit invoke, clear it
         # because it was left over from a parent execution loop
         if len(self.adjusting_ids):
+            print("inv clear adjusting")
             self.adjusting_ids.clear()
-            self.journal.flush()
+            self.set_adjusting(context, self.adjusting_ids)
 
         if op_id > -1:
-            debug_print("Invoke op {} read props".format(op_id))
+            debug_print("Invoke op {} {} read props".format(op_id, self.bl_idname))
             self.read_props_from_journal(op_id)
         else:
-            debug_print("Invoke op {} new props".format(op_id))
+            if not self.is_face_selected(context):  # don't start with relative size, confusing to see nothing
+                if 'size' in self.props.to_dict():
+                    self.props.size.is_relative_x = False
+                    self.props.size.is_relative_y = False
+
+            debug_print("Invoke op {} new props".format(self.bl_idname))
             if 'UNDO' not in self.bl_options:  # no adjust last panel to pop up
                 wm = context.window_manager
                 return wm.invoke_props_dialog(self)
@@ -368,23 +444,6 @@ class CustomOperator(bpy.types.Operator):
         mm.to_mesh()
         mm.free()
 
-    def test_operation_consistent(self, op_id):
-        """Make sure selection state of mesh matches what this operation needs"""
-        # test that selected vertices belong to this operation's control operation
-        # else turn off active_op because user clicked away
-        if op_id == -1:
-            return True
-        mm = ManagedMesh(self.obj)
-        lst_sel_info = mm.get_selection_info()
-        mm.free()  # without update
-
-        sel_control = self.journal.get_sel_info(op_id)
-        debug_print("testing consistent {}".format(op_id))
-        b_ok = self.control_points_match(lst_sel_info, sel_control, op_id)
-        if not b_ok:
-            debug_print("Expected {} != Test {}".format(sel_control, lst_sel_info))
-        return b_ok
-
     def test_topology(self, op_id):
         """are we changing topology?"""
         prop_dict = self.journal[op_id]['properties']
@@ -402,6 +461,32 @@ class CustomOperator(bpy.types.Operator):
                     return True
         return False
 
+    def update_topology(self, gen_info, cur_op_id):
+        """Try to fix control points, return false if unable"""
+        try:
+            old_record = self.initial_journal[cur_op_id]
+        except Exception:
+            return True
+        old_gen = TopologyInfo(from_dict=old_record['gen_info'])
+
+        if not old_gen.is_compatible(gen_info):
+            print("update topo failed because of topology mismatch")
+            print(old_gen, gen_info)
+            return False
+
+        if old_gen.is_same_as(gen_info):
+            return True
+
+        lst_controlled = self.journal.controlled_list(cur_op_id)
+        for child in lst_controlled:
+            rec = self.journal[child]
+            sel_info = SelectionInfo(rec['control_points'])
+            flist = sel_info.face_list(cur_op_id)
+            old_gen.warp_to(gen_info, cur_op_id, sel_info)
+            rec['control_points'] = sel_info.to_dict()
+
+        return True
+
     def write_props_to_journal(self, op_id):
         """Update properties in record and flush journal"""
         # override this function in Compound Operator to alter child properties too
@@ -418,7 +503,7 @@ def copy_faces(self, obj, sel_info, op_id, prop_dict):
 
     sel_bmv = mm.get_face_verts(sel_info)
     dct_done = {}
-    new_sel_info = SelectionInfo()
+    gen_info = TopologyInfo(from_keys=["all"])
     for lst in sel_bmv:
         vlist = []
         for v in lst:
@@ -430,9 +515,7 @@ def copy_faces(self, obj, sel_info, op_id, prop_dict):
                 dct_done[key] = vnew
             vlist.append(vnew)
         face = mm.new_face(vlist)
-        #print("copied face {} {}".format(face[mm.key_face_op], face[mm.key_face_seq]))
-        #print([(v[mm.key_op], v[mm.key_seq]) for v in vlist])
-        new_sel_info.add_faces(face[mm.key_face_op], [face[mm.key_face_seq]])
+        gen_info.add("all")
 
     for face in mm.get_faces(sel_info):
         mm.delete_face(face)
@@ -440,7 +523,7 @@ def copy_faces(self, obj, sel_info, op_id, prop_dict):
     mm.to_mesh()
     mm.free()
 
-    return new_sel_info
+    return gen_info
 
 
 class CompoundOperator(CustomOperator):
@@ -469,6 +552,13 @@ class CompoundOperator(CustomOperator):
             lst_controlled = self.journal.controlled_list(op_id)
 
         return lst_controlled
+
+    def get_descent_id(self, op_id, levels):
+        """Often will need to skip down a few levels"""
+        for i in range(levels):
+            lst = self.journal.controlled_list(op_id)
+            op_id = lst[0]
+        return op_id
 
     def get_script(self):
         """Returns the same kind of script you get by exporting something"""

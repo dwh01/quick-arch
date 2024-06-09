@@ -8,8 +8,7 @@ import copy
 import pathlib
 from collections import defaultdict
 
-from .utils import get_obj_data, JOURNAL_PROP_NAME, SelectionInfo, wrap_id, unwrap_id
-
+from .utils import get_obj_data, JOURNAL_PROP_NAME, SelectionInfo, wrap_id, unwrap_id, TopologyInfo
 
 class Journal:
     """Encapsulate the history function"""
@@ -101,10 +100,17 @@ class Journal:
                 c_id = lst_ancestor[i]
                 dct_ops[p_id].append(c_id)
 
+            lst_child = self.controlled_list(op_start)
+            for c_id in lst_child:
+                if "QARCH_OT_set" in self.jj[wrap_id(c_id)]['op_name']:
+                    dct_ops[op_start].append(c_id)
+                    # have to include children with no faces
+                    # you can never click on set_tag operation, for instance
         return dct_ops
 
     def new_record(self, sel_info, op_name):
         rec = blank_record()
+        print("new rec", self.jj['max_id'], list(self.jj.keys()))
         new_id = self.jj['max_id'] + 1
         rec['op_id'] = new_id
         rec['op_name'] = op_name
@@ -176,6 +182,7 @@ def blank_journal():
         'controlled': {wrap_id(-1):[]},  # map operation to children
         'adjusting': [],  # using adjust last panel on these op ids
         'face_tags': [],  # face tags for this object
+        'version': "0.1",  # reserved for compatibility over time
     }
     return journal
 
@@ -190,7 +197,7 @@ def blank_record():
         'op_name': '',  # operator name for ability to restart the operator
         'properties': {},  # operator properties as run
         'control_points': {},  # selection info dict
-        'compound_count': 0  # set this for compound operations to know how many following ops are auto-inserted
+        'gen_info': TopologyInfo.blank_dict(),  # set this for topology updates
     }
     return record
 
@@ -220,6 +227,7 @@ def set_journal(obj, journal):
 
 def export_record(obj, operation_id, filename, do_screenshot):
     """Select operation and children and export to text file"""
+    from ..mesh import draw
     dct_subset = extract_record(obj, operation_id)
 
     text = json.dumps(dct_subset, indent=4)
@@ -229,7 +237,10 @@ def export_record(obj, operation_id, filename, do_screenshot):
         outfile.write(text)
 
     if do_screenshot:  # assume current window is all set up for us
-        bpy.ops.screen.screenshot_area(filepath=str(file_path.with_suffix(".png")), check_existing=False)
+        img = draw(file_path.stem)
+        # save
+        img_path = str(file_path.with_suffix(".png"))
+        img.save(img_path)
 
 
 def extract_record(obj, operation_id):

@@ -1,9 +1,9 @@
 """Operators that change selection state and layer data,
 many are not derived from CustomOperator"""
 import bpy
-from bpy.props import PointerProperty, EnumProperty, StringProperty, FloatProperty
+from bpy.props import BoolProperty, EnumProperty, StringProperty, FloatVectorProperty
 from .custom import *
-from .properties import face_tag_to_int
+from .properties import face_tag_to_int, get_face_tag_enum
 from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo
 from ..mesh import ManagedMesh
 
@@ -54,6 +54,8 @@ class QARCH_OT_create_object(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='EDIT')
         #bpy.ops.mesh.select_mode(type="FACE", action='ENABLE')
         #bpy.ops.mesh.select_mode(type="VERT", action='DISABLE')
+
+        get_face_tag_enum(self, context)  # fill enum list
         return {'FINISHED'}
 
 
@@ -191,17 +193,19 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
     def execute(self, context):
         active_op = get_obj_data(context.object, ACTIVE_OP_ID)
         journal = Journal(context.object)
-        dct, lst = journal.child_ops(active_op)
 
         mm = ManagedMesh(context.object)
-        for op_id in lst:
-            mm.set_op(op_id)
-            mm.delete_current_verts()
-
         if active_op > -1:
+            dct, lst = journal.child_ops(active_op)
+            for op_id in lst:
+                mm.set_op(op_id)
+                mm.delete_current_verts()
+
             lst_sel_info = SelectionInfo(journal[active_op]['control_points'])
             print("set consistent by selecting ", lst_sel_info)
             mm.set_selection_info(lst_sel_info)
+        else:
+            mm.delete_all()
         mm.to_mesh()
         mm.free()
 
@@ -326,6 +330,30 @@ class QARCH_OT_select_tags(bpy.types.Operator):
             if face[mm.key_tag] in sel_ints:
                 face.select_set(True)
         mm.bm.select_flush(True)
+        mm.to_mesh()
+        mm.free()
+
+        return {'FINISHED'}
+
+class QARCH_OT_clean_object(bpy.types.Operator):
+    """For cleanup when old faces are left behind"""
+    bl_idname = "qarch.clean_object"
+    bl_label = "Cleanup"
+    bl_description = "Delete hidden faces"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+            if op_id is not None:
+                return True
+        return False
+
+    def execute(self, context):
+
+        mm = ManagedMesh(context.object)
+        mm.cleanup()
         mm.to_mesh()
         mm.free()
 

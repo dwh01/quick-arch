@@ -1,10 +1,14 @@
 """Geometry creation routines"""
-import bpy, bmesh
+import copy
 
-from .utils import ManagedMesh, managed_bm, SelectionInfo
-from .SmartPoly import SmartPoly
+import bpy, bmesh
+from ..object import TopologyInfo, SelectionInfo, get_bt_collection
+from .utils import ManagedMesh
+from .SmartPoly import SmartPoly, coincident
 from mathutils import Vector, Matrix
+import mathutils
 import math
+import functools
 from collections import defaultdict
 
 def _common_start(obj, sel_info, break_link=False):
@@ -56,7 +60,12 @@ def _extract_size(size_dict, box_size):
         sx = box_size.x * sx
     if rel_y:
         sy = box_size.y * sy
+    if sx < 0:
+        sx = box_size.x + sx
+    if sy < 0:
+        sy = box_size.y + sy
     return sx, sy
+
 
 def _extract_vector(direction_dict):
     x = direction_dict['x']
@@ -71,7 +80,13 @@ def union_polygon(self, obj, sel_info, op_id, prop_dict):
     if len(lst_orig_poly) == 0:  # ok to add to none
         lst_orig_poly.append(SmartPoly())
 
+    topo = TopologyInfo(from_keys=['All'])  # flat list
+    face_attr = None
     for control_poly in lst_orig_poly:
+        face = mm.find_face_by_smart_vec(control_poly.coord)
+        if face:
+            face_attr = mm.get_face_attrs(face)
+
         poly = prop_dict['poly']
         n, start_ang = poly['num_sides'], poly['start_angle']
 
@@ -112,173 +127,416 @@ def union_polygon(self, obj, sel_info, op_id, prop_dict):
         for r_poly in lst_result:
             # make new face
             face = r_poly.make_face(mm)
+            if face_attr:
+                mm.set_face_attrs(face, face_attr)
+            topo.add('All')
 
     # finalize and save
     mm.to_mesh()
     mm.free()
+    return topo
+
+
+def _make_ngon(control_poly, prop_dict, mm, b_make=True):
+    poly = prop_dict['poly']
+    n, start_ang = poly['num_sides'], poly['start_angle']
+    thickness = prop_dict['frame']
+
+    # initialize with control coordinate system
+    new_poly = SmartPoly(matrix=control_poly.matrix, name="new")
+    new_poly.center = control_poly.center
+    new_poly.generate_ngon(n, start_ang)
+
+    # shift center off origin such that scaling to relative size 1 exactly fits control bounding box
+    box_center = (new_poly.bbox[1] + new_poly.bbox[0]) / 2
+    new_poly.shift_2d(-box_center)
+    # global alignment with control
+    new_poly.center = control_poly.center
+
+    sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+    if new_poly.box_size.x != 0:
+        sx = sx / new_poly.box_size.x
+    if new_poly.box_size.y != 0:
+        sy = sy / new_poly.box_size.y
+    new_poly.scale(sx, sy)
+    new_poly.update_3d()
+    new_poly.calculate()  # update bbox
+
+    voffset = control_poly.bbox[0] + Vector(_extract_offset(prop_dict['position'], control_poly.box_size))
+    align_corner = control_poly.make_3d(voffset) - new_poly.make_3d(new_poly.bbox[0])
+    new_poly.shift_3d(align_corner)
+    new_poly.calculate()
+
+    if b_make:
+        new_poly.make_verts(mm)
+
+    lst = [new_poly]
+    if thickness > 0:
+        new_poly.update_3d()
+        inner_poly = new_poly.generate_inset(thickness)
+        if b_make:
+            inner_poly.make_verts(mm)
+        lst.append(inner_poly)
+
+        lst = inner_poly.bridge_by_number(new_poly)
+        lst.append(inner_poly)
+
+    return lst, new_poly
+
+
+def _make_self_poly(control_poly, prop_dict, mm, b_make=True):
+    new_poly = SmartPoly()
+    new_poly.add(control_poly.coord, break_link=True)
+    new_poly.calculate()
+
+    sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+    if new_poly.box_size.x != 0:
+        sx = sx / new_poly.box_size.x
+    if new_poly.box_size.y != 0:
+        sy = sy / new_poly.box_size.y
+    new_poly.scale(sx, sy)
+    new_poly.update_3d()
+    new_poly.calculate()  # update center
+
+    voffset = control_poly.bbox[0] + Vector(_extract_offset(prop_dict['position'], control_poly.box_size))
+    align_corner = control_poly.make_3d(voffset) - new_poly.make_3d(new_poly.bbox[0])
+    new_poly.shift_3d(align_corner)
+    if b_make:
+        new_poly.make_verts(mm)
+
+    return [new_poly], new_poly
+
+
+def _make_arch(control_poly, prop_dict, mm, b_make=True):
+    arch_type = prop_dict['arch']['arch_type']
+    n = prop_dict['arch']['num_sides']
+    thickness = prop_dict['frame']
+    sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+
+    new_poly = SmartPoly()
+    lst_arch = new_poly.generate_arch(sx, sy, n, arch_type, thickness, mm)
+    lst_arch.append(new_poly)
+
+    bbmin = new_poly.bbox[0].x  # frame extends past this
+    for ap in lst_arch[:-1]:
+        bb_test = ap.bbox[0].x + new_poly.make_2d(ap.center).x
+        bbmin = min(bbmin, bb_test)
+
+    voffset = control_poly.bbox[0] + Vector(_extract_offset(prop_dict['position'], control_poly.box_size))
+    align_corner = control_poly.make_3d(voffset) - new_poly.make_3d(Vector((bbmin, new_poly.bbox[0].y)))
+
+    for p in lst_arch:
+        p.shift_3d(align_corner)
+        p.update_bmverts()
+
+    if (prop_dict.get('join', 'FREE') == 'BRIDGE') and (len(lst_arch) > 1):
+        # need a fake poly to hide inside edges during bridging
+        # outside perimeter
+        lst_co = [p.coord[0] for p in lst_arch[:-1]]
+        lst_co.append(lst_arch[-1].coord[1])
+        if arch_type == "JACK":
+            lst_co.insert(0, new_poly.coord[0])
+            lst_co.insert(1, new_poly.coord[1])
+            lst_co.append(new_poly.coord[2])
+            lst_co.append(new_poly.coord[3])
+        tmp_poly = SmartPoly()
+        tmp_poly.add(lst_co, break_link=False)
+        tmp_poly.calculate()
+    else:
+        tmp_poly = lst_arch[-1]
+
+    return lst_arch, tmp_poly
+
+
+def _make_super(control_poly, prop_dict, mm, b_make=True):
+    resolution = prop_dict['resolution']
+
+    new_poly = SmartPoly(matrix=control_poly.matrix, name="new")
+    new_poly.center = control_poly.center
+
+    super_dict = prop_dict['super_curve']
+    start_angle = super_dict['start_angle']
+    x, sx, px = super_dict['x'], super_dict['sx'], super_dict['px']
+    y, sy, py = super_dict['y'], super_dict['sy'], super_dict['py']
+    pn = super_dict['pn']
+    new_poly.generate_super(x, sx, px, y, sy, py, pn, resolution, start_angle)
+    npc = new_poly.center - control_poly.center  # can be asymmetric so off center
+
+    sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+    if new_poly.box_size.x != 0:
+        sx = sx / new_poly.box_size.x
+    if new_poly.box_size.y != 0:
+        sy = sy / new_poly.box_size.y
+
+    new_poly.shift_3d(-npc)  # scale around geometric origin
+    new_poly.scale(sx, sy)
+    new_poly.update_3d()
+    npc.x *= sx
+    npc.y *= sy
+    new_poly.shift_3d(npc)
+    new_poly.update_3d()  # update bbox
+    new_poly.calculate()  # update center
+
+    voffset = control_poly.bbox[0] + Vector(_extract_offset(prop_dict['position'], control_poly.box_size))
+    align_corner = control_poly.make_3d(voffset) - new_poly.make_3d(new_poly.bbox[0])
+    new_poly.shift_3d(align_corner)
+    new_poly.calculate()
+
+    if b_make:
+        new_poly.make_verts(mm)
+    lst = [new_poly]
+
+    if prop_dict['join'] == 'BRIDGE':  # project to outside along radial, not outward ray
+        outer = SmartPoly(matrix=new_poly.matrix, name="outer")
+        outer.center = new_poly.center - npc
+        outer.generate_ngon(resolution, start_angle)
+        for sv in outer.coord:
+            far = outer.center + (sv.co3 - outer.center)*100
+            pt2, idx = control_poly.intersect_projection(outer.center, far)
+            sv.co3 = outer.make_3d(pt2)
+        outer.calculate()
+
+        lst = new_poly.bridge_by_number(outer)
+        lst.append(new_poly)
+    else:
+        outer = new_poly
+
+    return lst, outer
+
+
+def _make_curve_poly(control_poly, prop_dict, mm, b_make=True):
+    resolution = prop_dict['resolution']
+    ob_dict = prop_dict['local_object']
+    ob_name = ob_dict['object_name']
+
+    new_poly = SmartPoly(matrix=control_poly.matrix, name="new")
+    new_poly.center = control_poly.center
+    curve_obj = bpy.data.objects[ob_name]
+    spline = curve_obj.data.splines[0]
+
+    if len(spline.bezier_points) >= 2:
+        r = resolution + 1
+        segments = len(spline.bezier_points)
+        if not spline.use_cyclic_u:
+            segments -= 1
+
+        points = []
+        for i in range(segments):
+            inext = (i + 1) % len(spline.bezier_points)
+
+            knot1 = spline.bezier_points[i].co
+            handle1 = spline.bezier_points[i].handle_right
+            handle2 = spline.bezier_points[inext].handle_left
+            knot2 = spline.bezier_points[inext].co
+
+            _points = mathutils.geometry.interpolate_bezier(knot1, handle1, handle2, knot2, r)
+            if i < segments-1:
+                points = points + _points[:-1]
+            else:
+                points = points + _points
+
+        for p in points:
+            co = new_poly.make_3d(p.to_2d())
+            new_poly.add(co)
+        new_poly.calculate()
+
+        if new_poly.normal.dot(control_poly.normal) < 0:
+            new_poly.flip_z()
+        else:
+            new_poly.sort_winding()
+        new_poly.calculate()
+
+        sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+        if new_poly.box_size.x != 0:
+            sx = sx / new_poly.box_size.x
+        if new_poly.box_size.y != 0:
+            sy = sy / new_poly.box_size.y
+
+        new_poly.scale(sx, sy)
+        new_poly.update_3d()
+
+        voffset = control_poly.bbox[0] + Vector(_extract_offset(prop_dict['position'], control_poly.box_size))
+        align_corner = control_poly.make_3d(voffset) - new_poly.make_3d(new_poly.bbox[0])
+        new_poly.shift_3d(align_corner)
+
+        if b_make:
+            new_poly.make_verts(mm)
+
+    return [new_poly], new_poly
+
+
+def _make_catalog_poly(control_poly, prop_dict, mm, context, b_make=True):
+    from ..ops import get_calatalog_file, BT_CATALOG_SRC
+    from ..object import Journal
+
+    cat_dict = prop_dict['catalog_object']
+    obj_name = cat_dict['category_item']
+    bfile = get_calatalog_file(context)
+
+    j = Journal(context.object)
+    try:
+        obj = bpy.data.objects[obj_name]
+    except Exception:
+        with bpy.data.libraries.load(str(bfile)) as (data_from, data_to):
+            data_to.objects.append(obj_name)
+
+        col = get_bt_collection()
+        obj = bpy.data.objects[obj_name]
+        col.objects.link(obj)
+        obj[BT_CATALOG_SRC] = str(bfile)  # so we can check for refresh if we swap styles
+
+        bpy.ops.ed.undo_push(message="Load Curve")
+
+    spoof = copy.deepcopy(prop_dict)
+    spoof['local_object']['object_name'] = obj_name
+
+    j = Journal(context.object)
+
+    return _make_curve_poly(control_poly, spoof, mm, b_make)
 
 
 def inset_polygon(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=False)
     mm.set_op(op_id)
-    for orig_poly in lst_orig_poly:
+
+    if len(lst_orig_poly) == 0:  # ok to add to none
+        lst_orig_poly.append(SmartPoly())
+        prop_dict['join'] = 'FREE'
+        prop_dict['size_x']['is_relative_x'] = False
+        prop_dict['size_y']['is_relative_y'] = False
+
+    shape_type = prop_dict['shape_type']
+    join_type = prop_dict['join']
+    frame_mat = prop_dict['frame_material']
+    center_mat = prop_dict['center_material']
+    add_perimeter = prop_dict['add_perimeter']
+    # avoid errors with missing objects
+    if (shape_type == 'CATALOG') and (prop_dict['catalog_object']['category_item'] in ['','N/A','0']):
+        shape_type = 'SELF'
+    if (shape_type == 'CURVE') and (prop_dict['local_object']['object_name'] in ['','N/A','0']):
+        shape_type = 'SELF'
+
+    frame_idx = None
+    center_idx = None
+    for i, mat in enumerate(self.obj.data.materials):
+        if mat.name == frame_mat:
+            frame_idx = i
+        if mat.name == center_mat:
+            center_idx = i
+    if frame_idx is None:
+        self.obj.data.materials.append(bpy.data.materials[frame_mat])
+        frame_idx = len(self.obj.data.materials)-1
+    if center_idx is None:
+        self.obj.data.materials.append(bpy.data.materials[center_mat])
+        center_idx = len(self.obj.data.materials)-1
+
+    topo = TopologyInfo(from_keys=['Bridge', 'Center', 'Frame'])
+
+    faces = mm.get_faces(sel_info)
+    face_attr = None
+    for orig_poly, orig_face in zip(lst_orig_poly, faces):  # note, if a region, the first face provides the info
         if len(orig_poly.coord) < 3:
             continue
+        face_attr = mm.get_face_attrs(orig_face)
 
         control_poly = SmartPoly()
-        control_poly.add(orig_poly.coord, break_link = True)
+        control_poly.add(orig_poly.coord, break_link=True)
         control_poly.calculate()
 
-        new_poly = SmartPoly(matrix=control_poly.matrix, name="new")
-        new_poly.center = control_poly.center
-
-        thickness = prop_dict['thickness']
-        inner_poly = None
-        lst_arch = []
-        arch_type = ""
-        if prop_dict['use_ngon']:
-            poly = prop_dict['poly']
-            n, start_ang = poly['num_sides'], poly['start_angle']
-
-            new_poly.generate_ngon(n, start_ang)
-
-            # shift center off origin such that scaling to relative size 1 exactly fits control bounding box
-            box_center = (new_poly.bbox[1] + new_poly.bbox[0]) / 2
-            new_poly.shift_2d(-box_center)
-            # global alignment with control
-            new_poly.center = control_poly.center
-
-            sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
-            if new_poly.box_size.x != 0:
-                sx = sx/new_poly.box_size.x
-            if new_poly.box_size.y != 0:
-                sy = sy/new_poly.box_size.y
-            new_poly.scale(sx, sy)
-
-            if thickness > 0:
-                new_poly.update_3d()
-                inner_poly = new_poly.generate_inset(thickness)
-
-        elif prop_dict['use_arch']:
-            arch_type = prop_dict['arch']['arch_type']
-            n = prop_dict['arch']['num_sides']
-            sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
-
-            lst_arch = new_poly.generate_arch(sx, sy, n, arch_type, thickness, mm)
-            dv = control_poly.center - new_poly.center
-            new_poly.shift_3d(dv)
-            for p in lst_arch:
-                p.shift_3d(dv)
-
-        else:  # self similar
-            new_poly = SmartPoly()
-            new_poly.add(control_poly.coord, break_link=True)
-            new_poly.calculate()
-
-            sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
-            if new_poly.box_size.x != 0:
-                sx = sx / new_poly.box_size.x
-            if new_poly.box_size.y != 0:
-                sy = sy / new_poly.box_size.y
-            new_poly.scale(sx, sy)
-
-        # offset
-        align_corner = control_poly.bbox[0] - new_poly.bbox[0]
-        sx, sy = _extract_offset(prop_dict['position'], control_poly.box_size)
-        align_corner.x += sx
-        align_corner.y += sy
-        new_poly.shift_2d(align_corner)
-        if inner_poly:
-            inner_poly.shift_2d(align_corner)
-        for p in lst_arch:
-            p.shift_2d(align_corner)
+        if shape_type == 'NGON':
+            lst_new, outer = _make_ngon(control_poly, prop_dict, mm)
+            if len(lst_new) > 1:
+                topo.add('Frame', len(lst_new)-1)
+            topo.add('Center')
+        elif shape_type == 'SELF':
+            lst_new, outer = _make_self_poly(control_poly, prop_dict, mm)
+            topo.add('Center')
+        elif shape_type == 'ARCH':
+            lst_new, outer = _make_arch(control_poly, prop_dict, mm)
+            if len(lst_new) > 1:
+                topo.add('Frame', len(lst_new)-1)
+            topo.add('Center')
+        elif shape_type == 'SUPER':
+            lst_new, outer = _make_super(control_poly, prop_dict, mm)
+            if len(lst_new) > 1:
+                topo.add('Frame', len(lst_new)-1)
+            topo.add('Center')
+        elif shape_type == 'CURVE':
+            lst_new, outer = _make_curve_poly(control_poly, prop_dict, mm)
+            topo.add('Center')
+        elif shape_type == 'CATALOG':
+            lst_new, outer = _make_catalog_poly(control_poly, prop_dict, mm, self.context)
+            topo.add('Center')
+        else:
+            assert False, "Unhandled shape type {}".format(shape_type)
 
         # shift center z
         b_extruding = False
-        if prop_dict['extrude_distance'] != 0:
-            new_poly.center = new_poly.center + new_poly.normal * prop_dict['extrude_distance']
-            b_extruding = True
-
-        new_poly.update_3d()  # 3d offset of polygons used when clipping
-        new_poly.calculate()  # refresh winding angles, center, etc
-        if inner_poly:
-            inner_poly.update_3d()
-            inner_poly.calculate()
-        for p in lst_arch:
-            p.update_3d()
-            p.calculate()
-
-        if new_poly.normal.dot(control_poly.normal) < .999:  # flipped normal
-            new_poly.flip_z()
-            if inner_poly:
-                inner_poly.flip_z()
-            for p in lst_arch:
+        for i_new, p in enumerate(lst_new):
+            if p.normal.dot(control_poly.normal) < .999:  # flipped normal
                 p.flip_z()
 
-        # make bmesh verts so bridge faces share them
-        control_poly.make_verts(mm)
-        new_poly.make_verts(mm)
-        if inner_poly:
-            inner_poly.make_verts(mm)
-        for p in lst_arch:
-            p.make_verts(mm)
+            if prop_dict['extrude_distance'] != 0:
+                p.center = p.center + p.normal * prop_dict['extrude_distance']
+                b_extruding = True
 
-        add_perimeter = prop_dict['add_perimeter']
-        if not lst_arch:
-            lst_result = new_poly.bridge(control_poly, mm, add_perimeter, b_extruding)
+            p.calculate()  # refresh winding angles, center, etc
 
-            if inner_poly:
-                lst_result2 = inner_poly.bridge_by_number(new_poly)
-                lst_result = lst_result + lst_result2
-                lst_result.append(inner_poly)
+        if (len(lst_new) == 1) and (len(control_poly.coord) >= 3):
+            if join_type in ['INSIDE', 'OUTSIDE']:
+                lst_new = lst_new[0].clip_with(control_poly, join_type)
+                if len(lst_new):
+                    outer = lst_new[0]
+
+        for i_new, p in enumerate(lst_new):
+            face = p.make_face(mm)
+            if i_new == len(lst_new)-1:
+                face.material_index = frame_idx
             else:
-                lst_result.append(new_poly)
+                face.material_index = center_idx
 
-        else:
-            # offset = new_poly.coord[0].co3 - inner_arch.coord[0].co3
-            # vy = new_poly.ydir.dot(offset) * new_poly.ydir
-            # inner_arch.shift_3d(vy)
-            # need a fake poly to hide inside edges during bridging
-            # outside perimeter
-            lst_co = [p.coord[0] for p in lst_arch]
-            lst_co.append(lst_arch[-1].coord[1])
-            if arch_type == "JACK":
-                lst_co.insert(0, new_poly.coord[0])
-                lst_co.insert(1, new_poly.coord[1])
-                lst_co.append(new_poly.coord[2])
-                lst_co.append( new_poly.coord[3])
-            tmp_poly = SmartPoly()
-            tmp_poly.add(lst_co)
-            tmp_poly.calculate()
+        if (join_type == 'BRIDGE') and (shape_type != 'SUPER'):
+            # make bmesh verts so bridge faces share them
+            control_poly.make_verts(mm)
+            # ARCH has fake outer, but it used the same bm verts so was updated in position
+            n_outer = 0
+            lst_result = outer.bridge(control_poly, mm, add_perimeter, b_extruding)
+            topo.add('Bridge', len(lst_result))
+            for p in lst_result:
+                face = p.make_face(mm)
+                if face_attr is not None:
+                    mm.set_face_attrs(face, face_attr)  # keep tags, uv mode, etc
+                    face.material_index = orig_face.material_index
 
-            lst_result = tmp_poly.bridge(control_poly, mm, add_perimeter, b_extruding)
-            lst_result = lst_result + lst_arch
-
-            lst_result.append(new_poly)
-
-        for r_poly in lst_result:
-            # make new face
-            face = r_poly.make_face(mm)
-
-        if len(lst_result):
-            face = mm.find_face_by_smart_vec(orig_poly.coord)
-            if face is not None:
-                mm.delete_face(face)
+            if len(lst_result) and (orig_face is not None):
+                mm.delete_face(orig_face)
 
     # finalize and save
     mm.to_mesh()
     mm.free()
+    return topo
 
 
 def grid_divide(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info)
     mm.set_op(op_id)
 
+    topo = TopologyInfo(from_keys=["All"])
+    topo.set_modulus("All", prop_dict['count_y'])
+    face_attr = None
     for control_poly in lst_orig_poly:
+        face = mm.find_face_by_smart_vec(control_poly.coord)
+        if face:
+            face_attr = mm.get_face_attrs(face)
+
+        sx, sy = _extract_offset(prop_dict['offset'], control_poly)
+
         count_x = prop_dict['count_x']
         count_y = prop_dict['count_y']
+        for i in range((count_x+1)*(count_y+1)):
+            topo.add("All")
 
-        lst_poly = control_poly.grid_divide(count_x, count_y)
+        lst_poly = control_poly.grid_divide(count_x, count_y, sx, sy)
 
         # the cells don't share vertices unless we make it so
         dct_new = {}
@@ -291,6 +549,8 @@ def grid_divide(self, obj, sel_info, op_id, prop_dict):
                     c.bm_vert = mm.new_vert(c.co3)
                     dct_new[r] = c.bm_vert
             face = poly.make_face(mm)
+            if face_attr is not None:
+                mm.set_face_attrs(face, face_attr)
 
         if len(lst_poly):
             # remove old face
@@ -300,13 +560,22 @@ def grid_divide(self, obj, sel_info, op_id, prop_dict):
             mm.to_mesh()
 
     mm.free()
+    return topo
 
 
 def split_face(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
     mm.set_op(op_id)
 
+    # we assume that all faces are split in 2
+    # but some properties might result in just 1
+    topo = TopologyInfo(from_keys=["All"])
+    topo.set_modulus("All", 2)
+    face_attr = None
     for control_poly in lst_orig_poly:
+        face = mm.find_face_by_smart_vec(control_poly.coord)
+        if face:
+            face_attr = mm.get_face_attrs(face)
         control_poly.make_verts(mm)  # so they can be shared
 
         lst_poly = []
@@ -323,6 +592,12 @@ def split_face(self, obj, sel_info, op_id, prop_dict):
 
         for poly in lst_poly:
             face = poly.make_face(mm)
+            topo.add("All")
+            if face_attr is not None:
+                mm.set_face_attrs(face, face_attr)
+
+        if len(lst_poly) != 2: # bad assumption before, have to just use one long list
+            topo.set_modulus("All", 0)
 
         if len(lst_poly):
             # remove old face
@@ -333,12 +608,18 @@ def split_face(self, obj, sel_info, op_id, prop_dict):
         # else discard new points and leave old face in place
 
     mm.free()
-
+    return topo
 
 def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
     mm.set_op(op_id)
+    topo = TopologyInfo(from_keys=['Sides','Tops'])
+    ncoord = len(lst_orig_poly[0].coord)
+
     for control_poly in lst_orig_poly:
+        if len(control_poly.coord) != len(lst_orig_poly[0].coord):
+            ncoord = None  # no modulus possible
+
         sx0, sy0 = _extract_size(prop_dict['size'], control_poly.box_size)
         if control_poly.box_size.x != 0:
             sx0 = sx0 / control_poly.box_size.x
@@ -381,26 +662,38 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
             top_poly.make_verts(mm)  # to share
             lst_poly = top_poly.bridge_by_number(bottom_poly)
             lst_layers.append(lst_poly)
+            for j in range(len(lst_poly)):
+                topo.add('Sides')
 
             bottom_poly = top_poly
 
         lst_layers.append([bottom_poly]) # add the cap face
+        topo.add('Tops')
 
         for lst_poly in lst_layers:
             for r_poly in lst_poly:
                 # make new face
                 face = r_poly.make_face(mm)
 
+    if ncoord is not None:
+        topo.set_modulus('Sides', ncoord)
+
     # finalize and save
     mm.to_mesh()
     mm.free()
+    return topo
 
 
 def extrude_sweep(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
     mm.set_op(op_id)
+    topo = TopologyInfo(from_keys=['Sides','Tops'])
+    ncoord = len(lst_orig_poly[0].coord)
 
     for control_poly in lst_orig_poly:
+        if len(control_poly.coord) != len(lst_orig_poly[0].coord):
+            ncoord = None  # no modulus possible
+
         ox, oy, oz = _extract_vector(prop_dict['origin'])
         ax, ay, az = _extract_vector(prop_dict['axis'])
         v_origin = Vector((ox, oy, oz))
@@ -436,171 +729,279 @@ def extrude_sweep(self, obj, sel_info, op_id, prop_dict):
             top_poly.make_verts(mm)  # to share
             lst_poly = top_poly.bridge_by_number(bottom_poly)
             lst_layers.append(lst_poly)
+            for j in range(len(lst_poly)):
+                topo.add('Sides')
 
             bottom_poly = top_poly
 
         lst_layers.append([bottom_poly])  # add the cap face
+        topo.add('Tops')
 
         for lst_poly in lst_layers:
             for r_poly in lst_poly:
                 # make new face
                 face = r_poly.make_face(mm)
 
+    if ncoord is not None:
+        topo.set_modulus('Sides', ncoord)
     # finalize and save
     mm.to_mesh()
     mm.free()
+    return topo
+
+
+def _combined_bbox(lst_poly):
+    minv = lst_poly[0].bbox[0]
+    maxv = lst_poly[0].bbox[1]
+    for p in lst_poly:
+        v = lst_poly[0].make_2d(p.make_3d(p.bbox[0]))
+        minv.x = min(minv.x, v.x)
+        minv.y = min(minv.y, v.y)
+        v = lst_poly[0].make_2d(p.make_3d(p.bbox[1]))
+        maxv.x = max(maxv.x, v.x)
+        maxv.y = max(maxv.y, v.y)
+    minv = lst_poly[0].make_3d(minv)
+    maxv = lst_poly[0].make_3d(maxv)
+    return minv, maxv
 
 
 def solidify_edges(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=False)
     mm.set_op(op_id)
 
-    for control_poly in lst_orig_poly:
-        # cross section, this poly should have z in the control plane
-        mat_inline = Matrix.Identity(3)
-        for i in range(3):
-            mat_inline[0][i] = control_poly.normal[i]
-            mat_inline[1][i] = control_poly.xdir[i]
-            mat_inline[2][i] = control_poly.ydir[i]
+    shape_type = prop_dict['shape_type']
+    frame_mat = prop_dict['frame_material']
 
-        poly = prop_dict['poly']
-        n, start_ang = poly['num_sides'], poly['start_angle']
-        sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
-        do_horizontal = prop_dict['do_horizontal']
-        do_vertical = prop_dict['do_vertical']
-        inset = prop_dict['inset']
-        z_offset = prop_dict['z_offset']
-        vz = z_offset * control_poly.normal
+    # avoid errors with missing objects
+    if (shape_type == 'CATALOG') and (prop_dict['catalog_object']['category_item'] in ['', 'N/A', '0']):
+        shape_type = 'SELF'
+    if (shape_type == 'CURVE') and (prop_dict['local_object']['object_name'] in ['', 'N/A', '0']):
+        shape_type = 'SELF'
 
-        lst_poly = []
-        lst_connect = []  # needed so we know to square off the ends
+    tag = prop_dict['face_tag']
+    side_list = []
+    if prop_dict['side_list'] != "":
+        side_list = prop_dict['side_list'].split(",")
+        side_list = [int(s.strip()) for s in side_list]
+    b_all_sides = len(side_list)==0
+
+    inset = prop_dict['inset']
+    z_offset = prop_dict['z_offset']
+
+    frame_idx = None
+    for i, mat in enumerate(self.obj.data.materials):
+        if mat.name == frame_mat:
+            frame_idx = i
+    if frame_idx is None:
+        self.obj.data.materials.append(bpy.data.materials[frame_mat])
+        frame_idx = len(self.obj.data.materials) - 1
+
+    topo = TopologyInfo(from_keys=['Sides', 'Starts', 'Ends'])
+
+    faces = mm.get_faces(sel_info)
+
+    face_attr = None
+    for orig_poly, orig_face in zip(lst_orig_poly, faces):  # note, if a region, the first face provides the info
+        if len(orig_poly.coord) < 3:
+            continue
+        face_attr = mm.get_face_attrs(orig_face)
+        sx, sy = _extract_size(prop_dict['size'], orig_poly.box_size)
+        # fake in position to center the shape
+        prop_dict['position'] = {'offset_x': -sx/2, 'is_relative_x': False,
+                                 'offset_y': -sy/2, 'is_relative_y': False}
+
+        control_poly = SmartPoly()
+        control_poly.add(orig_poly.coord, break_link=True)
+        control_poly.calculate()
+
+        vz = control_poly.normal * prop_dict['z_offset']
+
+        if shape_type == 'NGON':
+            lst_new, outer = _make_ngon(control_poly, prop_dict, mm, False)
+            if len(lst_new) > 1:
+                lst_new = lst_new[:-1]  # remove center
+        elif shape_type == 'SELF':
+            lst_new, outer = _make_self_poly(control_poly, prop_dict, mm, False)
+        elif shape_type == 'ARCH':
+            lst_new, outer = _make_arch(control_poly, prop_dict, mm, False)
+            if len(lst_new) > 1:
+                lst_new = lst_new[:-1]  # remove center
+        elif shape_type == 'SUPER':
+            lst_new, outer = _make_super(control_poly, prop_dict, mm, False)
+            if len(lst_new) > 1:
+                lst_new = lst_new[-1:]  # only keep center
+        elif shape_type == 'CURVE':
+            lst_new, outer = _make_curve_poly(control_poly, prop_dict, mm, False)
+        elif shape_type == 'CATALOG':
+            lst_new, outer = _make_catalog_poly(control_poly, prop_dict, mm, self.context, False)
+        else:
+            assert False, "Unhandled shape type {}".format(shape_type)
+
+        # consolidate lst new to avoid internal walls
+        # this is for frames and arches
+        if (shape_type == 'ARCH') and (len(lst_new) > 1):  # not closed, so ok to union all
+            poly_a = lst_new[0].union(lst_new[1:])
+            lst_new = [poly_a]
+
+        elif len(lst_new) > 1:
+            if len(lst_new) > 2:
+                poly_a = lst_new[0].union(lst_new[1:-1])
+            else:
+                poly_a = lst_new[0]
+            poly_b = lst_new[-1]
+            # ensure we only stitch one edge together
+            poly_test = lst_new[-2]
+            matches = []
+            for poly_test in [lst_new[-2], lst_new[0]]:  # for arch, don't know which side might match
+                for i_test, sv in enumerate(poly_test.coord):
+                    for j, sv1 in enumerate(poly_b.coord):
+                        if coincident(sv.co3, sv1.co3):
+                            for k, sv2 in enumerate(poly_a.coord):
+                                if coincident(sv.co3, sv2.co3):
+                                    matches.append((j, k))
+                                    break
+                            break
+                if len(matches):
+                    break
+
+            # assuming 2 adjacent points, need points in between on poly_b - j index
+            if matches[0][1] < matches[1][1]:
+                j1 = matches[0][0]
+                j2 = matches[1][0]
+                ipos = matches[0][1]
+            else:
+                j1 = matches[1][0]
+                j2 = matches[0][0]
+                ipos = matches[1][1]
+            jidx = list(range(len(poly_b.coord)))
+            if j1 < j2:
+                jidx = jidx[j2+1:] + jidx[:j1]
+            else:
+                jidx = jidx[j1+1:] + jidx[:j2]
+
+            for j in jidx:
+                poly_a.coord.insert(ipos+1, poly_b.coord[j])
+                ipos = ipos + 1
+            poly_a.calculate()
+            lst_new = [poly_a]
+
         ncp = len(control_poly.coord)
-        for i in range(ncp):
-            e = control_poly.coord[(i+1) % ncp].co3 - control_poly.coord[i].co3
+        if b_all_sides:
+            side_list= list(range(ncp))
+        for i_edge in range(ncp):
+            e = control_poly.coord[(i_edge + 1) % ncp].co3 - control_poly.coord[i_edge].co3
             if e.length > 0:
                 e.normalize()
-                conn = True
-                if abs(e.x) >= abs(e.y):
-                    is_horiz = True
-                    if not do_horizontal:
-                        conn = False
+                # cross section, this poly should have z in the control plane
+                mat_inline = Matrix.Identity(3)
+                local_z = e
+                local_y = control_poly.normal
+                local_x = local_y.cross(local_z)
+                for i in range(3):
+                    mat_inline[0][i] = local_x[i]
+                    mat_inline[1][i] = local_y[i]
+                    mat_inline[2][i] = local_z[i]
+
+                b_make = i_edge in side_list
+                b_bevel_start = ((i_edge + ncp - 1) % ncp) in side_list
+                b_bevel_end = ((i_edge + 1) % ncp) in side_list
+                print(i_edge, "make",b_make,"start",b_bevel_start,"end",b_bevel_end)
+
+                lst_start = []
+                if b_bevel_start:
+                    pt_out, ray_out = control_poly.outward_ray_idx(i_edge)
+                    theta = local_z.angle(ray_out)
+                    mat = Matrix.Rotation(-theta+math.pi, 3, local_y)
+                    edge_mat = mat_inline @ mat
+                    scale = math.fabs(math.cos(theta))
+                    scale = 1/max(scale, 0.01)
                 else:
-                    is_horiz = False
-                    if not do_vertical:
-                        conn = False
-                lst_connect.append(conn)
-
-        for i in range(ncp):
-            e = control_poly.coord[(i + 1) % ncp].co3 - control_poly.coord[i].co3
-            if e.length > 0:
-                e.normalize()
-                b_bevel = lst_connect[(i + ncp -1) % ncp] and lst_connect[i]
-                b_make = lst_connect[(i + ncp -1) % ncp] or lst_connect[i]
-
-                if not b_bevel:
-                    if not lst_connect[i]: # align with last edge instead of this edge
-                        e = control_poly.coord[i].co3 - control_poly.coord[(i + ncp - 1) % ncp].co3
-                        e.normalize()
-
-                    crs = control_poly.xdir.cross(e)
-                    dx = control_poly.xdir.dot(e)
-                    dy = math.asin(crs.length)
-                    if crs.dot(control_poly.normal) < 0:
-                        dy = -dy
-                    ang = math.atan2(dy, dx)
-                    r90 = -math.pi / 2
-                    ang = ang + r90  # not normal but edge points outward
-
-                    rmat = Matrix.Rotation(ang, 3, 'X')  # local x is control normal
-                    edge_mat = rmat @ mat_inline
-
-                    # test sometimes the polygon is flipped
-                    vtest = edge_mat @ e
-                    test = Vector((0,0,1)).dot(vtest)
-                    if test < 0:
-                        rmat = Matrix.Rotation(math.pi, 3, 'X')  # local x is control normal
-                        edge_mat = rmat @ edge_mat
+                    edge_mat = mat_inline
                     scale = 1
 
-                else:
-                    pt_out, ray_out = control_poly.outward_ray_idx(i)
-                    crs = control_poly.xdir.cross(ray_out)
-                    dx = control_poly.xdir.dot(ray_out)
-                    dy = math.asin(crs.length)
-                    if crs.dot(control_poly.normal) < 0:
-                        dy = -dy
-                    ang = math.atan2(dy, dx)
+                for i_new in range(len(lst_new)):
+                    start_poly = SmartPoly(matrix=edge_mat, name="start")
+                    start_poly.center = control_poly.coord[i_edge].co3
+                    for sv in lst_new[i_new].coord:
+                        v = Vector((sv.co2.x * scale, sv.co2.y))
+                        start_poly.add(start_poly.make_3d(v))
+                    start_poly.calculate()
+                    start_poly.shift_3d(vz + inset*start_poly.xdir*scale)
+                    #start_poly.calculate()
+                    lst_start.append(start_poly)
 
-                    r90 = -math.pi / 2
-                    ang = ang + r90  # not normal but edge points outward
-                    rmat = Matrix.Rotation(ang, 3, 'X')   # local x is control normal
-                    edge_mat = rmat @ mat_inline
-
-                    # test sometimes the polygon is flipped
-                    vtest = edge_mat @ e
-                    test = Vector((0,0,1)).dot(vtest)
-                    if test < 0:
-                        rmat = Matrix.Rotation(math.pi, 3, 'X')  # local x is control normal
-                        edge_mat = rmat @ edge_mat
-                    if test != 0:
-                        scale = 1/abs(test)
-                    else:
-                        scale = 1
-                new_poly = SmartPoly(matrix=edge_mat, name="new")
-                new_poly.center = control_poly.coord[i].co3
-                new_poly.generate_ngon(n, start_ang)
-                if new_poly.box_size.x != 0:
-                    sx0 = sx / new_poly.box_size.x * scale
+                lst_end = []
+                if b_bevel_end:
+                    pt_out, ray_out = control_poly.outward_ray_idx((i_edge + 1) % ncp)
+                    theta = local_z.angle(ray_out)
+                    mat = Matrix.Rotation(-theta, 3, local_y)
+                    edge_mat = mat_inline @ mat
+                    scale = math.fabs(math.cos(theta))
+                    scale = 1 / max(scale, 0.01)
                 else:
-                    sx0 = sx
-                if new_poly.box_size.y != 0:
-                    sy0 = sy / new_poly.box_size.y
-                else:
-                    sy0 = sy
-                new_poly.scale(sx0, sy0)
+                    edge_mat = mat_inline
+                    scale = 1
 
-                new_poly.update_3d()  # 3d offset of polygons used when clipping
-                new_poly.shift_3d(vz + inset*new_poly.xdir*scale)
-                new_poly.calculate()
+                for i_end in range(len(lst_new)):
+                    end_poly = SmartPoly(matrix=edge_mat, name="start")
+                    end_poly.center = control_poly.coord[(i_edge+1) % ncp].co3
+                    for sv in lst_new[i_end].coord:
+                        v = Vector((sv.co2.x * scale, sv.co2.y))
+                        end_poly.add(end_poly.make_3d(v))
+                    end_poly.calculate()
+                    end_poly.shift_3d(vz + inset * end_poly.xdir * scale)
+                    lst_end.append(end_poly)
+
                 if b_make:
-                    new_poly.make_verts(mm)
-                lst_poly.append(new_poly)
+                    if not b_bevel_start:  # close off end
+                        for p in lst_start:
+                            face = p.make_face(mm)
+                            mm.set_face_attrs(face, {mm.key_tag:tag})
+                            face.material_index = frame_idx
+                        topo.add('Starts', len(lst_start))
+                        print("add starts", len(lst_start))
+                    if not b_bevel_end:  # close off end
+                        for p in lst_end:
+                            face = p.make_face(mm)
+                            mm.set_face_attrs(face, {mm.key_tag: tag})
+                            face.material_index = frame_idx
+                        topo.add('Ends', len(lst_end))
+                        print("add ends", len(lst_end))
+                    # bridge
+                    for p1, p2 in zip(lst_start, lst_end):
+                        lst_sides = p1.bridge_by_number(p2, 0)
+                        for p in lst_sides:
+                            face = p.make_face(mm)
+                            mm.set_face_attrs(face, {mm.key_tag: tag})
+                            face.material_index = frame_idx
+                        topo.add('Sides', len(lst_sides))
+                        print("add sides", len(lst_sides))
 
-        lst_ext = []
-        for i in range(ncp):
-            ii = (i + 1) % ncp
-            if lst_connect[i]:
-                lst_f = lst_poly[ii].bridge_by_number(lst_poly[i], 0)
-                lst_ext = lst_ext + lst_f
-            elif lst_connect[(i+ncp-1) % ncp]:  # dlose end of tube
-                lst_ext.append(lst_poly[i])
-            if not lst_connect[(i+ncp-1) % ncp]:  # close start of tube
-                lst_ext.append(lst_poly[i])
 
-
-        if len(lst_ext):
-            for poly in lst_ext:
-                face = poly.make_face(mm)
-            mm.to_mesh()
+    mm.to_mesh()
     mm.free()
+    return topo
 
 
 def make_louvers(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
     mm.set_op(op_id)
+    topo = TopologyInfo(from_keys=['Blades'])  # implement risers
+    topo.set_modulus('Blades', 6)
+
+    count_x = prop_dict['count_x']  # sets of louvers
+    count_y = prop_dict['count_y']  # blades per louver
+    margin_x = prop_dict['margin_x']  # space on either side of a louver
+    margin_y = prop_dict['margin_y']  # space above and below a louver
+    connect = prop_dict['connect_louvers']  # TODO like stairs
+    blade_angle = prop_dict['blade_angle']
+    blade_thickness = prop_dict['blade_thickness']
+    depth_thickness = prop_dict['depth_thickness']
+    depth_offset = prop_dict['depth_offset']
+    flip_xy = prop_dict['flip_xy']
+    tag = prop_dict['face_tag']
 
     for control_poly in lst_orig_poly:
-        count_x = prop_dict['count_x']  # sets of louvers
-        count_y = prop_dict['count_y']  # blades per louver
-        margin_x = prop_dict['margin_x']  # space on either side of a louver
-        margin_y = prop_dict['margin_y']  # space above and below a louver
-        connect = prop_dict['connect_louvers']  # TODO like stairs
-        blade_angle = prop_dict['blade_angle']
-        blade_thickness = prop_dict['blade_thickness']
-        depth_thickness = prop_dict['depth_thickness']
-        depth_offset = prop_dict['depth_offset']
-        flip_xy = prop_dict['flip_xy']
-
         # array of cubes really
         if flip_xy:
             w = control_poly.box_size.y
@@ -641,12 +1042,14 @@ def make_louvers(self, obj, sel_info, op_id, prop_dict):
             v_origin = Vector(v_origin).to_3d()
             v_step = Vector(v_step).to_3d()
             for i_y in range(count_y):
-                blade_verts = mm.cube(blade_w, depth_thickness, blade_thickness)
+                blade_verts = mm.cube(blade_w, depth_thickness, blade_thickness, tag)
                 # rotate and translate blade_faces
                 for vert in blade_verts:
                     v1 = rot @ vert.co + i_y * v_step + v_origin + v_depth
                     v1 = control_poly.inverse @ v1 + control_poly.center
                     vert.co = v1
+                for j in range(6):
+                    topo.add('Blades')
 
     # could add an option to remove the face, but usually we are making window shades and want to keep the glass
     # face = mm.find_face_by_smart_vec(control_poly.coord)
@@ -655,30 +1058,85 @@ def make_louvers(self, obj, sel_info, op_id, prop_dict):
     #     mm.to_mesh()
     mm.to_mesh()
     mm.free()
+    return topo
 
 
-def set_face_tags(self, obj, sel_info, op_id, prop_dict):
-    from ..ops.properties import face_tag_to_int, uv_mode_to_int
-
+def set_face_property(self, obj, sel_info, op_id, prop_dict):
     mm = ManagedMesh(obj)
-    # ignore selection mode, set for each face
-    tag = face_tag_to_int(prop_dict['face_tag'])
-    thick = prop_dict['face_thickness']
-    uv = uv_mode_to_int(prop_dict['face_uv_mode'])
-
-    lst_vlist = mm.get_face_verts(sel_info)
-    for vlist in lst_vlist:
-        face = mm.find_face_by_bmvert(vlist)
-        if (face is not None) and face.is_valid:
-            face[mm.key_thick] = thick
-            face[mm.key_tag] = tag
-            face[mm.key_uv] = uv
-
+    if "tag" in self.bl_idname:
+        mm.set_facesel_attr(sel_info, mm.key_tag, prop_dict['tag'])
+    elif "thickness" in self.bl_idname:
+        mm.set_facesel_attr(sel_info, mm.key_thick, prop_dict['thickness'])
+    elif "uv_mode" in self.bl_idname:
+        mm.set_facesel_attr(sel_info, mm.key_uv, prop_dict['uv_mode'])
+    elif "uv_orig" in self.bl_idname:
+        mm.set_facesel_attr(sel_info, mm.key_uv_orig, prop_dict['uv_origin'])
+    elif "uv_rotate" in self.bl_idname:
+        mm.set_facesel_attr(sel_info, mm.key_uv_rot, prop_dict['uv_rotate'])
     mm.to_mesh()
     mm.free()
 
+    if "uv" in self.bl_idname:
+        pd = {'override_origin': False, 'origin': Vector((0, 0, 0)),
+              'override_mode': False, 'mode': 'GLOBAL_XY'}
+        calc_uvs(self, obj, sel_info, op_id, pd)
+
+    n_face = sel_info.count_faces()
+    topo = TopologyInfo(from_keys=['All'])
+    for i in range(n_face):
+        topo.add('All')
+    return topo
+
+
+def calc_face_uv(face, mm, mode=None, orig=None):
+    from ..ops.properties import uv_mode_list
+    uv_layer = mm.bm.loops.layers.uv.active
+    if mode is None:
+        mode = face[mm.key_uv]
+    if orig is None:
+        orig = face[mm.key_uv_orig]
+
+    poly = SmartPoly()
+    for v in face.verts:
+        poly.add(v)
+    poly.calculate()
+    r = 1
+    mode = uv_mode_list[mode][0]
+    if mode in ['GLOBAL_XY', 'GLOBAL_YX']:
+        v = Vector((0, 0, 0))
+        v = poly.make_2d(v)
+    elif mode in ['FACE_XY', 'FACE_YX']:
+        v = Vector((0, 0))
+    elif mode == 'FACE_BBOX':
+        v = poly.bbox[0]
+    elif mode == 'FACE_POLAR':
+        v = poly.make_2d(orig)
+        xy= [(pc.co2-v) for pc in poly.coord]
+        r = [a.length for a in xy]
+        r = functools.reduce(max, r, 0)
+    elif mode == 'ORIENTED':
+        v = orig.to_2d()
+    else:  # none
+        return
+
+    for i, loop in enumerate(face.loops):
+        if mode == 'ORIENTED':
+            xyw = poly.coord[i].co3 - orig
+            loop[mm.key_uv_w] = xyw.z
+            xy = xyw.to_2d()
+        else:
+            xy = poly.coord[i].co2 - v
+
+        if mode in ['GLOBAL_YX', 'FACE_YX']:
+            xy = Vector((xy.y, xy.x))
+        elif mode == 'FACE_POLAR':
+            loop[mm.key_uv_w] = r  # scale factor for angle to dimension
+
+        loop[uv_layer].uv = xy
+
 
 def calc_uvs(self, obj, sel_info, op_id, prop_dict):
+    """Recalculate uv with option to override mode and origin"""
     from ..ops.properties import uv_mode_list
     # 'GLOBAL_XY', project 0,0,0 to face, measure from there
     #    good to make fragments of a wall have seamless texture
@@ -690,45 +1148,69 @@ def calc_uvs(self, obj, sel_info, op_id, prop_dict):
     #    allows for arches to have brickwork
     from ..ops.properties import face_tag_to_int, uv_mode_to_int
 
-    b_override = prop_dict['override_origin']
+    b_origin = prop_dict['override_origin']
     v_override = prop_dict['origin']
+    b_mode = prop_dict['override_mode']
+    s_mode = prop_dict['mode']
+
+    origin = None
+    mode = None
+    if b_origin:
+        origin = v_override
+    if b_mode:
+        mode = uv_mode_to_int(s_mode)
 
     mm = ManagedMesh(obj)
     uv_layer = mm.bm.loops.layers.uv.active
     # ignore selection mode, set for each face
-    lst_vlist = mm.get_face_verts(sel_info)
-    for vlist in lst_vlist:
-        face = mm.find_face_by_bmvert(vlist)
-        if (face is not None) and face.is_valid:
-            mode = face[mm.key_uv]
-            orig = face[mm.key_uv_orig]
+    flist = mm.get_faces(sel_info)
+    if len(flist) == 0:
+        flist = mm.bm.faces
 
-            poly = SmartPoly()
-            for v in face.verts:
-                poly.add(v)
-            poly.calculate()
+    for face in flist:
+        if face.is_valid:
+            calc_face_uv(face, mm, mode, origin)
 
-            mode = uv_mode_list[mode][0]
-            if b_override:
-                v = poly.make_2d(v_override)
-            elif mode == 'GLOBAL_XY':
-                v = Vector((0,0,0))
-                v = poly.make_2d(v)
-            elif mode == 'FACE_XY':
-                v = Vector((0,0))
-            elif mode == 'FACE_BBOX':
-                v = poly.bbox[0]
-            elif mode == 'FACE_POLAR':
-                v = poly.make_2d(orig)  # note that default is (0,0,0)
-            else:  # none
-                continue
-
-            n = len(face.verts)
-            for i in range(n):
-                xy = poly.coord[i].co2 - v
-                if mode == 'FACE_POLAR':
-                    r = xy.length
-                    s = r * math.atan2(xy.y, xy.x)
-                    xy = Vector((r, s))  # arch bricks are long in the radial direction, so r is x
-                face.loops[uv_layer] = xy
     mm.to_mesh()
+    mm.free()
+
+    n_face = len(flist)
+    topo = TopologyInfo(from_keys=['All'])
+    for i in range(n_face):
+        topo.add('All')
+    return topo
+
+
+def set_oriented_material(self, obj, sel_info, op_id, prop_dict):
+    mat_name = prop_dict['material']
+    for midx in range(len(obj.data.materials)):
+        if obj.data.materials[midx].name == mat_name:
+            break
+
+    mm = ManagedMesh(obj)
+    flist = mm.get_faces(sel_info)
+    sortable = [(f, f.calc_area()) for f in flist]
+    sortable.sort(key=lambda t: t[1])
+    face = sortable[-1][0]
+    poly = SmartPoly(name="control")
+    for v in face.verts:
+        poly.add(v)
+    poly.calculate()
+    if poly.box_size.x > poly.box_size.y:
+        axis = poly.xdir
+    else:
+        axis = poly.ydir
+
+    rot = axis.to_track_quat('Z','Y').to_euler()
+    org = poly.center - 0.06 * poly.normal
+
+    mm.set_facesel_attr(sel_info, mm.key_uv_orig, org)
+    mm.set_facesel_attr(sel_info, mm.key_uv_rot, rot)
+    mm.set_facesel_attr(sel_info, mm.key_uv, 'ORIENTED')
+
+    topo = TopologyInfo(from_keys=['All'])
+    for f in flist:
+        f.material_index = midx
+        topo.add('All')
+        calc_face_uv(f, mm, mode=None, orig=None)
+    return topo

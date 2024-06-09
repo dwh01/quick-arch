@@ -8,7 +8,9 @@ from .geom import (
     extrude_sweep,
     solidify_edges,
     make_louvers,
-    set_face_tags,
+    set_face_property,
+    calc_uvs,
+    set_oriented_material,
 )
 
-# from .assets import mesh_import
+from .assets import draw

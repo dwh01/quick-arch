@@ -27,6 +27,34 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        row = layout.row(align=True)
+        row.operator("qarch.create_object")
+        row.operator("qarch.rebuild_object")
+
+        row = layout.row(align=True)
+        row.operator("qarch.set_active_op")
+        row.operator("qarch.save_script")
+
+        if context.object:
+            active = get_obj_data(context.object, ACTIVE_OP_ID)
+            if (active is not None) and (active > -1):
+                row.alert = True
+                row = layout.row(align=True)
+                row.label(text="Active = {}".format(active))
+
+        row = layout.row(align=True)
+        row.operator("qarch.calc_uvs")
+        row.operator("qarch.add_face_tags")
+
+        row = layout.row(align=True)
+        row.operator("qarch.clean_object")
+
+        row = layout.row(align=True)
+        row.operator("qarch.apply_script")
+        row.operator("qarch.load_script")
+        row = layout.row(align=True)
+        row.operator("qarch.add_instance")
+
 
         # Draw Operators
         # ``````````````
@@ -53,16 +81,19 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.add_asset", icon="ADD")
 
-        row = layout.row(align=True)
-        row.operator("qarch.create_object")
-        row.operator("qarch.rebuild_object")
-        row = layout.row(align=True)
-        row.operator("qarch.set_active_op")
-        if context.object:
-            active = "Active = " + str(get_obj_data(context.object, ACTIVE_OP_ID))
-        else:
-            active = "Active = "
-        row.label(text=active)
+
+
+class QARCH_PT_low_level(bpy.types.Panel):
+    bl_parent_id = "QARCH_PT_mesh_tools"
+    bl_label = "Detail Tools"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Quick Arch"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+
         row = layout.row(align=True)
         row.operator("qarch.redo_op")
         row.operator("qarch.remove_operation")
@@ -79,14 +110,16 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row.operator("qarch.make_louvers")
         row.operator("qarch.solidify_edges")
         row = layout.row(align=True)
-        row.operator("qarch.save_script")
-        row.operator("qarch.load_script")
-        row = layout.row(align=True)
         row.operator("qarch.add_window")
         row = layout.row(align=True)
         row.operator("qarch.set_face_tag")
-        row.operator("qarch.add_face_tags")
-
+        row.operator("qarch.set_face_thickness")
+        row = layout.row(align=True)
+        row.operator("qarch.set_face_uv_mode")
+        row.operator("qarch.set_face_uv_orig")
+        row = layout.row(align=True)
+        row.operator("qarch.set_face_uv_rotate")
+        row.operator("qarch.set_oriented_mat")
 
 
 if bpy.app.version < (4,0,0):
@@ -221,11 +254,18 @@ class QARCH_PT_settings(bpy.types.Panel):
 
         preferences = context.preferences
         addon_prefs = preferences.addons['qarch'].preferences
-        col.prop(addon_prefs, "asset_path")
+        # col.prop(addon_prefs, "user_tag")
         col.prop(addon_prefs, "select_mode")
+        col.prop(addon_prefs, "build_style")
+
+        row = layout.row(align=True)
+        row.operator("qarch.open_catalogs", text="Open catalogs")
+        row = layout.row(align=True)
+        row.operator("qarch.catalog_script", text="Catalog script")
+        row.operator("qarch.catalog_object", text="Catalog object")
 
 
-classes = (QARCH_PT_mesh_tools, QARCH_PT_material_tools, QARCH_PT_settings)
+classes = (QARCH_PT_mesh_tools, QARCH_PT_low_level, QARCH_PT_material_tools, QARCH_PT_settings)
 
 
 def register():

@@ -5,17 +5,21 @@ Get/Set object data
 import bpy
 import uuid
 import json
-import itertools
+import itertools, functools
+from .materials import import_bt_materials
 
 # custom layer names
 FACE_CATEGORY = 'bt_face_cat'
 FACE_THICKNESS = 'bt_face_thick'
 FACE_UV_MODE = 'bt_uv_mode'
 FACE_UV_ORIGIN = 'bt_uv_origin'
+FACE_UV_ROTATE = 'bt_uv_rot'
 FACE_OP_ID = 'bt_face_op'
 FACE_OP_SEQUENCE = 'bt_face_seq'
 VERT_OP_ID = 'bt_op_id'
 VERT_OP_SEQUENCE = 'bt_sequence'
+LOOP_UV_W = 'bt_uv_w'
+UV_MAP = "UVMap"
 
 # custom data field for object
 BT_OBJ_DATA = 'bt_data'
@@ -24,6 +28,17 @@ BT_OBJ_DATA = 'bt_data'
 ACTIVE_OP_ID = "op_id"  # used to force re-editing of old operation and replay of sequences
 REPLAY_OP_ID = "replay_id"
 JOURNAL_PROP_NAME = "journal_name"  # object custom property name
+
+BT_IMPORT_COLLECTION = "BT_Imported"  # collection for imported objects
+
+
+def get_bt_collection():
+    try:
+        col = bpy.data.collections[BT_IMPORT_COLLECTION]
+    except Exception:
+        col = bpy.data.collections.new(BT_IMPORT_COLLECTION)
+        bpy.data.collections['Collection'].children.link(col)
+    return col
 
 
 # these two functions are because json turns integer keys into strings
@@ -140,6 +155,9 @@ class SelectionInfo:
         lst = [unwrap_id(k) for k in self.sel_face.keys()]
         return lst
 
+    def replace_sequence(self, op, face_list):
+        self.sel_face[wrap_id(op)] = face_list
+
     def renumber_ops(self, dct_new):
         tmp = self.sel_face
         self.sel_face = {}
@@ -164,15 +182,201 @@ class SelectionInfo:
         return self.sel_vert.get(op_id,[])
 
 
+class TopologyInfo:
+    def __init__(self, from_dict=None, from_keys=None, op_id=None):
+        self.ranges = {}
+        self.moduli = {}
+        self.seq = 0
+        if from_keys is not None:
+            for k in from_keys:
+                self.ranges[k] = []
+                self.moduli[k] = 0
+        elif from_dict is not None:
+            self.from_dict(from_dict)
+
+    @classmethod
+    def blank_dict(cls):
+        t = TopologyInfo()
+        return t.to_dict()
+
+    def add(self, k, n=1):
+        if len(self.ranges[k]):
+            last_group = self.ranges[k][-1]
+            if self.seq == 1+last_group[-1]:
+                last_group[-1] = self.seq + n-1
+            else:
+                self.ranges[k].append([self.seq, self.seq+n-1])
+        else:
+            self.ranges[k].append([self.seq, self.seq+n-1])
+        self.seq = self.seq + n
+
+    def count(self):
+        max_val = -1
+        for lst_range in self.ranges.values():
+            limits = lst_range[-1]
+            max_val = max(max_val, limits[1])
+        return max_val + 1
+
+    def from_dict(self, d):
+        self.ranges = d['ranges']
+        self.moduli = d['moduli']
+
+    def get_range_sequence(self, key, f_range):
+        range_list = self.ranges[key]
+        if len(range_list)==0:
+            return []
+        n_range = round(len(range_list)*f_range)
+        if n_range > len(range_list)-1:
+            n_range = len(range_list)-1
+        limits = range_list[int(n_range)]
+        return list(range(limits[0], limits[1]+1))
+
+    def is_compatible(self, other):
+        for k in self.ranges.keys():
+            if k not in other.ranges:
+                return False
+        return True
+
+    def is_same_as(self, other):
+        for k, lst_range in self.ranges.items():
+            if k not in other.ranges:
+                return False
+            if self.moduli.get(k,0) != other.moduli.get(k,0):
+                return False
+            if len(lst_range) != len(other.ranges[k]):
+                return False
+            for pair in zip(lst_range, other.ranges[k]):
+                if (pair[0][0] != pair[1][0]) or (pair[0][1] != pair[1][1]):
+                    return False
+
+        return True
+
+    def map_sequence(self, key, f_range, d_pos, f_pos):
+        lst_range = self.ranges[key]
+        if len(lst_range)==0:
+            return None
+
+        n_range = round(len(lst_range) * f_range)
+        if n_range > len(lst_range)-1:
+            n_range = len(lst_range)-1
+
+        limits = lst_range[int(n_range)]
+        span = limits[1]-limits[0]
+        if d_pos is None:
+            seq = round(span * f_pos) + limits[0]
+        else:
+            m = self.moduli[key]
+            seq = d_pos * m + round(f_pos * m)
+        if seq > limits[1]:
+            seq = limits[1]
+
+        return seq
+
+    def set_modulus(self, key, m):
+        self.moduli[key] = m
+
+    def test_full_key(self, key, lst_seq):
+        set_test = set(lst_seq)
+        old_range_list = self.ranges[key]
+        range_full = []
+        for limits in old_range_list:
+            b_full = True
+            for i in range(limits[0], limits[1]+1):
+                if i not in set_test:
+                    b_full = False
+                    break
+            range_full.append(b_full)
+        all_full = functools.reduce(lambda a,b: a and b, range_full, True)
+        return all_full, range_full
+
+    def to_dict(self):
+        d = {'ranges': self.ranges, 'moduli': self.moduli}
+        return d
+
+    def warp_to(self, other, op_id, sel_info):
+        """Convert face_list in current topology to values in other topology"""
+        # for example, we select a set of faces (maybe frame from inset) and extrude with steps
+        # we should be able to scale position based on which pillar we are in,
+        # which row of the pillar, and which side of that row
+        # assuming the extrusions are done sequentially on faces
+        # we have numbering groups 1-n*m, where n is sides and m is steps
+        # store n in the modulus number
+        # keep the top faces in their own key since often top faces are used for other things
+
+        old_face_seq = sel_info.face_list(op_id)
+        if sel_info.get_flag(op_id) & SelectionInfo.ALL_FACES:
+            #  trivial case, just need to fill in range
+            lst_info = list(range(other.count()))
+        else:
+            lst_info = []
+
+            chunks = old_face_seq.copy()
+            for key, old_range_list in self.ranges.items():
+                if len(old_range_list) == 0:
+                    continue
+                all_full, range_full = self.test_full_key(key, old_face_seq)
+                for i_range, limits in enumerate(old_range_list):
+                    if range_full[i_range]:
+                        idx0 = chunks.index(limits[0])
+                        idx1 = chunks.index(limits[1])
+                        c0 = chunks[:idx0]
+                        c1 = [(key, i_range/len(old_range_list))]  # use tuple to indicate fractional range that is full
+                        c2 = chunks[idx1+1:]
+                        chunks = c0+c1+c2
+
+            for seq in chunks:
+                if isinstance(seq, tuple):  # full range
+                    key, f_range = seq
+                    lst_info = lst_info + other.get_range_sequence(key, f_range)
+                    continue
+
+                b_found = False
+                for key, old_range_list in self.ranges.items():
+                    if len(old_range_list)==0:
+                        continue
+                    for i_range, limits in enumerate(old_range_list):
+                        if len(limits)==0:
+                            continue
+                        if limits[0] <= seq <= limits[1]:
+                            if limits[0] == limits[1]:
+                                f_pos = 0
+                                d_pos = 0
+                            else:
+                                offset = seq-limits[0]
+                                if self.moduli[key] > 0:
+                                    d_pos = offset // self.moduli[key]  # row
+                                    m_pos = offset % self.moduli[key]
+                                    f_pos = m_pos / self.moduli[key]  # fractional position in row
+                                else:
+                                    d_pos = None
+                                    f_pos = offset/(limits[1] - limits[0])  # fractional position in range
+                            f_range = i_range/len(old_range_list)
+                            seq = other.map_sequence(key, f_range, d_pos, f_pos)
+                            if seq is not None:
+                                lst_info.append(seq)
+                                b_found = True
+                            break
+                    if b_found:
+                        break
+        print("before warp {} {}".format(op_id, sel_info.face_list(op_id)))
+        print("after warp {}".format(lst_info))
+        sel_info.replace_sequence(op_id, lst_info)
+
+
 def create_object(collection, name):
     """Create object and initialize layers, etc
     Return object
     """
     # hide import here to prevent load sequence conflicts
     from .journal import get_block, update_block, blank_journal
+    from .materials import tag_to_material
+    from ..ops import dynamic_enums
+
+    import_bt_materials()  # only imports if the materials aren't here
 
     # empty mesh object
     mesh = bpy.data.meshes.new(name)
+    uv = mesh.uv_layers.new(name='UVMap')
     v = mesh.vertices.add(1)
     obj = bpy.data.objects.new(name, mesh)
     collection.objects.link(obj)
@@ -197,14 +401,22 @@ def create_object(collection, name):
     key = obj.data.attributes.new(FACE_UV_MODE, 'INT', 'FACE')
     key = obj.data.attributes.new(FACE_THICKNESS, 'FLOAT', 'FACE')
     key = obj.data.attributes.new(FACE_UV_ORIGIN, 'FLOAT_VECTOR', 'FACE')
+    key = obj.data.attributes.new(FACE_UV_ROTATE, 'FLOAT_VECTOR', 'FACE')
     key = obj.data.attributes.new(FACE_OP_SEQUENCE, 'INT', 'FACE')
     key = obj.data.attributes.new(FACE_OP_ID, 'INT', 'FACE')
+    key = obj.data.attributes.new(LOOP_UV_W, 'FLOAT', 'CORNER')
 
     key = obj.data.attributes.new(VERT_OP_ID, 'INT', 'POINT')
     attribute_values = [-1]
     key.data.foreach_set("value", attribute_values)
     key = obj.data.attributes.new(VERT_OP_SEQUENCE, 'INT', 'POINT')
 
+    # default materials for visualization
+    lst = dynamic_enums.lst_FaceEnums
+    for i in range(1, len(lst)):
+        tag = lst[i][0]
+        matname = tag_to_material(tag)
+        mesh.materials.append(bpy.data.materials[matname])
     return obj
 
 

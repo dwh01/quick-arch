@@ -1,9 +1,86 @@
 import bpy
-from bpy.props import IntProperty, FloatProperty, BoolProperty, PointerProperty, EnumProperty, StringProperty
+from bpy.props import IntProperty, FloatProperty, BoolProperty, PointerProperty, EnumProperty, StringProperty, FloatVectorProperty
 from bpy.types import AddonPreferences
 import math
 from .custom import CustomPropertyBase
 from collections import OrderedDict
+from ..object import enum_oriented_material, enum_all_material
+from .dynamic_enums import enum_catalogs, enum_categories, enum_category_items, enum_objects_or_curves
+from .dynamic_enums import face_tag_to_int, int_to_face_tag, get_face_tag_enum
+
+
+uv_mode_list = [
+        ('GLOBAL_XY', 'Global XY', 'Use real units projected to face'),
+        ('FACE_XY', 'Face XY', 'Use face x/y in real units'),
+        ('FACE_BBOX', 'Bounding Box', 'Set bounding box 0-1'),
+        ('FACE_POLAR', 'FACE Polar', 'Use face polar coordinates from centroid'),
+        ('GLOBAL_YX', 'Global YX', 'Flip x and y, use real units projected to face'),
+        ('FACE_YX', 'Face YX', 'Flip x and y, use real units'),
+        ('ORIENTED', 'Oriented', 'Specify global rotation around origin for volumetrics'),
+        ('NONE', 'None', 'Do not auto-calculate UV'),  # so we don't erase something the user did
+    ]
+
+
+def uv_mode_to_int(s):
+    for i, e in enumerate(uv_mode_list):
+        if e[0] == s:
+            return i
+    return 0
+
+
+def int_to_uv_mode(i):
+    return uv_mode_list[i][0]
+
+
+
+class FaceTagProperty(CustomPropertyBase):
+    tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
+    field_layout = [['tag']]
+    topology_lock = []
+
+
+class FaceThicknessProperty(CustomPropertyBase):
+    thickness: FloatProperty(name="Face Thickness", default=0, min=0, description="Wall thickness after finalization")
+    field_layout = [['thickness']]
+    topology_lock = []
+
+
+class FaceUVModeProperty(CustomPropertyBase):
+    uv_mode: EnumProperty(name="UV Mode", description="Method of UV assignment", items=uv_mode_list, default="GLOBAL_XY")
+    field_layout = [['uv_mode']]
+    topology_lock = []
+
+
+class FaceUVOriginProperty(CustomPropertyBase):
+    uv_origin: FloatVectorProperty(name="UV Origin", subtype="XYZ", description="Origin of UV coordinates")
+    field_layout = [['uv_origin']]
+    topology_lock = []
+
+
+class FaceUVRotateProperty(CustomPropertyBase):
+    uv_rotate: FloatVectorProperty(name="UV Rotation", subtype="XYZ", description="Rotation of UV coordinates")
+    field_layout = [['uv_rotate']]
+    topology_lock = []
+
+
+class CalcUVProperty(CustomPropertyBase):
+    override_origin: BoolProperty(name="Override origin", default=False)
+    origin: FloatVectorProperty(name="Origin", description="UV origin", subtype="XYZ")
+    override_mode: BoolProperty(name="Override origin", default=False)
+    mode: EnumProperty(name="UV Mode", description="Method of UV assignment", items=uv_mode_list, default="GLOBAL_XY")
+
+    field_layout = [
+        ['origin', 'override_origin'],
+        ['mode', 'override_mode']
+    ]
+
+    topology_lock = []
+
+
+class OrientedMaterialProperty(CustomPropertyBase):
+    material: EnumProperty(name='Material', items=enum_oriented_material, description="Material name")
+    field_layout = [['material']]
+    topology_lock = []
 
 
 class ArchShapeProperty(CustomPropertyBase):
@@ -37,9 +114,6 @@ class ArrayProperty(CustomPropertyBase):
     topology_lock = ['count_x', 'count_y']
 
 
-GridDivideProperty = ArrayProperty
-
-
 class DirectionProperty(CustomPropertyBase):
     x: FloatProperty(name="X", default=0.0, unit="LENGTH", description="X value")
     y: FloatProperty(name="Y", default=0.0, unit="LENGTH", description="Y value")
@@ -67,15 +141,28 @@ class PositionProperty(CustomPropertyBase):
 
 class SizeProperty(CustomPropertyBase):
     size_x: FloatProperty(name="Size X", default=1.0, unit="LENGTH", description="Face X size")
-    is_relative_x: BoolProperty(name="Relative", default=False, description="Relative size (0-1) for x")
+    is_relative_x: BoolProperty(name="Relative", default=True, description="Relative size (0-1) for x")
     size_y: FloatProperty(name="Size Y", default=1.0, unit="LENGTH", description="Face Y size")
-    is_relative_y: BoolProperty(name="Relative", default=False, description="Relative size (0-1) for y")
+    is_relative_y: BoolProperty(name="Relative", default=True, description="Relative size (0-1) for y")
 
     field_layout = [
         ['size_x', 'is_relative_x', 'size_y', 'is_relative_y'],
     ]
 
     topology_lock = []
+
+
+class GridDivideProperty(CustomPropertyBase):
+    count_x: IntProperty(name="X Count", min=0, default=1, description="Number of vertical rows")
+    count_y: IntProperty(name="Y Count", min=0, default=1, description="Number of horizontal cols")
+    offset: PointerProperty(name="offset", type=PositionProperty)
+
+    field_layout = [
+        ['count_x', 'count_y'],
+        ('Offset Grid', 'offset'),
+    ]
+
+    topology_lock = ['count_x', 'count_y']
 
 
 class SplitFaceProperty(CustomPropertyBase):
@@ -107,6 +194,58 @@ class PolygonProperty(CustomPropertyBase):
     topology_lock = ['num_sides']
 
 
+class SuperCurveProperty(CustomPropertyBase):
+    start_angle: FloatProperty(name="Start Angle", default=0, min=-math.pi, max=math.pi, unit="ROTATION", description="Rotation of shape")
+    x: FloatProperty(name='x', description='cos frequency', default=1, min=0.1)
+    sx: FloatProperty(name='sx', description='cos scale', default=1, min=0.1)
+    px: FloatProperty(name='px', description='cos power', default=1, min=0.1)
+    y: FloatProperty(name='y', description='sin frequency', default=1, min=0.1)
+    sy: FloatProperty(name='sy', description='sin scale', default=1, min=0.1)
+    py: FloatProperty(name='py', description='sin power', default=1, min=0.1)
+    pn: FloatProperty(name='pn', description='power normalizer', default=1, min=0.1)
+
+    field_layout = [
+        ['x', 'y'],
+        ['sx','sy'], # a,b
+        ['px','py','pn'], # exponents
+        ['start_angle']
+    ]
+
+    topology_lock = ['num_sides']
+
+
+class CatalogObjectProperty(CustomPropertyBase):
+    search_text: StringProperty(name="Search", description="Press enter to filter by substring")
+    category_name: EnumProperty(items=enum_categories, name="Category", default=0)
+    category_item: EnumProperty(items=enum_category_items, name="Objects", default=0)
+    show_scripts: BoolProperty(name="Show Scripts", default=False)
+    show_curves: BoolProperty(name="Show Curves", default=False)
+    rotate: FloatVectorProperty(name="Rotation", subtype="XYZ", description="Rotation of coordinates")
+
+    field_layout = [
+        ['category_name'],
+        ['search_text'],
+        ['category_item'],
+        ['rotate']
+    ]
+
+    topology_lock = ['category_item']
+
+
+class LocalObjectProperty(CustomPropertyBase):
+    search_text: StringProperty(name="Search", description="Press enter to filter by substring")
+    object_name: EnumProperty(items=enum_objects_or_curves, name="Object", default=0)
+    show_curves: BoolProperty(name="Show Curves", default=False)
+    rotate: FloatVectorProperty(name="Rotation", subtype="XYZ", description="Rotation of coordinates")
+
+    field_layout = [
+        ['search_text', 'object_name'],
+        ['rotate']
+    ]
+
+    topology_lock = ['object_name']
+
+
 class UnionPolygonProperty(CustomPropertyBase):
     position: PointerProperty(name="Position", type=PositionProperty)
     size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
@@ -121,72 +260,96 @@ class UnionPolygonProperty(CustomPropertyBase):
     topology_lock = []
 
 
-def update_inset_enum(self, context):
-    t = self.inset_type
-    if t == 'NGON':
-        self.use_ngon = True
-        self.use_arch = False
-    elif t == 'ARCH':
-        self.use_ngon = False
-        self.use_arch = True
-    else:
-        self.use_ngon = False
-        self.use_arch = False
+shape_type_list = [
+    ("SELF", "Self Similar", "Current shape resized", 0),
+    ("NGON", "Regular Polygon", "N-sided polygon", 1),
+    ("ARCH", "Arch", "Arch shape", 2),
+    ("SUPER", "Super-curve", "Asymmetric curve", 3),
+    ("CURVE", "Local Curve", "Curve from this blend file", 4),
+    ("CATALOG", "Catalog Curve", "Curve from catalog file", 5),
+    ]
 
-    # Redraw panel
-    for region in context.area.regions:
-        if region.type == "UI":
-            region.tag_redraw()
+
+lst_join_enum = [
+    ('BRIDGE', 'Bridge', 'Connect new shape to old outline, replace old face', 0),
+    ('FREE', 'Free', 'Float disconnected over old face', 1),
+    ('OUTSIDE', 'Outside', 'Clip and keep part outside old face', 2),
+    ('INSIDE', 'Inside', 'Clip and keep part inside old face', 3)
+]
 
 
 class InsetPolygonProperty(CustomPropertyBase):
-    inset_type_list = [
-        ("NGON", "Regular Polygon", "N-sided polygon", 1),
-        ("ARCH", "Arch", "Arch shape", 2),
-        ("SELF", "Self Similar", "Current shape resized", 3),
-        ]
-
-    inset_type: EnumProperty(name="Inset Type", default="SELF", items=inset_type_list, update=update_inset_enum)
-
-    # but need to use the update function of enum to toggle visibility of the shape pointers
     position: PointerProperty(name="Position", type=PositionProperty)
     size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
-    use_ngon: BoolProperty(name="Use NGon", description="Use n-gon method", default=False)
-    poly: PointerProperty(name="Poly", type=PolygonProperty)
-    use_arch: BoolProperty(name="Use Arch", description="Use arch method", default=False)
-    arch: PointerProperty(name="Arch", type=ArchShapeProperty)
-    extrude_distance: FloatProperty(name="Extrude Distance", default=0.0, unit="LENGTH", description="Extrude distance")
+    join: EnumProperty(name="Join", items=lst_join_enum, default="BRIDGE")
     add_perimeter: BoolProperty(name="Add Perimeter Points", description="Add points to perimeter to match if needed", default=False)
-    thickness: FloatProperty(name="Frame Thickness", min=0, default=0.1, description="Polygon donut instead of solid face")
+    extrude_distance: FloatProperty(name="Extrude Distance", default=0.0, unit="LENGTH", description="Extrude distance")
+    frame_material: EnumProperty(name="Frame Material", items=enum_all_material)
+    center_material: EnumProperty(name="Center Material", items=enum_all_material)
+
+    shape_type: EnumProperty(name="Shape Type", default="SELF", items=shape_type_list)
+    poly: PointerProperty(name="Poly", type=PolygonProperty)
+    arch: PointerProperty(name="Arch", type=ArchShapeProperty)
+    frame: FloatProperty(name="Frame Thickness", min=0, default=0.1, description="Polygon donut instead of solid face")
+    local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
+    catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
+    super_curve: PointerProperty(name="Super", type=SuperCurveProperty)
+    resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
 
     field_layout = [
-        ('', 'position'),
-        ('', 'size'),
-        ['inset_type'],
-        ('use_ngon', 'poly'),
-        ('use_arch', 'arch'),
-        ['extrude_distance', 'add_perimeter'],
-        ['thickness']
+        ('Position on Face', 'position'),
+        ('Size of bounding box', 'size'),
+        ['join'],
+        ({'join': 'BRIDGE'}, 'add_perimeter'),
+        ['shape_type'],
+        ({'shape_type': 'NGON'}, 'poly'),
+        ({'shape_type': 'NGON'}, 'frame'),
+        ({'shape_type': 'ARCH'}, 'arch'),
+        ({'shape_type': 'SUPER'}, 'super_curve'),
+        ({'shape_type': 'CURVE'}, 'local_object'),
+        ({'shape_type': 'CATALOG'}, 'catalog_object'),
+        ({'shape_type': {'CURVE', 'CATALOG', 'SUPER'}}, 'resolution'),
+        ({'shape_type': {'NGON', 'ARCH'}}, 'frame_material'),
+        ['center_material', 'extrude_distance']
     ]
 
-    topology_lock = ['use_ngon', 'use_arch', 'add_perimeter', 'thickness']
+    topology_lock = ['shape_type', 'join', 'frame']
 
 
 class SolidifyEdgesProperty(CustomPropertyBase):
-    poly: PointerProperty(name="Cross Section", type=PolygonProperty, description="Cross-section to apply")
     size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
-    do_horizontal: BoolProperty(name="Do Horizontal", default=True, description="Solidify horizontal-ish edges")
-    do_vertical: BoolProperty(name="Do Vertical", default=True, description="Solidify vertical-ish edges")
+    side_list: StringProperty(name="Sides", description="Comma separated list of numbers, or empty for all")
     z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
     inset: FloatProperty(name="Inset Offset", description="Distance off edge", default=0)
+    face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
+    frame_material: EnumProperty(name="Frame Material", items=enum_all_material)
+
+    shape_type: EnumProperty(name="Shape Type", default="NGON", items=shape_type_list)
+    poly: PointerProperty(name="Poly", type=PolygonProperty)
+    arch: PointerProperty(name="Arch", type=ArchShapeProperty)
+    frame: FloatProperty(name="Frame Thickness", min=0, default=0.1, description="Polygon donut instead of solid face")
+    local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
+    catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
+    super_curve: PointerProperty(name="Super", type=SuperCurveProperty)
+    resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
 
     field_layout = [
-        ('', 'poly'),
         ('', 'size'),
-        ['do_horizontal', 'do_vertical'],
-        ['z_offset', 'inset']
+        ['side_list'],
+        ['z_offset', 'inset'],
+        ['face_tag'],
+        ['frame_material'],
+        ['shape_type'],
+        ({'shape_type': 'NGON'}, 'poly'),
+        ({'shape_type': 'NGON'}, 'frame'),
+        ({'shape_type': 'ARCH'}, 'arch'),
+        ({'shape_type': 'SUPER'}, 'super_curve'),
+        ({'shape_type': 'CURVE'}, 'local_object'),
+        ({'shape_type': 'CATALOG'}, 'catalog_object'),
+        ({'shape_type': {'CURVE', 'CATALOG', 'SUPER'}}, 'resolution'),
     ]
-    topology_lock = ['sides']
+
+    topology_lock = ['shape_type']
 
 
 class ExtrudeProperty(CustomPropertyBase):
@@ -237,26 +400,29 @@ class MakeLouversProperty(CustomPropertyBase):
     depth_offset: FloatProperty(name="Depth Offset", default=0.03, unit="LENGTH", description="Out of plane offset (from face)")
     flip_xy: BoolProperty(name="Flip xy", default=False, description="Change orientation")
     connect_louvers: BoolProperty(name="Connected", default=False, description="Connect to make bellows")
+    face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
 
     field_layout = [
         ['count_x', 'count_y'],
         ['margin_x', 'margin_y'],
         ['blade_angle', 'blade_thickness'],
         ['depth_thickness', 'depth_offset'],
-        ['flip_xy', 'connect_louvers']
+        ['flip_xy', 'connect_louvers'],
+        ['face_tag']
     ]
 
     topology_lock = ['count_x', 'count_y', 'flip_xy']
 
 
-class InsetPolyProperty(CustomPropertyBase):  # demo case
-    num_sides: IntProperty(name="Sides", min=3, default=4, description="Number of sides")
+class SimpleWindowProperty(CustomPropertyBase):  # demo case
+    x_panes: IntProperty(name="X panes", min=1, default=2, description="Number of window lites across")
+    y_panes: IntProperty(name="y panes", min=1, default=2, description="Number of window lites vertical")
 
     field_layout = [
-        ["num_sides"]
+        ["x_panes","y_panes"]
     ]
 
-    topology_lock = []
+    topology_lock = ["x_panes","y_panes"]
 
 
 class NewObjectProperty(CustomPropertyBase):
@@ -310,119 +476,41 @@ class BTAddonPreferences(AddonPreferences):
     # when defining this in a submodule of a python package.
     bl_idname = "qarch"
 
-    asset_path: StringProperty(name="Asset Path", subtype='FILE_PATH', )
+    #user_script_path: StringProperty(name="User Script Path", subtype='FILE_PATH', description="Path to user generated scripts")
+    user_tags: StringProperty(name="Face tags", description="Comma separated list of custom tags")
     select_mode: EnumProperty(
         name="Selection Mode", description="How to handle multiple face selection",
         items=[('SINGLE','Single Faces','Each face gets separate property record'),
                ('GROUP','Group of Faces','Each face gets same property record'),
                ('REGION', 'Region', 'Treat as one big face')
                ], default='SINGLE',)
-    user_tags: StringProperty(name="Face tags", description="Comma separated list of custom tags")
+    build_style: EnumProperty(items=enum_catalogs, name="Build Style", description="Catalog name")
 
     def draw(self, context):
         layout = self.layout
         layout.label(text="Build Tools Preferences")
-        layout.prop(self, "asset_path")
+        layout.prop(self, "user_tags")
         layout.prop(self, "select_mode")
-        layout.prop(self, "face_tags")
-
-
-lst_FaceEnums = [
-    ("DELETE", "Delete", "Delete face at end"),
-    ("NOTHING", "Nothing", "No special tag"),
-    ("WALL", "Wall", "Wall face"),
-    ("GLASS", "Glass", "Glass face"),
-    ("TRIM", "Trim", "Framing around door or window"),
-    ("DOOR", "Door", "Face of door, may become vertex group"),
-]
-
-dct_hold_face_enums = OrderedDict()
-
-
-def face_tag_to_int(s):
-    global dct_hold_face_enums
-    for i, e in enumerate(dct_hold_face_enums.keys()):
-        if e == s:
-            return i
-    return None
-
-
-def get_face_tag_enum(self, context):
-    from ..object import Journal
-    global lst_FaceEnums
-    global dct_hold_face_enums
-
-    lst_enum = []
-
-    set_used = set()
-    for e in lst_FaceEnums:
-        if e[0] not in dct_hold_face_enums:
-            dct_hold_face_enums[e[0]] = e
-        set_used.add(e[0])
-        lst_enum.append(e + (len(lst_enum)-1,))
-
-    preferences = context.preferences
-    addon_prefs = preferences.addons['qarch'].preferences
-    user_tags = [s.strip() for s in addon_prefs.user_tags.split(",")]
-    for s in user_tags:
-        if s not in set_used:
-            e = (s, s, "tag from user preferences")
-            if s not in dct_hold_face_enums:
-                dct_hold_face_enums[s] = e
-            lst_enum.append(dct_hold_face_enums[s]+ (len(lst_enum)-1,))
-            set_used.add(s)
-
-    journal = Journal(context.object)
-    obj_tags = [s.strip() for s in journal['face_tags']]
-    for s in obj_tags:
-        if s not in set_used:
-            e = (s, s, "tag from user preferences")
-            if s not in dct_hold_face_enums:
-                dct_hold_face_enums[s] = e
-            lst_enum.append(dct_hold_face_enums[s]+ (len(lst_enum)-1,))
-            set_used.add(s)
-
-    return lst_enum
-
-
-uv_mode_list = [
-        ('GLOBAL_XY', 'Global XY', 'Use real units projected to face'),
-        ('FACE_XY', 'Face XY', 'Use face x/y in real units'),
-        ('FACE_BBOX', 'Bounding Box', 'Set bounding box 0-1'),
-        ('FACE_POLAR', 'FACE Polar', 'Use face polar coordinates from centroid'),
-        ('NONE', 'None', 'Do not auto-calculate UV'),  # so we don't erase something the user did
-    ]
-
-
-def uv_mode_to_int(s):
-    for i, e in enumerate(uv_mode_list):
-        if e[0] == s:
-            return i
-    return 0
-
-
-class FaceTagProperties(CustomPropertyBase):
-    face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
-    face_thickness: FloatProperty(name="Face Thickness", default=0, min=0, description="Wall thickness after finalization")
-    face_uv_mode: EnumProperty(name="UV Mode", description="Method of UV assignment", items=uv_mode_list, default="GLOBAL_XY")
-
-    field_layout = [
-        ['face_tag'],
-        ['face_thickness'],
-        ['face_uv_mode']
-    ]
-
-    topology_lock = []
+        layout.prop(self, "build_style")
 
 
 # order might matter
 ops_properties = [
-    FaceTagProperties,
+    FaceTagProperty,
+    FaceThicknessProperty,
+    FaceUVModeProperty,
+    FaceUVOriginProperty,
+    FaceUVRotateProperty,
+    CalcUVProperty,
     ArchShapeProperty,
+    CatalogObjectProperty,
+    LocalObjectProperty,
+    SuperCurveProperty,
     ArrayProperty,
     DirectionProperty,
     PositionProperty,
     SizeProperty,
+    GridDivideProperty,
     SplitFaceProperty,
     PolygonProperty,
     UnionPolygonProperty,
@@ -431,9 +519,9 @@ ops_properties = [
     SweepProperty,
     SolidifyEdgesProperty,
     MakeLouversProperty,
-    InsetPolyProperty,
+    SimpleWindowProperty,
     RoomProperty,  # --
     MeshImportProperty,
     BTAddonPreferences,
-
+    OrientedMaterialProperty,
 ]
