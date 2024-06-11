@@ -103,17 +103,6 @@ class ArchShapeProperty(CustomPropertyBase):
     topology_lock = ['arch_type', 'num_sides']
 
 
-class ArrayProperty(CustomPropertyBase):
-    count_x: IntProperty(name="X Count", min=0, default=1, description="Number of vertical rows")
-    count_y: IntProperty(name="Y Count", min=0, default=1, description="Number of horizontal cols")
-
-    field_layout = [
-        ['count_x', 'count_y'],
-    ]
-
-    topology_lock = ['count_x', 'count_y']
-
-
 class DirectionProperty(CustomPropertyBase):
     x: FloatProperty(name="X", default=0.0, unit="LENGTH", description="X value")
     y: FloatProperty(name="Y", default=0.0, unit="LENGTH", description="Y value")
@@ -124,6 +113,22 @@ class DirectionProperty(CustomPropertyBase):
     ]
 
     topology_lock = []
+
+
+class ArrayProperty(CustomPropertyBase):
+    count: IntProperty(name="Count", min=1, default=1, description="Number of items")
+    direction: PointerProperty(name="Direction", type=DirectionProperty)
+    spacing: FloatProperty(name="Spacing", default = 1.0, description="Distance between copies")
+    do_orbit: BoolProperty(name="Use Orbit", default=False, description="Orbit a point instead of straight line")
+    origin: PointerProperty(name="Origin", type=DirectionProperty, description="Orbit origin")
+
+    field_layout = [
+        ['count', 'spacing'],
+        ('', 'direction'),
+        ('do_orbit', 'origin')
+    ]
+
+    topology_lock = ['count']
 
 
 class PositionProperty(CustomPropertyBase):
@@ -333,6 +338,11 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     super_curve: PointerProperty(name="Super", type=SuperCurveProperty)
     resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
 
+    # wouldn't it be nice to do "revolution" to make shaped columns along edges? in that case we wouldnt be
+    # extruding the curve, we'd stretch it to fit the edge length and revolve it. Making corners match wouldn't
+    # be possible in general (different sized ends) but the use case is for only one direction of edges so ok
+    # advantage over mesh instances is the auto sizing if the edge changes length. FUTURE
+
     field_layout = [
         ('', 'size'),
         ['side_list'],
@@ -425,50 +435,61 @@ class SimpleWindowProperty(CustomPropertyBase):  # demo case
     topology_lock = ["x_panes","y_panes"]
 
 
-class NewObjectProperty(CustomPropertyBase):
-    name: StringProperty(name="Name", description="Name of new object")
-    collection: StringProperty(name="Collection", description="Destination collection")
-
-    field_layout = [
-        ['name', 'collection']
-    ]
-
-    topology_lock = []
-
-
-class RoomProperty(CustomPropertyBase):
-    offset_x: FloatProperty(name="Offset X", default=0.0, unit="LENGTH", description="Placement along wall")
-    size_x: FloatProperty(name="Size X", min=0, default=10.0, unit="LENGTH", description="Size along wall")
-    depth: FloatProperty(name="Depth", min=0, default=10.0, unit="LENGTH", description="Extrusion distance")
-    wall_thickness: FloatProperty(name="Wall Thickness", min=0, default=0.1, unit="LENGTH", description="Wall thickness")
-    has_floor: BoolProperty(name="Floor", default=False)
-    floor_thickness: FloatProperty(name="Floor Thickness", default=.1, unit="LENGTH", description="Floor thickness")
-    has_turret: BoolProperty(name="Turret", default=False, description="Make turret (can wrap around corner)")
-    turret_sides: IntProperty(name="Turret Sides", min=4, default=8, description="Number of sides in full circle")
-
-    field_layout = [
-        ['offset_x', 'size_x'],
-        ['depth', 'wall_thickness'],
-        ['has_floor', 'floor_thickness'],
-        ['has_turret', 'turret_sides']
-    ]
-
-    topology_lock = ['has_turret', 'turret_sides']
+mesh_import_enum = [
+    ("OBJECT", "Local Object", "Object from this blend file", 1),
+    ("CATALOG", "Catalog Object", "Object from catalog file", 2),
+]
 
 
 class MeshImportProperty(CustomPropertyBase):
-    filepath: StringProperty(name="Filename", description="Script to load", subtype="FILE_PATH")
-    obj_name: StringProperty(name="Object", description="Object Name")
+    mesh_type: EnumProperty(items=mesh_import_enum, name="Mesh Type")
+    catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
+    local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
     position: PointerProperty(name="Position", type=PositionProperty)
+    z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
+    Scale: FloatProperty(name="Scale Instance", description="Resize instance", default=1)
+    #size: PointerProperty(name="Scale", type=SizeProperty)
+    rotation: FloatVectorProperty(name="Euler Rotation", subtype="EULER", description="Rotation of object")
     array: PointerProperty(name="Array", type=ArrayProperty)
+    as_instance: BoolProperty(name="As Instance", default=True, description="Use instancing instead of merging mesh")
 
     field_layout = [
-        ['filepath', 'obj_name'],
-        ('','position'),
-        ('','array')
+        ('First Offset', 'position'),
+        ['rotation'],
+        #('', 'size'),
+        ['z_offset', 'scale'],
+        ('as_instance', 'array'),
+        ['mesh_type'],
+        ({'mesh_type': 'CATALOG'}, 'catalog_object'),
+        ({'mesh_type': 'OBJECT'}, 'local_object'),
     ]
 
-    topology_lock = ['filepath', 'obj_name']
+    topology_lock = ['as_instance', 'mesh_type']
+
+
+class FlipNormalProperty(CustomPropertyBase):
+    toggle: BoolProperty(name="Toggle", description="Click to toggle")
+
+    field_layout = [['toggle']]
+    topology_lock = []
+
+
+project_face_enum = [
+    ('A2B', 'A to B', 'Outside of A to plane of B'),
+    ('B2A', 'B to A', 'Outside of B to plane of A'),
+    ('BRIDGE_AB', 'Bridge AB', 'Outside of A to outside of B'),
+    ('BRIDGE_BA', 'Bridge BA', 'Outside of B to outside of A'),
+]
+
+
+class ProjectFaceProperty(CustomPropertyBase):
+    mode: EnumProperty(name="Mode", items=project_face_enum, default="A2B")
+    tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for new faces")
+
+    field_layout = [['mode'],
+                    ['tag']]
+
+    topology_lock = ['mode']
 
 
 class BTAddonPreferences(AddonPreferences):
@@ -506,8 +527,8 @@ ops_properties = [
     CatalogObjectProperty,
     LocalObjectProperty,
     SuperCurveProperty,
-    ArrayProperty,
     DirectionProperty,
+    ArrayProperty,
     PositionProperty,
     SizeProperty,
     GridDivideProperty,
@@ -520,8 +541,9 @@ ops_properties = [
     SolidifyEdgesProperty,
     MakeLouversProperty,
     SimpleWindowProperty,
-    RoomProperty,  # --
     MeshImportProperty,
     BTAddonPreferences,
     OrientedMaterialProperty,
+    FlipNormalProperty,
+    ProjectFaceProperty,
 ]

@@ -43,6 +43,10 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
                 row.label(text="Active = {}".format(active))
 
         row = layout.row(align=True)
+        row.operator("qarch.redo_op")
+        row.operator("qarch.remove_operation")
+
+        row = layout.row(align=True)
         row.operator("qarch.calc_uvs")
         row.operator("qarch.add_face_tags")
 
@@ -53,7 +57,7 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row.operator("qarch.apply_script")
         row.operator("qarch.load_script")
         row = layout.row(align=True)
-        row.operator("qarch.add_instance")
+        row.operator("qarch.import_mesh")
 
 
         # Draw Operators
@@ -95,10 +99,6 @@ class QARCH_PT_low_level(bpy.types.Panel):
         layout = self.layout
 
         row = layout.row(align=True)
-        row.operator("qarch.redo_op")
-        row.operator("qarch.remove_operation")
-        row = layout.row(align=True)
-        row.operator("qarch.union_polygon")
         row.operator("qarch.inset_polygon")
         row = layout.row(align=True)
         row.operator("qarch.split_face")
@@ -106,6 +106,7 @@ class QARCH_PT_low_level(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.extrude_fancy")
         row.operator("qarch.extrude_sweep")
+        row.operator("qarch.extrude_walls")
         row = layout.row(align=True)
         row.operator("qarch.make_louvers")
         row.operator("qarch.solidify_edges")
@@ -120,6 +121,9 @@ class QARCH_PT_low_level(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.set_face_uv_rotate")
         row.operator("qarch.set_oriented_mat")
+        row = layout.row(align=True)
+        row.operator("qarch.flip_normal")
+        row.operator("qarch.project_face")
 
 
 if bpy.app.version < (4,0,0):

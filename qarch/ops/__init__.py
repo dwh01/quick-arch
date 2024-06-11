@@ -41,6 +41,10 @@ from .geom import (
     QARCH_OT_set_face_uv_rotate,
     QARCH_OT_calc_uvs,
     QARCH_OT_set_oriented_mat,
+    QARCH_OT_import_mesh,
+    QARCH_OT_flip_normal,
+    QARCH_OT_project_face,
+    QARCH_OT_extrude_walls,
 )
 from .compound import QARCH_OT_add_window
 
@@ -78,6 +82,10 @@ classes = (
     QARCH_OT_clean_object,
     QARCH_OT_add_instance,
     QARCH_OT_do_add_instance,
+    QARCH_OT_import_mesh,
+    QARCH_OT_flip_normal,
+    QARCH_OT_project_face,
+    QARCH_OT_extrude_walls,
 )
 
 from bpy.app.handlers import persistent

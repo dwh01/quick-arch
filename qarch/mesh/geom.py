@@ -2,10 +2,11 @@
 import copy
 
 import bpy, bmesh
-from ..object import TopologyInfo, SelectionInfo, get_bt_collection
-from .utils import ManagedMesh
+from ..object import TopologyInfo, SelectionInfo, get_bt_collection, get_instance_collection
+from .utils import ManagedMesh, managed_bm
 from .SmartPoly import SmartPoly, coincident
-from mathutils import Vector, Matrix
+
+from mathutils import Vector, Matrix, Euler
 import mathutils
 import math
 import functools
@@ -46,9 +47,9 @@ def _common_start(obj, sel_info, break_link=False):
 def _extract_offset(size_dict, box_size):
     sx, sy = size_dict['offset_x'], size_dict['offset_y']
     rel_x, rel_y = size_dict['is_relative_x'], size_dict['is_relative_y']
-    if rel_x:
+    if rel_x and (box_size.x > 0):
         sx = box_size.x * sx
-    if rel_y:
+    if rel_y and (box_size.y > 0):
         sy = box_size.y * sy
     return sx, sy
 
@@ -56,9 +57,9 @@ def _extract_offset(size_dict, box_size):
 def _extract_size(size_dict, box_size):
     sx, sy = size_dict['size_x'], size_dict['size_y']
     rel_x, rel_y = size_dict['is_relative_x'], size_dict['is_relative_y']
-    if rel_x:
+    if rel_x and (box_size.x > 0):
         sx = box_size.x * sx
-    if rel_y:
+    if rel_y and (box_size.y > 0):
         sy = box_size.y * sy
     if sx < 0:
         sx = box_size.x + sx
@@ -367,13 +368,11 @@ def _make_curve_poly(control_poly, prop_dict, mm, b_make=True):
 
 def _make_catalog_poly(control_poly, prop_dict, mm, context, b_make=True):
     from ..ops import get_calatalog_file, BT_CATALOG_SRC
-    from ..object import Journal
 
     cat_dict = prop_dict['catalog_object']
     obj_name = cat_dict['category_item']
     bfile = get_calatalog_file(context)
 
-    j = Journal(context.object)
     try:
         obj = bpy.data.objects[obj_name]
     except Exception:
@@ -390,8 +389,6 @@ def _make_catalog_poly(control_poly, prop_dict, mm, context, b_make=True):
     spoof = copy.deepcopy(prop_dict)
     spoof['local_object']['object_name'] = obj_name
 
-    j = Journal(context.object)
-
     return _make_curve_poly(control_poly, spoof, mm, b_make)
 
 
@@ -402,8 +399,8 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
     if len(lst_orig_poly) == 0:  # ok to add to none
         lst_orig_poly.append(SmartPoly())
         prop_dict['join'] = 'FREE'
-        prop_dict['size_x']['is_relative_x'] = False
-        prop_dict['size_y']['is_relative_y'] = False
+        prop_dict['size']['is_relative_x'] = False
+        prop_dict['size']['is_relative_y'] = False
 
     shape_type = prop_dict['shape_type']
     join_type = prop_dict['join']
@@ -433,16 +430,17 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
     topo = TopologyInfo(from_keys=['Bridge', 'Center', 'Frame'])
 
     faces = mm.get_faces(sel_info)
+    if len(faces)==0:
+        faces = [None] * len(lst_orig_poly)  # adding to nothing
     face_attr = None
+
     for orig_poly, orig_face in zip(lst_orig_poly, faces):  # note, if a region, the first face provides the info
-        if len(orig_poly.coord) < 3:
-            continue
-        face_attr = mm.get_face_attrs(orig_face)
+        if orig_face:
+            face_attr = mm.get_face_attrs(orig_face)
 
         control_poly = SmartPoly()
         control_poly.add(orig_poly.coord, break_link=True)
         control_poly.calculate()
-
         if shape_type == 'NGON':
             lst_new, outer = _make_ngon(control_poly, prop_dict, mm)
             if len(lst_new) > 1:
@@ -986,14 +984,14 @@ def solidify_edges(self, obj, sel_info, op_id, prop_dict):
 def make_louvers(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
     mm.set_op(op_id)
-    topo = TopologyInfo(from_keys=['Blades'])  # implement risers
+    topo = TopologyInfo(from_keys=['Blades','Risers'])  # implement risers
     topo.set_modulus('Blades', 6)
 
     count_x = prop_dict['count_x']  # sets of louvers
     count_y = prop_dict['count_y']  # blades per louver
     margin_x = prop_dict['margin_x']  # space on either side of a louver
     margin_y = prop_dict['margin_y']  # space above and below a louver
-    connect = prop_dict['connect_louvers']  # TODO like stairs
+    connect = prop_dict['connect_louvers']  # like stairs
     blade_angle = prop_dict['blade_angle']
     blade_thickness = prop_dict['blade_thickness']
     depth_thickness = prop_dict['depth_thickness']
@@ -1041,8 +1039,9 @@ def make_louvers(self, obj, sel_info, op_id, prop_dict):
 
             v_origin = Vector(v_origin).to_3d()
             v_step = Vector(v_step).to_3d()
+            vert_last = None
             for i_y in range(count_y):
-                blade_verts = mm.cube(blade_w, depth_thickness, blade_thickness, tag)
+                blade_verts, blade_faces = mm.cube(blade_w, depth_thickness, blade_thickness, tag)
                 # rotate and translate blade_faces
                 for vert in blade_verts:
                     v1 = rot @ vert.co + i_y * v_step + v_origin + v_depth
@@ -1050,7 +1049,11 @@ def make_louvers(self, obj, sel_info, op_id, prop_dict):
                     vert.co = v1
                 for j in range(6):
                     topo.add('Blades')
-
+                if connect and vert_last:
+                    vlist = [vert_last[0], vert_last[3], blade_verts[6], blade_verts[7]]
+                    mm.new_face(vlist)
+                    topo.add('Risers')
+                vert_last = blade_verts
     # could add an option to remove the face, but usually we are making window shades and want to keep the glass
     # face = mm.find_face_by_smart_vec(control_poly.coord)
     # if face is not None:
@@ -1183,6 +1186,7 @@ def calc_uvs(self, obj, sel_info, op_id, prop_dict):
 
 def set_oriented_material(self, obj, sel_info, op_id, prop_dict):
     mat_name = prop_dict['material']
+    midx = 0
     for midx in range(len(obj.data.materials)):
         if obj.data.materials[midx].name == mat_name:
             break
@@ -1213,4 +1217,300 @@ def set_oriented_material(self, obj, sel_info, op_id, prop_dict):
         f.material_index = midx
         topo.add('All')
         calc_face_uv(f, mm, mode=None, orig=None)
+    return topo
+
+
+def _instance_name(obj, op_id):
+    col = get_instance_collection(obj)
+    name = "bt{:03d}.{:03d}.{}".format(len(col.objects), op_id, obj.name)
+    return name
+
+
+def _instance_index(obj):
+    parts = obj.name.split(".")
+    return int(parts[0][2:])  # bt000
+
+
+def _find_instance_object(obj, op_id):
+    search = "{:03d}".format(op_id)
+    col = get_instance_collection(obj)
+    for obj in col.objects:
+        parts = obj.name.split(".")
+        if parts[1] == search:
+            return obj
+    return None
+
+
+def _get_catalog_object(prop_dict, context):
+    from ..ops import get_calatalog_file, BT_CATALOG_SRC
+
+    cat_dict = prop_dict['catalog_object']
+    obj_name = cat_dict['category_item']
+    bfile = get_calatalog_file(context)
+
+    try:
+        obj = bpy.data.objects[obj_name]
+    except Exception:
+        with bpy.data.libraries.load(str(bfile)) as (data_from, data_to):
+            data_to.objects.append(obj_name)
+
+        col = get_bt_collection()  # to find for editing easier
+        obj = bpy.data.objects[obj_name]
+        col.objects.link(obj)
+        obj[BT_CATALOG_SRC] = str(bfile)  # so we can check for refresh if we swap styles
+
+        bpy.ops.ed.undo_push(message="Load Object")
+
+    return obj
+
+
+def import_mesh(self, obj, sel_info, op_id, prop_dict):
+    mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
+    mm.set_op(op_id)
+
+    if prop_dict['as_instance']:
+        obj_name = prop_dict['catalog_object']['category_item']
+    else:
+        obj_name = prop_dict['local_object']['object_name']
+
+    if obj_name in ['','0','N/A']:
+        topo = TopologyInfo(from_keys=['All'])
+        return topo
+
+    obj_add = _find_instance_object(obj, op_id)
+    head = ""
+    if obj_add is not None:
+        head = obj_add.name[:10] # "bt000.000.name"
+        tail = obj_add.name[10:]
+        if (tail != obj_name) and (obj_add.name != obj.name):
+            bpy.data.objects.remove(obj_add, do_unlink=True)
+            obj_add = None
+
+    if obj_add is None:
+        if prop_dict['as_instance']:
+            obj_example = _get_catalog_object(prop_dict, self.context)
+        else:
+            obj_example = bpy.data.objects[obj_name]
+
+        obj_add = obj_example.copy()  # keep mesh reference so we can edit the original
+        if head != "":  # keep instancing order and op id
+            obj_add.name = head + obj_add.name
+        else:
+            obj_add.name = _instance_name(obj, op_id)
+        inst_col = get_instance_collection(obj)
+        inst_col.objects.link(obj_add)
+
+    pick = _instance_index(obj_add)
+
+    # clear old
+    topo = TopologyInfo(from_keys=['All'])
+    mm.delete_current_verts()
+
+    dz = prop_dict['z_offset']
+    sz = prop_dict['scale']
+    e_rot = Euler(prop_dict['rotation'])
+    a_count = prop_dict['array']['count']
+    a_dir = Vector(_extract_vector(prop_dict['array']['direction']))
+    a_dir.normalize()
+    a_spacing = prop_dict['array']['spacing']
+    a_do_orbit = prop_dict['array']['do_orbit']
+    a_origin = Vector(_extract_vector(prop_dict['array']['origin']))
+
+    bb = obj_add.bound_box
+    bb_min = Vector(bb[0])
+    bb_max = Vector(bb[-2])
+    bb_size = bb_max-bb_min
+
+    for control_poly in lst_orig_poly:
+        inst_dir = control_poly.matrix @ a_dir
+
+        #sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+        sx, sy = sz, sz
+        ox, oy = _extract_offset(prop_dict['position'], control_poly.box_size)
+
+        v_start = control_poly.make_3d(control_poly.bbox[0])
+        v_start += ox*control_poly.xdir + oy*control_poly.ydir + dz*control_poly.normal
+
+        r_mat = e_rot.to_matrix() @ control_poly.matrix
+        r_euler = r_mat.to_euler()
+
+        v_scale = Vector((sx, sy, sz))
+
+        dtheta = 0
+        v_origin = Vector((0,0,0))
+        if a_do_orbit:
+            v_origin = (control_poly.make_3d(control_poly.bbox[0])
+                        + a_origin.x*control_poly.xdir + a_origin.y*control_poly.ydir)  # in face coordinates
+            s1 = control_poly.make_2d(v_origin)
+            s2 = control_poly.make_2d(v_start)
+            radius = s2 - s1
+            if radius.length == 0:
+                a_do_orbit = False
+            else:
+                dtheta = a_spacing / radius.length
+
+        if prop_dict['as_instance']:  # put in vertices
+            for i in range(a_count):
+                if a_do_orbit:
+                    local_rot = Matrix.Rotation(i*dtheta, 3, control_poly.normal)
+                    v_inst = v_origin + local_rot @ (v_start - v_origin)
+                    r_euler = (local_rot @ r_mat).to_euler()
+                else:
+                    v_inst = v_start + i * a_spacing * inst_dir
+
+                bmv = mm.new_vert(v_inst)
+                mm.instance_on_vert(bmv, pick, r_euler, v_scale)
+
+        else:  # copy mesh to position
+            dct_map_verts = {}
+            dct_map_matl = {}
+            for i_add, mat in enumerate(obj_add.data.materials):
+                b_found = False
+                for idx in range(len(obj.data.materials)):
+                    if obj.data.materials.name == mat.name:
+                        dct_map_matl[i_add] = idx
+                        b_found = True
+                        break
+                if not b_found:
+                    idx = len(obj.data.materials)
+                    obj.data.materials.append(mat)
+                    dct_map_matl[i_add] = idx
+
+            with managed_bm(obj_add) as bm_add:
+                bm_add.verts.ensure_lookup_table()
+                for v_add in bm_add.verts:
+                    v1 = Vector((v_add.x*v_scale.x, v_add.y*v_scale.y, v_add.z*v_scale.z))
+                    v = v_start + r_mat @ v1
+                    bmv = mm.new_vert(v)
+                    dct_map_verts[v.index] = bmv
+                for face_add in bm_add.faces:
+                    vlist = [v.index for v in face_add.verts]
+                    f = mm.new_face(vlist)
+                    f.material_index = dct_map_matl[face_add.material_index]
+                    topo.add('All')
+    mm.to_mesh()
+    mm.free()
+
+    return topo
+
+
+def flip_normals(self, obj, sel_info, op_id, prop_dict):
+    mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
+    mm.set_op(op_id)
+
+    faces = mm.get_faces(sel_info)
+    if len(faces) == 0:
+        faces = [None] * len(lst_orig_poly)  # adding to nothing
+    face_attr = None
+
+    for control_poly, orig_face in zip(lst_orig_poly, faces):
+        new_poly = SmartPoly()
+        new_poly.add(control_poly.coord, break_link=True)
+        new_poly.flip_z()
+
+        face_attr =  mm.get_face_attrs(orig_face)
+        face = new_poly.make_face(mm)
+        mm.set_face_attrs(face, face_attr)
+
+    topo = TopologyInfo(from_keys=['All'])
+    topo.add('All', len(lst_orig_poly))
+    return topo
+
+
+def project_face(self, obj, sel_info, op_id, prop_dict):
+    mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
+    mm.set_op(op_id)
+
+    topo= TopologyInfo(from_keys=['All'])
+    lst_poly = []
+    mode = prop_dict['mode']
+    if mode in ['A2B', 'BRIDGE_AB']:
+        poly_a = lst_orig_poly[0]
+        poly_b = lst_orig_poly[1]
+    else:
+        poly_a = lst_orig_poly[1]
+        poly_b = lst_orig_poly[0]
+
+
+    poly_c = SmartPoly()
+    poly_c.add(poly_a.coord)
+    poly_c.project_to(poly_b.normal)  # shape of a when projected
+
+    line_a = poly_a.center
+    line_b = line_a + poly_a.normal
+    v = mathutils.geometry.intersect_line_plane(line_a, line_b, poly_b.center, poly_b.normal)
+    if v is not None:
+        poly_c.shift_3d(v - poly_c.center)
+
+    if mode in ['A2B', 'B2A']:
+        # use c as target
+        poly_a.make_verts(mm)
+        poly_c.make_verts(mm)
+        lst_poly = poly_a.bridge_by_number(poly_c)
+    else:
+        # use c for bridge calculation
+        poly_c.flip_z()  # should be facing same direction
+        poly_c.make_verts(mm)
+        poly_b.make_verts(mm)
+        lst_poly = poly_c.bridge(poly_b, mm, False, b_extruding=True)
+
+        # transfer positions of a to c, ie, unproject c
+        # since we premade and shared verts, this fixes all the bridging polys
+        poly_c.flip_z()  # should be facing original direction
+        for i in range(len(poly_a.coord)):
+            poly_c.coord[i].co3 = poly_a.coord[i].co3
+            poly_c.coord[i].bm_vert.co = poly_a.coord[i].co3
+        poly_c.calculate()
+
+    tag = prop_dict['tag']
+    for p in lst_poly:
+        face = p.make_face(mm)
+        mm.set_face_attrs(face, {mm.key_tag: tag})
+
+    topo.add('All', len(lst_poly))
+    return topo
+
+
+def extrude_walls(self, obj, sel_info, op_id, prop_dict):
+    # need to extrude individually
+    # remember to do -normal direction, so flip_z on results to get proper normals
+    # make sure to copy materials, set oriented if face was already, keep common origin and orientation
+    #  but calculate new uv_w locations (see make_oriented)
+    # then clear thickness so it doesn't happen twice (unless in rebuild which starts over)
+    mm = ManagedMesh(obj)
+    lst_thick_faces = mm.thick_faces(sel_info)
+
+    mm.set_op(op_id)
+    topo = TopologyInfo(from_keys=['Sides', 'Tops'])
+
+    for orig_face in lst_thick_faces:
+        face_attr = mm.get_face_attrs(orig_face)
+        control_poly = SmartPoly()
+        control_poly.add(list(orig_face.verts), break_link=False)
+        control_poly.calculate()
+        offset = -control_poly.normal * orig_face[mm.key_thick]
+
+        top_poly = SmartPoly()
+        top_poly.add(control_poly.coord, break_link=True)
+        top_poly.shift_3d(offset)
+        top_poly.calculate()
+
+        top_poly.make_verts(mm)  # to share
+        lst_poly = top_poly.bridge_by_number(control_poly)
+        topo.add('Sides', len(lst_poly))
+        lst_poly.append(top_poly)
+        topo.add('Tops')
+        for p in lst_poly:
+            p.flip_z()
+            face = p.make_face(mm)
+            mm.set_face_attrs(face, face_attr)
+            face.material_index = orig_face.material_index
+            calc_face_uv(face, mm, face[mm.key_uv], face[mm.key_uv_orig])
+
+            mm.set_face_attrs(face, {mm.key_thick:0})
+        mm.set_face_attrs(orig_face, {mm.key_thick:0})
+
+    # finalize and save
+    mm.to_mesh()
+    mm.free()
     return topo

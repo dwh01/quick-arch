@@ -536,6 +536,8 @@ class SmartPoly:
         """Get everything ready once the points are added
         if you have a hole or badly convex poly, don't sort
         """
+        if len(self.coord)==0:
+            return
         self.calc_center()
         self.calc_matrix()
         self.calc_2d()

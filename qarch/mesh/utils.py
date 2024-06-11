@@ -3,7 +3,7 @@ import bmesh
 import mathutils
 import struct
 from contextlib import contextmanager
-from ..object import VERT_OP_ID, VERT_OP_SEQUENCE
+from ..object import VERT_OP_ID, VERT_OP_SEQUENCE, BT_INST_PICK, BT_INST_SCALE, BT_INST_ROT
 from ..object import FACE_THICKNESS, FACE_CATEGORY, FACE_UV_MODE, FACE_UV_ORIGIN, FACE_OP_ID, FACE_OP_SEQUENCE, FACE_UV_ROTATE
 from ..object import SelectionInfo, LOOP_UV_W
 
@@ -65,6 +65,9 @@ class ManagedMesh:
             self.key_face_op = self.bm.faces.layers.int[FACE_OP_ID]
             self.key_uv_w = self.bm.loops.layers.float[LOOP_UV_W]
             self.key_uv_rot = self.bm.faces.layers.float_vector[FACE_UV_ROTATE]
+            self.key_pick = self.bm.verts.layers.int[BT_INST_PICK]
+            self.key_inst_rot = self.bm.verts.layers.float_vector[BT_INST_ROT]
+            self.key_inst_scale = self.bm.verts.layers.float_vector[BT_INST_SCALE]
 
         else:
             self.key_op = None
@@ -77,8 +80,11 @@ class ManagedMesh:
             self.key_face_op = None
             self.key_uv_w = None
             self.key_uv_rot = None
+            self.key_pick = None
+            self.key_inst_rot = None
+            self.key_inst_scale = None
 
-        # tracking as we add
+            # tracking as we add
         self.cur_seq = 0
         self.existing = {}
         self.cur_face_seq = 0
@@ -114,21 +120,23 @@ class ManagedMesh:
         ]
         print("deleting {} faces".format(len(lst_del)))
         bmesh.ops.delete(self.bm, geom=lst_del, context="FACES_ONLY")
+        print("creating wall thickness")
+        self.create_wall_thickness()
+
 
     def cube(self, x, y, z, tag=None):
+        verts = [(0,0,0),(0,y,0),(x,y,0),(x,0,0),
+                 (0,0,z),(x,0,z),(x,y,z),(0,y,z)]
+        verts = [mathutils.Vector(v) - mathutils.Vector((x/2,y/2,z/2)) for v in verts]
+        flist = [(0,1,2,3),(4,5,6,7),(0,3,5,4),(1,0,4,7),(2,1,7,6),(3,2,6,5)]
         mat = mathutils.Matrix.Identity(4)
-        mat[0][0] = x
-        mat[1][1] = y
-        mat[2][2] = z
-        res = bmesh.ops.create_cube(self.bm, size=1, matrix=mat, calc_uvs=False)
-        for bmv in res['verts']:
-            bmv[self.key_op] = self.op_id
-            bmv[self.key_seq] = self.cur_seq
-            self.cur_seq += 1
-        if tag is not None:
-            for face in res['faces']:
-                face[self.key_tag] = tag
-        return res['verts']
+        bm_verts = [self.new_vert(v) for v in verts]
+        faces = []
+        for f in flist:
+            vlist = [bm_verts[i] for i in f]
+            face = self.new_face(vlist, tag=tag)
+            faces.append(face)
+        return bm_verts, faces
 
     def delete_all(self):
         """Clear mesh"""
@@ -380,6 +388,11 @@ class ManagedMesh:
         self.deselect_all()
         self.select_operation(self.op_id)
 
+    def instance_on_vert(self, bmv, pick, rot, scale):
+        bmv[self.key_pick] = pick
+        bmv[self.key_inst_rot] = rot
+        bmv[self.key_inst_scale] = scale
+
     def new_vert(self, v):
         if self.cur_seq in self.existing:
             bmv = self.existing[self.cur_seq]
@@ -389,6 +402,7 @@ class ManagedMesh:
             bmv = self.bm.verts.new(v)
             bmv[self.key_op] = self.op_id
             bmv[self.key_seq] = self.cur_seq
+        bmv[self.key_pick] = -1  # turn off instancing
         self.cur_seq += 1
 
         return bmv
@@ -442,6 +456,17 @@ class ManagedMesh:
 
         self.cur_face_seq += 1
         return face
+
+    def thick_faces(self, sel_info):
+        sel_faces = self.get_faces(sel_info)
+        if len(sel_faces)==0:
+            sel_faces = self.bm.faces
+
+        lst_thick = []
+        for face in sel_faces:
+            if face[self.key_thick] != 0:
+                lst_thick.append(face)
+        return lst_thick
 
     def vert_list(self, sel_info):
         """Flat list of free verts with no repeats"""

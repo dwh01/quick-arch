@@ -18,6 +18,10 @@ from .utils import (
     TopologyInfo,
     UV_MAP,
     get_bt_collection,
+    BT_INST_PICK,
+    BT_INST_ROT,
+    BT_INST_SCALE,
+    get_instance_collection,
 )
 
 from .journal import (

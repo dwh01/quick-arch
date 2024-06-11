@@ -20,6 +20,9 @@ VERT_OP_ID = 'bt_op_id'
 VERT_OP_SEQUENCE = 'bt_sequence'
 LOOP_UV_W = 'bt_uv_w'
 UV_MAP = "UVMap"
+BT_INST_PICK = 'bt_inst_pick'  # vertex data layer for instancer index
+BT_INST_ROT = 'bt_inst_rot'    # vertex data layer for instancer rotation
+BT_INST_SCALE = 'bt_inst_scale'  # vertex data layer for instancer scale
 
 # custom data field for object
 BT_OBJ_DATA = 'bt_data'
@@ -30,6 +33,7 @@ REPLAY_OP_ID = "replay_id"
 JOURNAL_PROP_NAME = "journal_name"  # object custom property name
 
 BT_IMPORT_COLLECTION = "BT_Imported"  # collection for imported objects
+BT_INST_COLLECTION = "_sources"  # append to object name to get instancer collection name
 
 
 def get_bt_collection():
@@ -38,8 +42,17 @@ def get_bt_collection():
     except Exception:
         col = bpy.data.collections.new(BT_IMPORT_COLLECTION)
         bpy.data.collections['Collection'].children.link(col)
+    col.hide_viewport = True
     return col
 
+def get_instance_collection(obj):
+    col_name = obj.name + BT_INST_COLLECTION
+    try:
+        col = bpy.data.collections[col_name]
+    except Exception:
+        col = bpy.data.collections.new(col_name)
+        get_bt_collection().children.link(col)
+    return col
 
 # these two functions are because json turns integer keys into strings
 # we don't want to forget and get confused why 1 != "1"
@@ -363,6 +376,87 @@ class TopologyInfo:
         sel_info.replace_sequence(op_id, lst_info)
 
 
+def create_instancing_nodes(obj):
+    col_name = obj.name + BT_INST_COLLECTION
+    try:
+        col_sources = bpy.data.collections[col_name]
+    except Exception:
+        col_sources = bpy.data.collections.new(col_name)
+        collection = get_bt_collection()
+        collection.children.link(col_sources)
+
+    mod = obj.modifiers.new(name="Geometry Nodes", type='NODES')
+    node_group = bpy.data.node_groups.new('GN_'+obj.name, 'GeometryNodeTree')
+    mod.node_group = node_group
+
+    inNode = node_group.nodes.new('NodeGroupInput')
+    outNode = node_group.nodes.new('NodeGroupOutput')
+    joinNode = node_group.nodes.new('GeometryNodeJoinGeometry')
+    colNode = node_group.nodes.new('GeometryNodeCollectionInfo')
+    pickNode = node_group.nodes.new('GeometryNodeInputNamedAttribute')
+    pickNode.label = "Instance index"
+    rotNode = node_group.nodes.new('GeometryNodeInputNamedAttribute')
+    rotNode.label = "Instance rotation"
+    scaleNode = node_group.nodes.new('GeometryNodeInputNamedAttribute')
+    scaleNode.label = "Instance scale"
+    instNode = node_group.nodes.new('GeometryNodeInstanceOnPoints')
+    compareNode = node_group.nodes.new('FunctionNodeCompare')
+    sepNode = node_group.nodes.new('GeometryNodeSeparateGeometry')
+
+
+    instNode.inputs['Pick Instance'].default_value = True
+
+    colNode.inputs['Separate Children'].default_value = True
+    colNode.inputs['Collection'].default_value = col_sources
+
+    pickNode.data_type = 'INT'
+    pickNode.inputs['Name'].default_value = BT_INST_PICK
+
+    rotNode.data_type = 'FLOAT_VECTOR'
+    rotNode.inputs['Name'].default_value = BT_INST_ROT
+
+    scaleNode.data_type = 'FLOAT_VECTOR'
+    scaleNode.inputs['Name'].default_value = BT_INST_SCALE
+
+    compareNode.data_type = 'INT'
+    compareNode.operation = 'EQUAL'
+    compareNode.inputs['B'].default_value = -1
+
+    sepNode.domain = 'POINT'
+
+    node_group.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    node_group.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+
+    node_group.links.new(inNode.outputs['Geometry'], joinNode.inputs['Geometry'])
+    node_group.links.new(joinNode.outputs['Geometry'], outNode.inputs['Geometry'])
+
+    node_group.links.new(inNode.outputs['Geometry'], sepNode.inputs['Geometry'])
+    node_group.links.new(sepNode.outputs['Inverted'], instNode.inputs['Points'])
+    node_group.links.new(instNode.outputs['Instances'], joinNode.inputs['Geometry'])
+
+    node_group.links.new(colNode.outputs['Instances'], instNode.inputs['Instance'])
+    node_group.links.new(pickNode.outputs[4], instNode.inputs['Instance Index'])
+    node_group.links.new(rotNode.outputs['Attribute'], instNode.inputs['Rotation'])
+    node_group.links.new(scaleNode.outputs[0], instNode.inputs['Scale'])
+
+    node_group.links.new(pickNode.outputs['Attribute'], compareNode.inputs['A'])
+    node_group.links.new(compareNode.outputs['Result'], sepNode.inputs['Selection'])
+
+
+    w = inNode.width * 1.25
+    h = colNode.height * 1.25
+    inNode.location = (-3 * w, 0)
+    colNode.location = (-2 * w, 2 * h)
+    pickNode.location = (-2 * w, 1 * h)
+    rotNode.location = (-2 * w, -1 * h)
+    scaleNode.location = (-2 * w, -2 * h)
+    compareNode.location = (-1 * w, -2 * h)
+    sepNode.location = (0 * w, -2 * h)
+    instNode.location = (1 * w, -0.5 * h)
+    joinNode.location = (2 * w, 0)
+    outNode.location = (3 * w, 0)
+
+
 def create_object(collection, name):
     """Create object and initialize layers, etc
     Return object
@@ -406,10 +500,15 @@ def create_object(collection, name):
     key = obj.data.attributes.new(FACE_OP_ID, 'INT', 'FACE')
     key = obj.data.attributes.new(LOOP_UV_W, 'FLOAT', 'CORNER')
 
-    key = obj.data.attributes.new(VERT_OP_ID, 'INT', 'POINT')
     attribute_values = [-1]
+    key = obj.data.attributes.new(VERT_OP_ID, 'INT', 'POINT')
     key.data.foreach_set("value", attribute_values)
+    key = obj.data.attributes.new(BT_INST_PICK, 'INT', 'POINT')
+    key.data.foreach_set("value", attribute_values)
+
     key = obj.data.attributes.new(VERT_OP_SEQUENCE, 'INT', 'POINT')
+    key = obj.data.attributes.new(BT_INST_ROT, 'FLOAT_VECTOR', 'POINT')
+    key = obj.data.attributes.new(BT_INST_SCALE, 'FLOAT_VECTOR', 'POINT')
 
     # default materials for visualization
     lst = dynamic_enums.lst_FaceEnums
@@ -417,6 +516,10 @@ def create_object(collection, name):
         tag = lst[i][0]
         matname = tag_to_material(tag)
         mesh.materials.append(bpy.data.materials[matname])
+
+    # instancer
+    create_instancing_nodes(obj)
+
     return obj
 
 

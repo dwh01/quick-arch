@@ -11,6 +11,10 @@ from .geom import (
     set_face_property,
     calc_uvs,
     set_oriented_material,
+    import_mesh,
+    flip_normals,
+    project_face,
+    extrude_walls,
 )
 
 from .assets import draw

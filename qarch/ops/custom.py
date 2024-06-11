@@ -1,7 +1,7 @@
 import copy
 
 import bpy
-from mathutils import Vector
+from mathutils import Vector, Euler
 from collections import defaultdict, OrderedDict
 import itertools
 import json
@@ -80,7 +80,7 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
                 if isinstance(rna, bpy.types.EnumProperty):
                     row.label(text=getattr(self, pname))
                     if pname == "category_item":  # preview
-                        row.template_icon_view(self, pname, show_labels=True)
+                        row.template_icon_view(self, pname, show_labels=True, scale_popup=10)
                     else:
                         row.prop_menu_enum(self, pname)
                 else:
@@ -101,7 +101,10 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
                             pass
                 else:
                     if isinstance(v, tuple):
-                        v = Vector(v)
+                        if isinstance(getattr(self, k), Euler):
+                            v = Euler(v)
+                        else:
+                            v = Vector(v)
                     setattr(self, k, v)
 
     def to_dict(self):
@@ -123,6 +126,9 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
                     d[pname] = getattr(self, pname)
                     if isinstance(d[pname], Vector):
                         d[pname] = tuple(d[pname])
+                    elif isinstance(d[pname], Euler):
+                        d[pname] = tuple(d[pname])
+
         return d
 
 

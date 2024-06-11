@@ -15,7 +15,6 @@ class QARCH_OT_create_object(bpy.types.Operator):
     bl_options = {"REGISTER"}
     #bl_property = "props"
 
-    #props: PointerProperty(name="Object", type=NewObjectProperty)
     name: StringProperty(name="Name", description="Name of new object", default="BT_object")
     collection: StringProperty(name="Collection", description="Destination collection", default="Collection")
 

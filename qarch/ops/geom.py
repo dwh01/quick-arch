@@ -15,6 +15,10 @@ from ..mesh import (
     ManagedMesh,
     calc_uvs,
     set_oriented_material,
+    import_mesh,
+    flip_normals,
+    project_face,
+    extrude_walls,
 )
 from ..object import get_obj_data, ACTIVE_OP_ID, material_best_mode
 
@@ -42,19 +46,19 @@ class QARCH_OT_inset_polygon(CustomOperator):
 
     function = inset_polygon
 
-    @classmethod
-    def poll(cls, context):
-        return cls.is_face_selected(context)
-
     def invoke(self, context, event):
         # ensure that we are looking for curves
         self.props.local_object.show_curves = True
         self.props.catalog_object.show_curves = True
         lst = enum_categories(self.props, context)
-        pick = min(1, len(lst))
-        #print(lst, pick)
-        #self.props.catalog_object.category_name = lst[pick][0]
+        if len(lst) and (self.props.catalog_object.category_name in ['', '0', 'N/A']):
+            pick = min(1, len(lst))
+            self.props.catalog_object.category_name = lst[pick][0]
 
+        if not self.is_face_selected(context):
+            if self.props.join != 'FREE':
+                self.props.join = 'FREE'
+                self.props.shape_type = 'NGON'
         return super().invoke(context, event)
 
 
@@ -136,6 +140,17 @@ class QARCH_OT_solidify_edges(CustomOperator):
     @classmethod
     def poll(cls, context):
         return cls.is_face_selected(context)  # maybe we don't need a whole face, allow just edges?
+
+    def invoke(self, context, event):
+        # ensure that we are looking for curves
+        self.props.local_object.show_curves = True
+        self.props.catalog_object.show_curves = True
+        lst = enum_categories(self.props, context)
+        if len(lst) and (self.props.catalog_object.category_name in ['', '0', 'N/A']):
+            pick = min(1, len(lst))
+            self.props.catalog_object.category_name = lst[pick][0]
+
+        return super().invoke(context, event)
 
 
 class QARCH_OT_make_louvers(CustomOperator):
@@ -257,12 +272,12 @@ class QARCH_OT_set_face_uv_orig(CustomOperator):
         # if this is not a replay, replace defaults with what is in the face now
         mm = ManagedMesh(context.object)
         org = None
-        for face in mm.bm.faces:
-            if face.select:
-                org = face[mm.key_uv_orig]
-                break
+        lst_faces = mm.get_faces(mm.get_selection_info())
+        for face in lst_faces:
+            org = face[mm.key_uv_orig]
+            break
         if org is not None:
-            self.props.uv_orig = org
+            self.props.uv_origin = org
         mm.free()
 
         return super().invoke(context, event)
@@ -285,10 +300,10 @@ class QARCH_OT_set_face_uv_rotate(CustomOperator):
         # if this is not a replay, replace defaults with what is in the face now
         mm = ManagedMesh(context.object)
         rot = None
-        for face in mm.bm.faces:
-            if face.select:
-                rot = face[mm.key_uv_rot]
-                break
+        lst_faces = mm.get_faces(mm.get_selection_info())
+        for face in lst_faces:
+            rot = face[mm.key_uv_rot]
+            break
         if rot is not None:
             self.props.uv_rotate = rot
         mm.free()
@@ -338,6 +353,77 @@ class QARCH_OT_set_oriented_mat(CustomOperator):
         return super().invoke(context, event)
 
 
+class QARCH_OT_import_mesh(CustomOperator):
+    """Turn edges into solids"""
+
+    bl_idname = "qarch.import_mesh"
+    bl_label = "Import Mesh"
+    bl_options = {"REGISTER", "UNDO"}
+
+    props: bpy.props.PointerProperty(type=MeshImportProperty)
+
+    function = import_mesh
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+    def invoke(self, context, event):
+        lst = enum_categories(self.props, context)
+        if len(lst) and (self.props.catalog_object.category_name in ['', '0', 'N/A']):
+            pick = min(1, len(lst))
+            self.props.catalog_object.category_name = lst[pick][0]
+
+        return super().invoke(context, event)
+
+class QARCH_OT_flip_normal(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.flip_normal"
+    bl_label = "Flip Normal"
+    bl_description = "Flip face normals"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = flip_normals
+
+    props: PointerProperty(type=FlipNormalProperty)
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+
+class QARCH_OT_project_face(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.project_face"
+    bl_label = "Project Face"
+    bl_description = "Project face onto plane"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = project_face
+
+    props: PointerProperty(type=ProjectFaceProperty)
+
+    @classmethod
+    def poll(cls, context):
+        if cls.is_face_selected(context):
+            mm = ManagedMesh(context.object)
+            sel_info = mm.get_selection_info()
+            return 2 == sel_info.count_faces()
+
+
+class QARCH_OT_extrude_walls(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.extrude_walls"
+    bl_label = "Wall Extrude"
+    bl_description = "Make tagged walls have thickness"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = extrude_walls
+
+    props: PointerProperty(type=FlipNormalProperty)
+
+
+
 geom_classes = (
     QARCH_OT_union_polygon,
     QARCH_OT_inset_polygon,
@@ -353,4 +439,7 @@ geom_classes = (
     QARCH_OT_set_face_tag,
     QARCH_OT_calc_uvs,
     QARCH_OT_set_oriented_mat,
+    QARCH_OT_flip_normal,
+    QARCH_OT_project_face,
+    QARCH_OT_extrude_walls
 )
