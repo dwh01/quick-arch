@@ -1,6 +1,7 @@
 import bpy
-from bpy.props import IntProperty, FloatProperty, BoolProperty, PointerProperty, EnumProperty, StringProperty, FloatVectorProperty
-from bpy.types import AddonPreferences
+from bpy.props import IntProperty, FloatProperty, BoolProperty, PointerProperty, EnumProperty, StringProperty
+from bpy.props import FloatVectorProperty, CollectionProperty
+from bpy.types import AddonPreferences, FileAssetSelectParams, UserAssetLibrary
 import math
 from .custom import CustomPropertyBase
 from collections import OrderedDict
@@ -221,13 +222,15 @@ class SuperCurveProperty(CustomPropertyBase):
 
 class CatalogObjectProperty(CustomPropertyBase):
     search_text: StringProperty(name="Search", description="Press enter to filter by substring")
+    style_name: EnumProperty(items=enum_catalogs, description="Style", default=0)
     category_name: EnumProperty(items=enum_categories, name="Category", default=0)
     category_item: EnumProperty(items=enum_category_items, name="Objects", default=0)
     show_scripts: BoolProperty(name="Show Scripts", default=False)
     show_curves: BoolProperty(name="Show Curves", default=False)
-    rotate: FloatVectorProperty(name="Rotation", subtype="XYZ", description="Rotation of coordinates")
+    rotate: FloatVectorProperty(name="Rotation", subtype="EULER", description="Rotation of coordinates")
 
     field_layout = [
+        ['style_name'],
         ['category_name'],
         ['search_text'],
         ['category_item'],
@@ -241,7 +244,7 @@ class LocalObjectProperty(CustomPropertyBase):
     search_text: StringProperty(name="Search", description="Press enter to filter by substring")
     object_name: EnumProperty(items=enum_objects_or_curves, name="Object", default=0)
     show_curves: BoolProperty(name="Show Curves", default=False)
-    rotate: FloatVectorProperty(name="Rotation", subtype="XYZ", description="Rotation of coordinates")
+    rotate: FloatVectorProperty(name="Rotation", subtype="EULER", description="Rotation of coordinates")
 
     field_layout = [
         ['search_text', 'object_name'],
@@ -308,13 +311,13 @@ class InsetPolygonProperty(CustomPropertyBase):
         ({'join': 'BRIDGE'}, 'add_perimeter'),
         ['shape_type'],
         ({'shape_type': 'NGON'}, 'poly'),
-        ({'shape_type': 'NGON'}, 'frame'),
         ({'shape_type': 'ARCH'}, 'arch'),
+        ({'shape_type': {'NGON', 'ARCH'}}, 'frame'),
+        ({'shape_type': {'NGON', 'ARCH'}}, 'frame_material'),
         ({'shape_type': 'SUPER'}, 'super_curve'),
         ({'shape_type': 'CURVE'}, 'local_object'),
         ({'shape_type': 'CATALOG'}, 'catalog_object'),
         ({'shape_type': {'CURVE', 'CATALOG', 'SUPER'}}, 'resolution'),
-        ({'shape_type': {'NGON', 'ARCH'}}, 'frame_material'),
         ['center_material', 'extrude_distance']
     ]
 
@@ -328,7 +331,7 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     inset: FloatProperty(name="Inset Offset", description="Distance off edge", default=0)
     face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
     frame_material: EnumProperty(name="Frame Material", items=enum_all_material)
-
+    revolutions: IntProperty(name="Revolutions", description="If > 3, make a revolution of n steps instead of extrusion", default = 0)
     shape_type: EnumProperty(name="Shape Type", default="NGON", items=shape_type_list)
     poly: PointerProperty(name="Poly", type=PolygonProperty)
     arch: PointerProperty(name="Arch", type=ArchShapeProperty)
@@ -357,25 +360,28 @@ class SolidifyEdgesProperty(CustomPropertyBase):
         ({'shape_type': 'CURVE'}, 'local_object'),
         ({'shape_type': 'CATALOG'}, 'catalog_object'),
         ({'shape_type': {'CURVE', 'CATALOG', 'SUPER'}}, 'resolution'),
+        ['revolutions'],
     ]
 
-    topology_lock = ['shape_type']
+    topology_lock = ['shape_type', 'revolutions']
 
 
 class ExtrudeProperty(CustomPropertyBase):
-    distance: FloatProperty(name="Distance", default=0.1, min=0, unit="LENGTH", description="Extrude distance")
+    distance: FloatProperty(name="Distance", default=0.1, unit="LENGTH", description="Extrude distance")
     steps: IntProperty(name="Steps", default=1, description="Number of steps along axis")
     on_axis: BoolProperty(name="On Axis", default=False, description="Direction other than normal")
     axis: PointerProperty(name="Axis", type=DirectionProperty)
     align_end: BoolProperty(name="Align End", description="Align end face normal with axis", default=False)
     twist: FloatProperty(name="Twist Angle", default=0.0, unit="ROTATION", description="Degrees to rotate top")
     size: PointerProperty(name='End Size', type=SizeProperty, description='Scale result face to this size')
+    flip_normals: BoolProperty(name="Flip Normals", description="Flip normals on extruded faces", default=False)
 
     field_layout = [
         ['distance', 'steps'],
         ('on_axis','axis'),
         ['twist', 'align_end'],
         ('','size'),
+        ['flip_normals'],
     ]
 
     topology_lock = ['steps', 'twist']
@@ -425,30 +431,44 @@ class MakeLouversProperty(CustomPropertyBase):
 
 
 class SimpleWindowProperty(CustomPropertyBase):  # demo case
-    x_panes: IntProperty(name="X panes", min=1, default=2, description="Number of window lites across")
-    y_panes: IntProperty(name="y panes", min=1, default=2, description="Number of window lites vertical")
+    rel_x: FloatProperty(name="Relative X position", default = 0.5, description="X offset of window")
+    width: FloatProperty(name="Absolute width", default = 1, description="Width of window")
+    x_panes: IntProperty(name="X panes", min=1, default=2, description="Number of window panes across")
+    y_panes: IntProperty(name="y panes", min=1, default=2, description="Number of window panes vertical")
+    arch_height: FloatProperty(name="Arch", description="Arch height/width or 0 for flat top", default=0, min=0, max=1)
 
     field_layout = [
-        ["x_panes","y_panes"]
+        ['rel_x','width'],
+        ["x_panes","y_panes"],
+        ["arch_height"]
     ]
 
-    topology_lock = ["x_panes","y_panes"]
+    topology_lock = ['arch_height']
 
 
-mesh_import_enum = [
-    ("OBJECT", "Local Object", "Object from this blend file", 1),
-    ("CATALOG", "Catalog Object", "Object from catalog file", 2),
+handle_side_enum = [
+    ('LEFT', 'left', 'handle on left'),
+    ('RIGHT', 'right', 'handle on right'),
 ]
 
 
+class SimpleDoorProperty(CustomPropertyBase):
+    rel_x: FloatProperty(name="Relative X position", default=0.5, description="X offset of door")
+    handle_side: EnumProperty(items=handle_side_enum, name='Handle Side', default='LEFT')
+    panel_depth: FloatProperty(name="Panel Depth", description='Raised panel bevel amount', default=0.025)
+
+    field_layout = [
+        ['rel_x', 'panel_depth'],
+        ['handle_side']
+    ]
+    topology_lock = []
+
+
 class MeshImportProperty(CustomPropertyBase):
-    mesh_type: EnumProperty(items=mesh_import_enum, name="Mesh Type")
-    catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
     local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
     position: PointerProperty(name="Position", type=PositionProperty)
     z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
-    Scale: FloatProperty(name="Scale Instance", description="Resize instance", default=1)
-    #size: PointerProperty(name="Scale", type=SizeProperty)
+    scale: FloatProperty(name="Scale Instance", description="Resize instance", default=1)
     rotation: FloatVectorProperty(name="Euler Rotation", subtype="EULER", description="Rotation of object")
     array: PointerProperty(name="Array", type=ArrayProperty)
     as_instance: BoolProperty(name="As Instance", default=True, description="Use instancing instead of merging mesh")
@@ -456,12 +476,9 @@ class MeshImportProperty(CustomPropertyBase):
     field_layout = [
         ('First Offset', 'position'),
         ['rotation'],
-        #('', 'size'),
         ['z_offset', 'scale'],
         ('as_instance', 'array'),
-        ['mesh_type'],
-        ({'mesh_type': 'CATALOG'}, 'catalog_object'),
-        ({'mesh_type': 'OBJECT'}, 'local_object'),
+        ['local_object'],
     ]
 
     topology_lock = ['as_instance', 'mesh_type']
@@ -492,6 +509,27 @@ class ProjectFaceProperty(CustomPropertyBase):
     topology_lock = ['mode']
 
 
+class BuildFaceProperty(CustomPropertyBase):
+    tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for new faces")
+    flip_normal: BoolProperty(name="Flip normal", description="Flip normal direction")
+
+    field_layout = [
+        ['tag'],
+        ['flip_normal']
+    ]
+
+    topology_lock = []
+
+class BuildRoofProperty(CustomPropertyBase):
+    height: FloatProperty(name="Height", description="Height to peak", default=2)
+
+    field_layout = [['height']]
+    topology_lock = []
+
+class AssetLibProps(bpy.types.PropertyGroup):
+    asset: CollectionProperty(name="Asset", description="Asset Name", type=bpy.types.AssetHandle)
+    active: IntProperty(name="Index", description="Asset Index")
+
 class BTAddonPreferences(AddonPreferences):
     # this must match the add-on name, use '__package__'
     # when defining this in a submodule of a python package.
@@ -505,7 +543,7 @@ class BTAddonPreferences(AddonPreferences):
                ('GROUP','Group of Faces','Each face gets same property record'),
                ('REGION', 'Region', 'Treat as one big face')
                ], default='SINGLE',)
-    build_style: EnumProperty(items=enum_catalogs, name="Build Style", description="Catalog name")
+    build_style: StringProperty(name="Build Styles", description="Comma separated list of styles")
 
     def draw(self, context):
         layout = self.layout
@@ -546,4 +584,8 @@ ops_properties = [
     OrientedMaterialProperty,
     FlipNormalProperty,
     ProjectFaceProperty,
+    BuildFaceProperty,
+    BuildRoofProperty,
+    SimpleDoorProperty,
+AssetLibProps
 ]

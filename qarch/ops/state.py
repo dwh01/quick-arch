@@ -1,12 +1,11 @@
 """Operators that change selection state and layer data,
 many are not derived from CustomOperator"""
 import bpy
-from bpy.props import BoolProperty, EnumProperty, StringProperty, FloatVectorProperty
+from bpy.props import EnumProperty, StringProperty
 from .custom import *
 from .properties import face_tag_to_int, get_face_tag_enum
 from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo
 from ..mesh import ManagedMesh
-
 
 class QARCH_OT_create_object(bpy.types.Operator):
     """For operations without an object existing"""
@@ -31,6 +30,7 @@ class QARCH_OT_create_object(bpy.types.Operator):
 
     def invoke(self, context, event):
         wm = context.window_manager
+
         return wm.invoke_props_dialog(self)
 
     def execute(self, context):
@@ -71,9 +71,9 @@ def build_op_enums(dct_op_tree, op_id, journal, level):
         text = str(op_id)
         text = text.rjust(2 * level + len(text)) + " "
         text = text + journal.op_label(op_id)
-
+        descr = journal.describe(op_id)
         # add enum tuple to list
-        enum_rec = (wrap_id(op_id), text, "", op_id)
+        enum_rec = (wrap_id(op_id), text, descr, op_id)
         dct_Enums[op_id] = enum_rec
 
     lst_enum = [enum_rec]
@@ -214,6 +214,11 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
                 replay_history(context, op)
         else:
             replay_history(context, active_op)
+
+        journal = Journal(context.object)
+        journal['adjusting'] = []
+        journal.flush()
+
         return {'FINISHED'}
 
 class QARCH_OT_remove_operation(bpy.types.Operator):
@@ -357,3 +362,4 @@ class QARCH_OT_clean_object(bpy.types.Operator):
         mm.free()
 
         return {'FINISHED'}
+

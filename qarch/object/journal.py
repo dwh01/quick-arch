@@ -70,6 +70,11 @@ class Journal:
         """Get list of child ops controlled by this one"""
         return self.controlled.get(wrap_id(op_id), [])
 
+    def describe(self, op_id):
+        record = self.jj[wrap_id(op_id)]
+        t = record.get('description', '')
+        return t
+
     def flush(self):
         """Save changes to text block"""
         set_journal(self.obj, self.jj)
@@ -106,6 +111,7 @@ class Journal:
                     dct_ops[op_start].append(c_id)
                     # have to include children with no faces
                     # you can never click on set_tag operation, for instance
+
         return dct_ops
 
     def new_record(self, sel_info, op_name):
@@ -225,10 +231,10 @@ def set_journal(obj, journal):
     update_block(text_block, journal)
 
 
-def export_record(obj, operation_id, filename, do_screenshot):
+def export_record(obj, operation_id, filename, do_screenshot, imagefile, description):
     """Select operation and children and export to text file"""
     from ..mesh import draw
-    dct_subset = extract_record(obj, operation_id)
+    dct_subset = extract_record(obj, operation_id, description)
 
     text = json.dumps(dct_subset, indent=4)
 
@@ -239,11 +245,10 @@ def export_record(obj, operation_id, filename, do_screenshot):
     if do_screenshot:  # assume current window is all set up for us
         img = draw(file_path.stem)
         # save
-        img_path = str(file_path.with_suffix(".png"))
-        img.save(img_path)
+        img.save(filepath=imagefile)
 
 
-def extract_record(obj, operation_id):
+def extract_record(obj, operation_id, description):
     """Get dict ready for file export or cut-paste"""
     journal = Journal(obj)
 
@@ -286,6 +291,7 @@ def extract_record(obj, operation_id):
         dct_subset[wrap_id(op_id)] = record  # store in subset
 
     dct_subset['max_id'] = new_id_number - 1
+    dct_subset['description'] = description
     return dct_subset
 
 

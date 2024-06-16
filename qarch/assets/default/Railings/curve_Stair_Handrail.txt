@@ -1,0 +1,1 @@
+{"bezier_points": {"co": [0.019999999552965164, 0.0, 0.0], "handle_left": [0.01651097647845745, 0.018103942275047302, 0.0], "handle_left_type": "ALIGNED", "handle_right": [0.0288841649889946, -0.04609840363264084, 0.0], "handle_right_type": "ALIGNED"}}

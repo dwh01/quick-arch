@@ -205,7 +205,7 @@ class SmartPoly:
         self.center = mat @ self.center
         self.uv_origin = mat @ self.uv_origin
 
-    def bridge(self, other, mm, insert_perimeter=False, b_extruding=False):
+    def bridge(self, other, mm, insert_perimeter=False, b_extruding=False, b_close=True):
         """Avoid twist that can happen with bmesh.ops.bridge_loops"""
         # this is a crucial routine, we will make it handle many special cases
         #   for each case, consider if we can only use existing outside points or if we can add more
@@ -326,7 +326,7 @@ class SmartPoly:
         first_pt = None # for closure polygon
         for i in range(n_inner):
             pt3d, ray3d = self.outward_ray_idx(i)
-
+            # print("bridge from", i, pt3d, ray3d)
             case_a = other.pt_inside(other.make_2d(pt3d))
             cases = case_0, case_1, case_a
             b_test_self_intersect = case_a or case_0
@@ -337,6 +337,7 @@ class SmartPoly:
                 ray_last = last_pt - pt3d
                 crs = ray_last.cross(ray3d)
                 if crs.dot(self.normal) < 0:  # advance to point at last connected point
+                    # print("forced advance")
                     ray3d = ray_last
                     # actually, why don't we skip the testing!
                     # self intersection test to make us skip inner point instead of making poly
@@ -348,8 +349,12 @@ class SmartPoly:
                         if len(pts) >= 3:
                             lst_poly.append(pts)
                             continue
+                    #     print('too few points on forced advance')
+                    # else:
+                    #     print("skip intersect on forced advance")
 
             res = test_other_edge(pt3d, ray3d, cases)
+            # print("result",res)
             pts = []
             if res is not None:
                 e0, e1, pt_i, idx_outer = res
@@ -382,6 +387,8 @@ class SmartPoly:
                         if res2 is None:
                             cur_outer, last_inner, pts = collect_points(i, idx_outer, last_inner, cur_outer, len(other.coord))
                             last_pt = p_sel
+                        # else:
+                        #     print("Skip due to self intersection", pt3d, ray3d, res2)
 
                 else:  # create point
                     d_tot = (e1-e0).length
@@ -410,19 +417,23 @@ class SmartPoly:
                         if res2 is None:
                             cur_outer, last_inner, pts = collect_points(i, idx_outer, last_inner, cur_outer, len(other.coord))
                             last_pt = pt_new
-                        else:
-                            print("skip self intersect ", p_from, res2)
+                        # else:
+                        #     print("skip self intersect ", p_from, res2)
                 if len(pts) >= 3:
                     lst_poly.append(pts)
+                # else:
+                #     print("skip < 3 pts", pts)
 
-        # closure from n-1 back to 0
-        n_other = len(other.coord)
-        for j in range(cur_outer, cur_outer + n_other):
-            jj = j % n_other
-            if other.coord[jj] is first_pt:
-                cur_outer, last_inner, pts = collect_points(len(self.coord), j, last_inner, cur_outer, len(other.coord))
-                if len(pts) >= 3:
-                    lst_poly.append(pts)
+        if b_close:  # closure from n-1 back to 0, we skip for arches?
+            n_other = len(other.coord)
+            for j in range(cur_outer, cur_outer + n_other):
+                jj = j % n_other
+                if other.coord[jj] is first_pt:
+                    cur_outer, last_inner, pts = collect_points(len(self.coord), j, last_inner, cur_outer, len(other.coord))
+                    if len(pts) >= 3:
+                        lst_poly.append(pts)
+                    # else:
+                    #     print("skip < 3 pts", pts)
 
         new_faces = []
         for vlist in lst_poly:
@@ -441,13 +452,18 @@ class SmartPoly:
             new_faces.append(p_new)
         return new_faces
 
-    def bridge_by_number(self, other, idx_offset=0):
+    def bridge_by_number(self, other, idx_offset=0, reversed=False):
         ncp = len(self.coord)
         assert ncp == len(other.coord)
         new_faces = []
         for i in range(ncp):
             ii = (i+1) % ncp
-            vlist = [self.coord[ii], self.coord[i], other.coord[i], other.coord[ii]]
+            if reversed:
+                j = ncp - i -1
+                jj = (2*ncp - i - 2) % ncp
+                vlist = [self.coord[ii], self.coord[i], other.coord[(j + idx_offset) % ncp], other.coord[(jj+idx_offset) % ncp]]
+            else:
+                vlist = [self.coord[ii], self.coord[i], other.coord[(i+idx_offset) % ncp], other.coord[(ii+idx_offset) % ncp]]
 
             p_new = SmartPoly()
             p_new.add(vlist)
@@ -466,22 +482,22 @@ class SmartPoly:
             v2 = (self.coord[1].co3 - self.center).normalized()
             self.normal = v1.cross(v2)
             if self.normal.length == 0:
-                # print("replace norm with +z")
-                self.normal = Vector((0,0,1))
+                # maybe we were giving a matrix at creation
+                self.normal = self.matrix[2]
             else:
                 self.normal.normalize()
 
-            if self.normal[2] < -0.99:
-                self.ydir = -self.ydir
-            elif self.normal[2] < 0.99:
-                self.xdir = Vector((0, 0, 1)).cross(self.normal).normalized()
-                self.ydir = self.normal.cross(self.xdir).normalized()
+                if self.normal[2] < -0.99:
+                    self.ydir = -self.ydir
+                elif self.normal[2] < 0.99:
+                    self.xdir = Vector((0, 0, 1)).cross(self.normal).normalized()
+                    self.ydir = self.normal.cross(self.xdir).normalized()
 
-            # matrix to rotate flat, transpose brings us back
-            self.matrix[0] = self.xdir
-            self.matrix[1] = self.ydir
-            self.matrix[2] = self.normal
-            self.inverse = self.matrix.transposed()
+                # matrix to rotate flat, transpose brings us back
+                self.matrix[0] = self.xdir
+                self.matrix[1] = self.ydir
+                self.matrix[2] = self.normal
+                self.inverse = self.matrix.transposed()
 
     def calc_center(self):
         """Assumes 3d coords calculated else polygon in canonical position
@@ -675,13 +691,14 @@ class SmartPoly:
             i = len(lst_pts)-1
             frame_poly = SmartPoly(self.matrix)
             frame_poly.center = self.center
-            frame_poly.add(lst_pts[i-1])
-            frame_poly.add(lst_pts[i])
-            frame_poly.add(lst_pts2[i])
-            frame_poly.add(lst_pts2[i-1])
-            frame_poly.update_3d()
+            frame_poly.add(self.make_3d(lst_pts[i-1]))
+            frame_poly.add(self.make_3d(lst_pts[i]))
+            frame_poly.add(self.make_3d(lst_pts2[i]))
+            frame_poly.add(self.make_3d(lst_pts2[i-1]))
             frame_poly.calculate()
             frame_poly.uv_origin = self.make_3d(ctr)
+            if frame_poly.normal != self.normal:
+                print("Bad arch polygon", self.normal, frame_poly.normal)
             frame_poly.uv_mode = 'FACE_POLAR'
             frame_poly.make_verts(mm)  # so they are shared with inside face
             return frame_poly
@@ -1145,10 +1162,11 @@ class SmartPoly:
         if len(lst_hit):
             dir_a = (b-a)
             dir_b = (lst_hit[0][1]-a)
-            if dir_b.length > 0:
+            if dir_b.length > 0.001:
                 t_a = round(math.atan2(dir_a.y, dir_a.x),4)
                 t_b = round(math.atan2(dir_b.y, dir_b.x),4)
-                assert t_a == t_b, "Point not on segment {} {} {} {}".format(t_a, t_b, dir_a, dir_b)
+                if  not (t_a == t_b):
+                    print("Point not on segment {} {} {} {}".format(t_a*180/math.pi, t_b*180/math.pi, dir_a, dir_b))
             return lst_hit[0][1], lst_hit[0][2]
         return None
 
@@ -1197,7 +1215,9 @@ class SmartPoly:
         v1 = sv2.co3 - sv1.co3
         v2 = sv3.co3 - sv2.co3
         vz = v1.cross(v2)
-        if vz.dot(self.normal) < 0:  # concave
+        if vz.length == 0:  # straight line
+            v_out = -self.normal.cross(v1.normalized())
+        elif vz.dot(self.normal) < 0:  # concave
             v_out = v2.normalized() - v1.normalized()
         else:
             v_out = v1.normalized() - v2.normalized()
@@ -1264,6 +1284,8 @@ class SmartPoly:
     def shift_3d(self, v):
         for pt in self.coord:
             pt.co3 += v
+            if pt.bm_vert:
+                pt.bm_vert.co += v
         self.center += v
         self.uv_origin += v
 

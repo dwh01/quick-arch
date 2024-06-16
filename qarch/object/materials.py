@@ -8,10 +8,11 @@ lst_bt_materials = []
 
 # minimal set of material to uv mode
 dct_mat_mode = {
-        'BT_Brick': 'FACE_POLAR',
+        'BT_Brick': 'GLOBAL_XY',
         'BT_Glass': 'GLOBAL_XY',
         'BT_Trim': 'FACE_XY',
         'BT_Wood': 'ORIENTED',
+        'BT_Roof': 'GLOBAL_XY',
     }
 
 
@@ -58,6 +59,9 @@ def tag_to_material(tag):
         'GLASS': 'BT_Glass',
         'TRIM': 'BT_Trim',
         'DOOR': 'BT_Wood',
+        'ROOF': 'BT_Roof',
+        'BRASS': 'BT_Brass',
+        'IRON': 'BT_WroughtIron',
     }
 
     return dct_mat.get(tag, 'BT_Brick')

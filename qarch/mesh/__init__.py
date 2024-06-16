@@ -15,6 +15,11 @@ from .geom import (
     flip_normals,
     project_face,
     extrude_walls,
+    build_face,
+    build_roof,
+    SmartPoly,
+    curve_to_text,
 )
+
 
 from .assets import draw

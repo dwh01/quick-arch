@@ -5,11 +5,13 @@ from mathutils import Vector, Euler
 from collections import defaultdict, OrderedDict
 import itertools
 import json
+import pathlib
 import rna_info
 from ..object import get_obj_data, set_obj_data, ACTIVE_OP_ID, REPLAY_OP_ID
-from ..object import Journal, merge_record, SelectionInfo, TopologyInfo, wrap_id
+from ..object import Journal, merge_record, SelectionInfo, TopologyInfo, wrap_id, delete_record
 from ..mesh import ManagedMesh
 import struct
+from .dynamic_enums import enum_category_items, BT_CATALOG_SRC, from_path
 
 _do_debug = True
 def debug_print(s):
@@ -115,7 +117,7 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
                 pname, pointer = row_list
                 if (type(pname) is not dict) and (pname != ""):
                     if hasattr(self, pname):
-                        d[pname] = getattr(self, pname)  # boolean toggle
+                        d[pname] = getattr(self, pname)  # boolean toggle, else a label
                 prop = getattr(self, pointer)
                 if hasattr(prop, 'to_dict'):
                     d[pointer] = prop.to_dict()
@@ -233,18 +235,18 @@ class CustomOperator(bpy.types.Operator):
                     cur_op_id = op_id
                     debug_print("  Execute existing op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
                 self.adjusting_ids.append(cur_op_id)
-                self.journal.flush()
-            # child operations list
-            lst_controlled = self.journal.controlled_list(cur_op_id)
-
+                # self.journal.flush()
+            self.journal.flush()  # topology check is classmethod and loads the journal
             topo_change = self.test_topology(cur_op_id)
             if topo_change:
-                # if len(lst_controlled) > 0:
-                #     self.report({"ERROR_INVALID_INPUT"}, "Topology change could delete verts that children depend on")
-                #     self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
-                #     return {"CANCELLED"}
-                #
-                # else:  # delete old geometry so the mesh doesn't get corrupted
+                if isinstance(self, CompoundOperator):
+                    # compounds create exactly one face per control, so there will never be a this-operation
+                    #  topology mismatch but the compound can use this to identify script changing events
+                    #  because once children exist, changing the script would be hard
+                    self.report({"ERROR_INVALID_INPUT"}, "Topology change could delete verts that children depend on")
+                    self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
+                    return {"CANCELLED"}
+                # else delete old geometry so the mesh doesn't get corrupted
                 debug_print("    Removing old verts because of topo change")
                 self.remove_verts(cur_op_id)
 
@@ -537,8 +539,29 @@ class CompoundOperator(CustomOperator):
     function = copy_faces  # this just copies the selected verts and gives the copy our operation id
     delete_control_face = True  # override if you need to leave the control face in place
 
+    def delete_children(self, cur_op_id):
+        """Clear out child records for a major update"""
+        # first flush our journal
+        self.journal.flush()
+
+        mm = ManagedMesh(self.obj)
+
+        lst_controlled = self.journal.controlled_list(cur_op_id)
+        for child in lst_controlled:
+            lst = delete_record(self.obj, child)
+            lst.append(child)
+            for op_id in lst:
+                mm.set_op(op_id)
+                mm.delete_current_verts()
+        mm.to_mesh()
+        mm.free()
+
+        # now that records changed
+        self.journal = Journal(self.obj)
+
     def ensure_children(self, op_id):
         """Called by invoke to make sure the child script is in place"""
+        print("ensure children", self.props.arch_height)
         lst_controlled = self.journal.controlled_list(op_id)
         if len(lst_controlled) == 0:  # first time called
             script = self.get_script()
@@ -566,12 +589,34 @@ class CompoundOperator(CustomOperator):
             op_id = lst[0]
         return op_id
 
+    def get_catalog_script(self, context, style, category, script_name):
+        """In case you want to load rather than hard copy a script"""
+        self.style_name = style
+        self.category_name = category
+        items = enum_category_items(self, context)
+        filepath = ''
+        for e in items:
+            if e[1] == script_name:
+                filepath = e[0]
+        if filepath == '':
+            return ''
+
+        if script_name not in bpy.data.texts:  # not already loaded
+            ob_txt = bpy.data.texts.load(filepath, internal=True)
+            ob_txt.name = script_name
+            style, cat, name = from_path(pathlib.Path(filepath))
+            ob_txt[BT_CATALOG_SRC] = style  # metadate for replacement if we reorder styles
+        return bpy.data.texts[script_name].as_string()
+
     def get_script(self):
         """Returns the same kind of script you get by exporting something"""
         # make something, export it, and copy the script into your class
         assert False, "implement this function"
         return ""
 
+    # override test_topology if there is something to lock, see SimpleWindow for example
+    def test_topology(self, op_id):
+        return False
 
 def set_operation_consistent(obj, op_id):
     """Make selection state correct for this operation to execute"""

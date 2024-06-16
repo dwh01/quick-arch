@@ -1,5 +1,6 @@
 """Geometry creation routines"""
 import copy
+import json
 
 import bpy, bmesh
 from ..object import TopologyInfo, SelectionInfo, get_bt_collection, get_instance_collection
@@ -10,7 +11,9 @@ from mathutils import Vector, Matrix, Euler
 import mathutils
 import math
 import functools
+import pathlib
 from collections import defaultdict
+
 
 def _common_start(obj, sel_info, break_link=False):
     mm = ManagedMesh(obj)
@@ -213,8 +216,9 @@ def _make_arch(control_poly, prop_dict, mm, b_make=True):
     n = prop_dict['arch']['num_sides']
     thickness = prop_dict['frame']
     sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+    new_poly = SmartPoly(matrix = control_poly.matrix)
+    new_poly.center = control_poly.center
 
-    new_poly = SmartPoly()
     lst_arch = new_poly.generate_arch(sx, sy, n, arch_type, thickness, mm)
     lst_arch.append(new_poly)
 
@@ -240,12 +244,11 @@ def _make_arch(control_poly, prop_dict, mm, b_make=True):
             lst_co.insert(1, new_poly.coord[1])
             lst_co.append(new_poly.coord[2])
             lst_co.append(new_poly.coord[3])
-        tmp_poly = SmartPoly()
+        tmp_poly = SmartPoly(matrix = lst_arch[-1].matrix)
         tmp_poly.add(lst_co, break_link=False)
         tmp_poly.calculate()
     else:
         tmp_poly = lst_arch[-1]
-
     return lst_arch, tmp_poly
 
 
@@ -310,6 +313,9 @@ def _make_curve_poly(control_poly, prop_dict, mm, b_make=True):
     ob_dict = prop_dict['local_object']
     ob_name = ob_dict['object_name']
 
+    eul = Euler(ob_dict['rotate'])
+    mat_rot = eul.to_matrix()
+
     new_poly = SmartPoly(matrix=control_poly.matrix, name="new")
     new_poly.center = control_poly.center
     curve_obj = bpy.data.objects[ob_name]
@@ -336,16 +342,28 @@ def _make_curve_poly(control_poly, prop_dict, mm, b_make=True):
             else:
                 points = points + _points
 
-        for p in points:
-            co = new_poly.make_3d(p.to_2d())
-            new_poly.add(co)
+        # strip out straight lines
+        lst_points = [points[0]]
+        for i in range(1, len(points)-1):
+            e = (points[i] - points[i-1]).normalized()
+            e1 = (points[i+1] - points[i]).normalized()
+            if e.dot(e1) < 0.999:
+                lst_points.append(points[i])
+        lst_points.append(points[-1])
+
+        # rotation
+        lst_points = [mat_rot @ p for p in lst_points]
+
+        for p in lst_points:
+            #co = new_poly.make_3d(p.to_2d())
+            new_poly.add(p)
         new_poly.calculate()
 
-        if new_poly.normal.dot(control_poly.normal) < 0:
-            new_poly.flip_z()
-        else:
-            new_poly.sort_winding()
-        new_poly.calculate()
+        # if new_poly.normal.dot(control_poly.normal) < 0:
+        #     new_poly.flip_z()
+        # else:
+        new_poly.sort_winding()
+        #new_poly.calculate()
 
         sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
         if new_poly.box_size.x != 0:
@@ -366,28 +384,67 @@ def _make_curve_poly(control_poly, prop_dict, mm, b_make=True):
     return [new_poly], new_poly
 
 
+def text_to_curve(text, name):
+    from ..ops import BT_IMG_DESC
+    dct_curve = json.loads(text)
+    curve_obj = bpy.data.curves.new(name, type='CURVE')
+    obj = bpy.data.objects.new(name, object_data=curve_obj)
+
+    sp = curve_obj.splines.new(type="BEZIER")
+    sp.bezier_points.add(len(dct_curve['bezier_points']))
+    for i, dat in enumerate(dct_curve['bezier_points']):
+        bp = sp.bezier_points[i]
+        bp.co = dat['co']
+        bp.handle_left = dat['handle_left']
+        bp.handle_left_type = dat['handle_left_type']
+        bp.handle_right = dat['handle_right']
+        bp.handle_right_type = dat['handle_right_type']
+
+    col = get_bt_collection()
+    col.objects.link(obj)
+    obj[BT_IMG_DESC] = dct_curve['description']
+
+    return obj
+
+
+def curve_to_text(obj, description):
+    lst = []
+    for bp in obj.data.splines[0].bezier_points:
+        dat = {'co': tuple(bp.co),
+               'handle_left': tuple(bp.handle_left),
+               'handle_left_type': bp.handle_left_type,
+               'handle_right': tuple(bp.handle_right),
+               'handle_right_type': bp.handle_right_type,
+               }
+        lst.append(dat)
+    dct_curve = {'description':description, 'bezier_points':lst}
+    return json.dumps(dct_curve)
+
+
 def _make_catalog_poly(control_poly, prop_dict, mm, context, b_make=True):
-    from ..ops import get_calatalog_file, BT_CATALOG_SRC
+    from ..ops import file_type, from_path, BT_CATALOG_SRC
 
     cat_dict = prop_dict['catalog_object']
-    obj_name = cat_dict['category_item']
-    bfile = get_calatalog_file(context)
+    obj_path = pathlib.Path(cat_dict['category_item'])
+    ftype, obj_name = file_type(obj_path.stem)
 
-    try:
+    try:  # see if loaded already
         obj = bpy.data.objects[obj_name]
     except Exception:
-        with bpy.data.libraries.load(str(bfile)) as (data_from, data_to):
-            data_to.objects.append(obj_name)
+        if ftype in ['curve']:
+            text = obj_path.read_text()
+        else:
+            assert False, "Wrong file type, expected curve"
 
-        col = get_bt_collection()
-        obj = bpy.data.objects[obj_name]
-        col.objects.link(obj)
-        obj[BT_CATALOG_SRC] = str(bfile)  # so we can check for refresh if we swap styles
+        obj = text_to_curve(text, obj_name)
 
-        bpy.ops.ed.undo_push(message="Load Curve")
+        # metadata so we can check for refresh if we swap style order
+        style, category, name = from_path(obj_path)
+        obj[BT_CATALOG_SRC] = style
 
     spoof = copy.deepcopy(prop_dict)
     spoof['local_object']['object_name'] = obj_name
+    spoof['local_object']['rotate'] = cat_dict['rotate']
 
     return _make_curve_poly(control_poly, spoof, mm, b_make)
 
@@ -397,6 +454,7 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
     mm.set_op(op_id)
 
     if len(lst_orig_poly) == 0:  # ok to add to none
+        print("no original poly")
         lst_orig_poly.append(SmartPoly())
         prop_dict['join'] = 'FREE'
         prop_dict['size']['is_relative_x'] = False
@@ -441,6 +499,7 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
         control_poly = SmartPoly()
         control_poly.add(orig_poly.coord, break_link=True)
         control_poly.calculate()
+        b_close = True
         if shape_type == 'NGON':
             lst_new, outer = _make_ngon(control_poly, prop_dict, mm)
             if len(lst_new) > 1:
@@ -450,6 +509,7 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
             lst_new, outer = _make_self_poly(control_poly, prop_dict, mm)
             topo.add('Center')
         elif shape_type == 'ARCH':
+            b_close = False
             lst_new, outer = _make_arch(control_poly, prop_dict, mm)
             if len(lst_new) > 1:
                 topo.add('Frame', len(lst_new)-1)
@@ -475,11 +535,9 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
                 p.flip_z()
 
             if prop_dict['extrude_distance'] != 0:
-                p.center = p.center + p.normal * prop_dict['extrude_distance']
+                p.shift_3d( p.normal * prop_dict['extrude_distance'] )
                 b_extruding = True
-
-            p.calculate()  # refresh winding angles, center, etc
-
+            #p.calculate()  # refresh winding angles, center, etc
         if (len(lst_new) == 1) and (len(control_poly.coord) >= 3):
             if join_type in ['INSIDE', 'OUTSIDE']:
                 lst_new = lst_new[0].clip_with(control_poly, join_type)
@@ -489,16 +547,16 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
         for i_new, p in enumerate(lst_new):
             face = p.make_face(mm)
             if i_new == len(lst_new)-1:
-                face.material_index = frame_idx
-            else:
                 face.material_index = center_idx
+            else:
+                face.material_index = frame_idx
 
         if (join_type == 'BRIDGE') and (shape_type != 'SUPER'):
             # make bmesh verts so bridge faces share them
             control_poly.make_verts(mm)
             # ARCH has fake outer, but it used the same bm verts so was updated in position
             n_outer = 0
-            lst_result = outer.bridge(control_poly, mm, add_perimeter, b_extruding)
+            lst_result = outer.bridge(control_poly, mm, add_perimeter, b_extruding, b_close=b_close)
             topo.add('Bridge', len(lst_result))
             for p in lst_result:
                 face = p.make_face(mm)
@@ -522,11 +580,13 @@ def grid_divide(self, obj, sel_info, op_id, prop_dict):
     topo = TopologyInfo(from_keys=["All"])
     topo.set_modulus("All", prop_dict['count_y'])
     face_attr = None
-    for control_poly in lst_orig_poly:
-        face = mm.find_face_by_smart_vec(control_poly.coord)
+    faces = mm.get_faces(sel_info)
+    mat_idx =0
+    for control_poly, orig_face in zip(lst_orig_poly, faces):
+        face = orig_face  # mm.find_face_by_smart_vec(control_poly.coord)
         if face:
             face_attr = mm.get_face_attrs(face)
-
+            mat_idx = face.material_index
         sx, sy = _extract_offset(prop_dict['offset'], control_poly)
 
         count_x = prop_dict['count_x']
@@ -549,6 +609,7 @@ def grid_divide(self, obj, sel_info, op_id, prop_dict):
             face = poly.make_face(mm)
             if face_attr is not None:
                 mm.set_face_attrs(face, face_attr)
+                face.material_index = mat_idx
 
         if len(lst_poly):
             # remove old face
@@ -570,10 +631,13 @@ def split_face(self, obj, sel_info, op_id, prop_dict):
     topo = TopologyInfo(from_keys=["All"])
     topo.set_modulus("All", 2)
     face_attr = None
-    for control_poly in lst_orig_poly:
-        face = mm.find_face_by_smart_vec(control_poly.coord)
+    mat_idx = 0
+    orig_faces = mm.get_faces(sel_info)
+    for control_poly, orig_face in zip(lst_orig_poly, orig_faces):
+        face = orig_face # mm.find_face_by_smart_vec(control_poly.coord)
         if face:
             face_attr = mm.get_face_attrs(face)
+            mat_idx = face.material_index
         control_poly.make_verts(mm)  # so they can be shared
 
         lst_poly = []
@@ -593,6 +657,7 @@ def split_face(self, obj, sel_info, op_id, prop_dict):
             topo.add("All")
             if face_attr is not None:
                 mm.set_face_attrs(face, face_attr)
+                face.material_index = mat_idx
 
         if len(lst_poly) != 2: # bad assumption before, have to just use one long list
             topo.set_modulus("All", 0)
@@ -656,9 +721,11 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
 
             top_poly.update_3d()  # 3d offset of polygons used when clipping
             top_poly.calculate()  # refresh winding angles, center, etc
+            if prop_dict['flip_normals']:
+                top_poly.flip_z()
 
             top_poly.make_verts(mm)  # to share
-            lst_poly = top_poly.bridge_by_number(bottom_poly)
+            lst_poly = top_poly.bridge_by_number(bottom_poly, reversed=prop_dict['flip_normals'])
             lst_layers.append(lst_poly)
             for j in range(len(lst_poly)):
                 topo.add('Sides')
@@ -762,6 +829,16 @@ def _combined_bbox(lst_poly):
     maxv = lst_poly[0].make_3d(maxv)
     return minv, maxv
 
+
+def _dir_check(cross_section, control_poly):
+    if math.fabs(cross_section.ydir.dot(control_poly.normal)) >= math.fabs(cross_section.xdir.dot(control_poly.normal)):
+        inset_dir = cross_section.xdir
+    else:
+        inset_dir = cross_section.ydir
+    proj_center = mathutils.geometry.intersect_line_plane(cross_section.center, cross_section.center + control_poly.normal, control_poly.center, control_poly.normal)
+    if inset_dir.dot(control_poly.center - proj_center) < 0:
+        inset_dir = -inset_dir
+    return inset_dir
 
 def solidify_edges(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=False)
@@ -903,14 +980,22 @@ def solidify_edges(self, obj, sel_info, op_id, prop_dict):
                 b_make = i_edge in side_list
                 b_bevel_start = ((i_edge + ncp - 1) % ncp) in side_list
                 b_bevel_end = ((i_edge + 1) % ncp) in side_list
-                print(i_edge, "make",b_make,"start",b_bevel_start,"end",b_bevel_end)
 
                 lst_start = []
                 if b_bevel_start:
                     pt_out, ray_out = control_poly.outward_ray_idx(i_edge)
-                    theta = local_z.angle(ray_out)
-                    mat = Matrix.Rotation(-theta+math.pi, 3, local_y)
-                    edge_mat = mat_inline @ mat
+                    if ray_out.length==0:
+                        ax = Vector((0,0,0))
+                    else:
+                        theta = local_z.angle(ray_out) - math.pi/2
+                        ax = local_z.cross(ray_out)
+                    if ax.length==0:
+                        mat = Matrix.Identity(3)
+                    else:
+                        ax.normalize()
+                        ax = mat_inline @ ax
+                        mat = Matrix.Rotation(-theta, 3, ax.normalized())
+                    edge_mat = mat @ mat_inline
                     scale = math.fabs(math.cos(theta))
                     scale = 1/max(scale, 0.01)
                 else:
@@ -924,56 +1009,77 @@ def solidify_edges(self, obj, sel_info, op_id, prop_dict):
                         v = Vector((sv.co2.x * scale, sv.co2.y))
                         start_poly.add(start_poly.make_3d(v))
                     start_poly.calculate()
-                    start_poly.shift_3d(vz + inset*start_poly.xdir*scale)
+                    inset_dir = _dir_check(start_poly, control_poly)
+                    start_poly.shift_3d(vz + inset*inset_dir*scale)
                     #start_poly.calculate()
                     lst_start.append(start_poly)
 
+                for i in range(3):  # this is redundant but every once in a while mat_inline is flipped. Blender bug?
+                    mat_inline[0][i] = local_x[i]
+                    mat_inline[1][i] = local_y[i]
+                    mat_inline[2][i] = local_z[i]
                 lst_end = []
                 if b_bevel_end:
                     pt_out, ray_out = control_poly.outward_ray_idx((i_edge + 1) % ncp)
-                    theta = local_z.angle(ray_out)
-                    mat = Matrix.Rotation(-theta, 3, local_y)
-                    edge_mat = mat_inline @ mat
+                    if ray_out.length==0:
+                        ax = Vector((0,0,0))
+                    else:
+                        theta = local_z.angle(ray_out) - math.pi / 2
+                        ax = local_z.cross(ray_out)
+                    if ax.length == 0:
+                        mat = Matrix.Identity(3)
+                    else:
+                        ax.normalize()
+                        ax = mat_inline @ ax
+                        mat = Matrix.Rotation(-theta, 3, ax)
+                    edge_mat = mat @ mat_inline
                     scale = math.fabs(math.cos(theta))
                     scale = 1 / max(scale, 0.01)
+
                 else:
                     edge_mat = mat_inline
                     scale = 1
 
                 for i_end in range(len(lst_new)):
-                    end_poly = SmartPoly(matrix=edge_mat, name="start")
+                    end_poly = SmartPoly(matrix=edge_mat, name="end")
                     end_poly.center = control_poly.coord[(i_edge+1) % ncp].co3
                     for sv in lst_new[i_end].coord:
                         v = Vector((sv.co2.x * scale, sv.co2.y))
                         end_poly.add(end_poly.make_3d(v))
                     end_poly.calculate()
-                    end_poly.shift_3d(vz + inset * end_poly.xdir * scale)
+                    inset_dir = _dir_check(end_poly, control_poly)
+                    end_poly.shift_3d(vz + inset * inset_dir * scale)
                     lst_end.append(end_poly)
 
                 if b_make:
+                    reversed = False
+                    i_off = 0
                     if not b_bevel_start:  # close off end
                         for p in lst_start:
+                            if p.normal.dot(lst_end[0].normal) < 0:
+                                reversed=True
+                                i_off = 2
                             face = p.make_face(mm)
                             mm.set_face_attrs(face, {mm.key_tag:tag})
                             face.material_index = frame_idx
                         topo.add('Starts', len(lst_start))
-                        print("add starts", len(lst_start))
+
                     if not b_bevel_end:  # close off end
                         for p in lst_end:
                             face = p.make_face(mm)
                             mm.set_face_attrs(face, {mm.key_tag: tag})
                             face.material_index = frame_idx
                         topo.add('Ends', len(lst_end))
-                        print("add ends", len(lst_end))
+
                     # bridge
                     for p1, p2 in zip(lst_start, lst_end):
-                        lst_sides = p1.bridge_by_number(p2, 0)
+                        lst_sides = p1.bridge_by_number(p2, idx_offset=i_off, reversed=reversed)
                         for p in lst_sides:
                             face = p.make_face(mm)
                             mm.set_face_attrs(face, {mm.key_tag: tag})
                             face.material_index = frame_idx
                         topo.add('Sides', len(lst_sides))
-                        print("add sides", len(lst_sides))
+
 
 
     mm.to_mesh()
@@ -1241,37 +1347,11 @@ def _find_instance_object(obj, op_id):
     return None
 
 
-def _get_catalog_object(prop_dict, context):
-    from ..ops import get_calatalog_file, BT_CATALOG_SRC
-
-    cat_dict = prop_dict['catalog_object']
-    obj_name = cat_dict['category_item']
-    bfile = get_calatalog_file(context)
-
-    try:
-        obj = bpy.data.objects[obj_name]
-    except Exception:
-        with bpy.data.libraries.load(str(bfile)) as (data_from, data_to):
-            data_to.objects.append(obj_name)
-
-        col = get_bt_collection()  # to find for editing easier
-        obj = bpy.data.objects[obj_name]
-        col.objects.link(obj)
-        obj[BT_CATALOG_SRC] = str(bfile)  # so we can check for refresh if we swap styles
-
-        bpy.ops.ed.undo_push(message="Load Object")
-
-    return obj
-
-
 def import_mesh(self, obj, sel_info, op_id, prop_dict):
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
     mm.set_op(op_id)
 
-    if prop_dict['as_instance']:
-        obj_name = prop_dict['catalog_object']['category_item']
-    else:
-        obj_name = prop_dict['local_object']['object_name']
+    obj_name = prop_dict['local_object']['object_name']
 
     if obj_name in ['','0','N/A']:
         topo = TopologyInfo(from_keys=['All'])
@@ -1287,10 +1367,7 @@ def import_mesh(self, obj, sel_info, op_id, prop_dict):
             obj_add = None
 
     if obj_add is None:
-        if prop_dict['as_instance']:
-            obj_example = _get_catalog_object(prop_dict, self.context)
-        else:
-            obj_example = bpy.data.objects[obj_name]
+        obj_example = bpy.data.objects[obj_name]
 
         obj_add = obj_example.copy()  # keep mesh reference so we can edit the original
         if head != "":  # keep instancing order and op id
@@ -1321,7 +1398,16 @@ def import_mesh(self, obj, sel_info, op_id, prop_dict):
     bb_max = Vector(bb[-2])
     bb_size = bb_max-bb_min
 
-    for control_poly in lst_orig_poly:
+    facelist = mm.get_faces(sel_info)
+    for control_poly, control_face in zip(lst_orig_poly, facelist):
+        face_selector = control_poly.make_face(mm)  # else we can't select this operation for redo or erase
+        attrs = mm.get_face_attrs(control_face)
+        mm.set_face_attrs(face_selector, attrs)
+        face_selector.material_index = control_face.material_index
+        calc_face_uv(face_selector, mm)
+
+        topo.add('All')
+
         inst_dir = control_poly.matrix @ a_dir
 
         #sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
@@ -1388,6 +1474,8 @@ def import_mesh(self, obj, sel_info, op_id, prop_dict):
                     f = mm.new_face(vlist)
                     f.material_index = dct_map_matl[face_add.material_index]
                     topo.add('All')
+                # loop uvs?
+
     mm.to_mesh()
     mm.free()
 
@@ -1513,4 +1601,56 @@ def extrude_walls(self, obj, sel_info, op_id, prop_dict):
     # finalize and save
     mm.to_mesh()
     mm.free()
+    return topo
+
+
+def build_face(self, obj, sel_info, op_id, prop_dict):
+    mm = ManagedMesh(obj)
+    verts = mm.vert_list(sel_info)
+    mm.set_op(op_id)
+
+    topo = TopologyInfo(from_keys=['All'])
+    poly = SmartPoly()
+    for v in verts:
+        poly.add(v, break_link=True)
+    poly.calculate()
+
+    poly.coord.sort(key=lambda sv: sv.winding)
+    poly.calculate()
+
+    if prop_dict['flip_normal']:
+        poly.flip_z()
+
+    face = poly.make_face(mm)
+    if prop_dict['tag'] != '':
+        mm.set_face_attrs(face, {mm.key_tag: prop_dict['tag']})
+
+    mm.to_mesh()
+    mm.free()
+    topo.add('All')
+
+    return topo
+
+
+class RoofProp:
+    def __init__(self, ht):
+        self.height = ht
+
+
+def build_roof(self, obj, sel_info, op_id, prop_dict):
+    from ..core import roof
+    mm = ManagedMesh(obj)
+    lst_orig_faces = mm.get_faces(sel_info)
+    mm.set_op(op_id)
+
+    prop = RoofProp(prop_dict['height'])
+    topo = TopologyInfo(from_keys=['All'])
+    new_faces = roof.create_hip_roof(mm.bm, lst_orig_faces, prop)
+
+    # old code did not set up our operation id, etc, so do it manually now
+    for face in new_faces:
+        mm.append_face(face)  # attrs
+        topo.add('All')
+        mm.set_face_attrs(face, {mm.key_tag:'ROOF'})
+
     return topo

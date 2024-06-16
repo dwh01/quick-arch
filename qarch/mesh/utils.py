@@ -457,6 +457,21 @@ class ManagedMesh:
         self.cur_face_seq += 1
         return face
 
+    def append_face(self, face):
+        # check verts
+        for v in face.verts:
+            if v[self.key_op] != self.op_id:
+                v[self.key_op] = self.op_id
+                v[self.key_seq] = self.cur_seq
+                v[self.key_pick] = -1  # turn off instancing
+                self.cur_seq += 1
+
+        if face[self.key_face_op] != self.op_id:
+            face[self.key_face_op] = self.op_id
+            face[self.key_face_seq] = self.cur_face_seq
+            self.cur_face_seq += 1
+            # attrs
+
     def thick_faces(self, sel_info):
         sel_faces = self.get_faces(sel_info)
         if len(sel_faces)==0:

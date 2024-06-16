@@ -2,6 +2,7 @@ import bpy
 
 from .roof_ops import QARCH_OT_add_roof
 from .roof_props import RoofProperty
+from .roof_types import create_hip_roof
 
 classes = (RoofProperty, QARCH_OT_add_roof)
 

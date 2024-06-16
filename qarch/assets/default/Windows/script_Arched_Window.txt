@@ -1,0 +1,864 @@
+{
+    "max_id": 9,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1,
+            2
+        ],
+        "op1": [
+            3,
+            4
+        ],
+        "op2": [
+            5,
+            6
+        ],
+        "op3": [],
+        "op4": [
+            7,
+            8
+        ],
+        "op5": [],
+        "op6": [
+            9
+        ],
+        "op7": [],
+        "op8": [],
+        "op9": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.5,
+                "is_relative_x": false,
+                "offset_y": 0.75,
+                "is_relative_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": false,
+                "size_y": 1.25,
+                "is_relative_y": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": true,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Brick",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "category_name": "Doors",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Glass",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    3
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Bridge": [
+                    [
+                        1,
+                        4
+                    ]
+                ],
+                "Center": [
+                    [
+                        0,
+                        0
+                    ]
+                ],
+                "Frame": []
+            },
+            "moduli": {
+                "Bridge": 0,
+                "Center": 0,
+                "Frame": 0
+            }
+        }
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.10000000149011612,
+                "is_relative_x": false,
+                "offset_y": 0.10000000149011612,
+                "is_relative_y": false
+            },
+            "size": {
+                "size_x": -0.20000000298023224,
+                "is_relative_x": false,
+                "size_y": -0.10000000149011612,
+                "is_relative_y": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": true,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "category_name": "Doors",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Glass",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Bridge": [
+                    [
+                        1,
+                        4
+                    ]
+                ],
+                "Center": [
+                    [
+                        0,
+                        0
+                    ]
+                ],
+                "Frame": []
+            },
+            "moduli": {
+                "Bridge": 0,
+                "Center": 0,
+                "Frame": 0
+            }
+        }
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 0.5,
+                "is_relative_y": true
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "ARCH",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.10000000149011612,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "category_name": "Doors",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Glass",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    2
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Bridge": [
+                    [
+                        13,
+                        24
+                    ]
+                ],
+                "Center": [
+                    [
+                        12,
+                        12
+                    ]
+                ],
+                "Frame": [
+                    [
+                        0,
+                        11
+                    ]
+                ]
+            },
+            "moduli": {
+                "Bridge": 0,
+                "Center": 0,
+                "Frame": 0
+            }
+        }
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.10000000149011612,
+                "is_relative_x": false,
+                "size_y": 0.20000000298023224,
+                "is_relative_y": false
+            },
+            "side_list": "0,2,3",
+            "z_offset": -0.05000000074505806,
+            "inset": -0.05000000074505806,
+            "face_tag": "NOTHING",
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "category_name": "Doors",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "revolutions": 0
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        1,
+                        4
+                    ],
+                    [
+                        6,
+                        13
+                    ]
+                ],
+                "Starts": [
+                    [
+                        5,
+                        5
+                    ]
+                ],
+                "Ends": [
+                    [
+                        0,
+                        0
+                    ]
+                ]
+            },
+            "moduli": {
+                "Sides": 0,
+                "Starts": 0,
+                "Ends": 0
+            }
+        }
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 1,
+            "count_y": 1,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        3
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 1
+            }
+        }
+    },
+    "op5": {
+        "op_id": 5,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.05000000074505806,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    11,
+                    10,
+                    8,
+                    6,
+                    5,
+                    7,
+                    9,
+                    3,
+                    0,
+                    1,
+                    2,
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        0,
+                        3
+                    ],
+                    [
+                        5,
+                        8
+                    ],
+                    [
+                        10,
+                        13
+                    ],
+                    [
+                        15,
+                        18
+                    ],
+                    [
+                        20,
+                        23
+                    ],
+                    [
+                        25,
+                        28
+                    ],
+                    [
+                        30,
+                        33
+                    ],
+                    [
+                        35,
+                        38
+                    ],
+                    [
+                        40,
+                        43
+                    ],
+                    [
+                        45,
+                        48
+                    ],
+                    [
+                        50,
+                        53
+                    ],
+                    [
+                        55,
+                        58
+                    ]
+                ],
+                "Tops": [
+                    [
+                        4,
+                        4
+                    ],
+                    [
+                        9,
+                        9
+                    ],
+                    [
+                        14,
+                        14
+                    ],
+                    [
+                        19,
+                        19
+                    ],
+                    [
+                        24,
+                        24
+                    ],
+                    [
+                        29,
+                        29
+                    ],
+                    [
+                        34,
+                        34
+                    ],
+                    [
+                        39,
+                        39
+                    ],
+                    [
+                        44,
+                        44
+                    ],
+                    [
+                        49,
+                        49
+                    ],
+                    [
+                        54,
+                        54
+                    ],
+                    [
+                        59,
+                        59
+                    ]
+                ]
+            },
+            "moduli": {
+                "Sides": 4,
+                "Tops": 0
+            }
+        }
+    },
+    "op6": {
+        "op_id": 6,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 1,
+            "count_y": 0,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    12
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        1
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 2
+            }
+        }
+    },
+    "op7": {
+        "op_id": 7,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.009999999776482582,
+                "is_relative_x": false,
+                "size_y": 0.009999999776482582,
+                "is_relative_y": false
+            },
+            "side_list": "",
+            "z_offset": 0.0,
+            "inset": 0.004999999888241291,
+            "face_tag": "TRIM",
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "category_name": "Doors",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "revolutions": 0
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    0,
+                    1,
+                    2,
+                    3
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op4": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        0,
+                        63
+                    ]
+                ],
+                "Starts": [],
+                "Ends": []
+            },
+            "moduli": {
+                "Sides": 0,
+                "Starts": 0,
+                "Ends": 0
+            }
+        }
+    },
+    "op8": {
+        "op_id": 8,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "GLASS"
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    3,
+                    2,
+                    1,
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op4": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        3
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 0
+            }
+        }
+    },
+    "op9": {
+        "op_id": 9,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.009999999776482582,
+                "is_relative_x": false,
+                "size_y": 0.009999999776482582,
+                "is_relative_y": false
+            },
+            "side_list": "",
+            "z_offset": 0.0,
+            "inset": 0.004999999888241291,
+            "face_tag": "NOTHING",
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "category_name": "Doors",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "revolutions": 0
+        },
+        "control_points": {
+            "faces": {
+                "op6": [
+                    0,
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op7": 1
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        0,
+                        63
+                    ]
+                ],
+                "Starts": [],
+                "Ends": []
+            },
+            "moduli": {
+                "Sides": 0,
+                "Starts": 0,
+                "Ends": 0
+            }
+        }
+    },
+    "description": "Simple arched window"
+}

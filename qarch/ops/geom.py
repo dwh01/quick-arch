@@ -19,6 +19,8 @@ from ..mesh import (
     flip_normals,
     project_face,
     extrude_walls,
+    build_face,
+    build_roof,
 )
 from ..object import get_obj_data, ACTIVE_OP_ID, material_best_mode
 
@@ -376,6 +378,7 @@ class QARCH_OT_import_mesh(CustomOperator):
 
         return super().invoke(context, event)
 
+
 class QARCH_OT_flip_normal(CustomOperator):
     """Select by tags"""
     bl_idname = "qarch.flip_normal"
@@ -423,6 +426,44 @@ class QARCH_OT_extrude_walls(CustomOperator):
     props: PointerProperty(type=FlipNormalProperty)
 
 
+class QARCH_OT_build_face(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.build_face"
+    bl_label = "Build Face"
+    bl_description = "Make face from points"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = build_face
+
+    props: PointerProperty(type=BuildFaceProperty)
+
+    @classmethod
+    def poll(cls, context):
+        if context.object:
+            try:
+                mm = ManagedMesh(context.object)
+            except Exception:
+                return False
+
+            sel_info = mm.get_selection_info()
+            return sel_info.count_verts() > 0
+
+
+class QARCH_OT_build_roof(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.build_roof"
+    bl_label = "Build Roof"
+    bl_description = "Raise hip roof over faces"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = build_roof
+
+    props: PointerProperty(type=BuildRoofProperty)
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
 
 geom_classes = (
     QARCH_OT_union_polygon,
@@ -441,5 +482,7 @@ geom_classes = (
     QARCH_OT_set_oriented_mat,
     QARCH_OT_flip_normal,
     QARCH_OT_project_face,
-    QARCH_OT_extrude_walls
+    QARCH_OT_extrude_walls,
+    QARCH_OT_build_face,
+    QARCH_OT_build_roof
 )

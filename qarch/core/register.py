@@ -62,13 +62,13 @@ unregister_funcs = (
 
 
 def register_core():
-    for func in register_funcs:
+    for func in [register_settings]:  # register_funcs:
         func()
     bpy.types.Scene.qarch_settings = bpy.props.PointerProperty(type=QuickArchSettings)
     bpy.types.Scene.qarch_preview_collections = {}
 
 def unregister_core():
-    for func in unregister_funcs:
+    for func in [unregister_settings]:  # unregister_funcs:
         func()
     for pcoll in bpy.types.Scene.qarch_preview_collections.values():
         bpy.utils.previews.remove(pcoll)

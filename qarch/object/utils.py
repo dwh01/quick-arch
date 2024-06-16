@@ -4,7 +4,7 @@ Get/Set object data
 """
 import bpy
 import uuid
-import json
+import json, math
 import itertools, functools
 from .materials import import_bt_materials
 
@@ -192,7 +192,7 @@ class SelectionInfo:
         return d
 
     def vert_list(self, op_id):
-        return self.sel_vert.get(op_id,[])
+        return self.sel_vert.get(wrap_id(op_id),[])
 
 
 class TopologyInfo:
@@ -207,14 +207,24 @@ class TopologyInfo:
         elif from_dict is not None:
             self.from_dict(from_dict)
 
+    def __str__(self):
+        return str(self.to_dict())
+
     @classmethod
     def blank_dict(cls):
         t = TopologyInfo()
         return t.to_dict()
 
     def add(self, k, n=1):
+        if n < 1:
+            return
         if len(self.ranges[k]):
+            lst = self.ranges[k]
+            lst.sort(key=lambda l:l[0])
+
             last_group = self.ranges[k][-1]
+            last_group.sort()
+
             if self.seq == 1+last_group[-1]:
                 last_group[-1] = self.seq + n-1
             else:
@@ -241,6 +251,9 @@ class TopologyInfo:
         n_range = round(len(range_list)*f_range)
         if n_range > len(range_list)-1:
             n_range = len(range_list)-1
+
+        # print(n_range, "vs", int(math.floor(len(range_list) * f_range)))  # better to round then floor?
+
         limits = range_list[int(n_range)]
         return list(range(limits[0], limits[1]+1))
 
@@ -306,6 +319,60 @@ class TopologyInfo:
         d = {'ranges': self.ranges, 'moduli': self.moduli}
         return d
 
+    def address(self, face_seq):
+        for key, range_list in self.ranges.items():
+            for i, range_info in enumerate(range_list):
+                min_seq = range_info[0]
+                max_seq = range_info[1]
+                if min_seq <= face_seq <= max_seq:
+                    range_base = i / len(range_list)  # fractional position of range in key range list
+
+                    if min_seq == max_seq:  # full set
+                        addr = (key, range_base)
+                    else:
+                        m = self.moduli.get(key, 0)
+                        if m == 0:
+                            m = (max_seq - min_seq)
+
+                        mod_rem = (face_seq - min_seq) % m
+                        mod_div = int(math.floor((face_seq - min_seq) / m))
+
+                        mod_base = mod_div / (max_seq - min_seq)  # fractional position of "row" in array
+                        seq_base = mod_rem / m  # fractional position of column in row
+                        addr = (key, range_base, mod_base, seq_base)
+                        return addr
+        return None
+
+    def sequence(self, addr):
+        if len(addr)==2:
+            key, range_base = addr
+            mod_base = 0
+            seq_base = 0
+        else:
+            key, range_base, mod_base, seq_base = addr
+        range_list = self.ranges[key]
+        i = int(math.floor(range_base * len(range_list)))
+        if i > len(range_list):
+            print("above range count")
+            return None
+        range_info = range_list[i]
+        min_seq = range_info[0]
+        max_seq = range_info[1]
+        m = self.moduli.get(key, 0)
+        if m == 0:
+            m = max(1, max_seq - min_seq)
+
+        mod_div = mod_base * m
+        mod_rem = seq_base * m
+
+        row_start = mod_div * m + min_seq
+        s = int(mod_rem + row_start)
+        if min_seq <= s <= max_seq:
+            return s
+        print("not between", min_seq, s, max_seq)
+        return None
+
+
     def warp_to(self, other, op_id, sel_info):
         """Convert face_list in current topology to values in other topology"""
         # for example, we select a set of faces (maybe frame from inset) and extrude with steps
@@ -315,65 +382,29 @@ class TopologyInfo:
         # we have numbering groups 1-n*m, where n is sides and m is steps
         # store n in the modulus number
         # keep the top faces in their own key since often top faces are used for other things
-
         old_face_seq = sel_info.face_list(op_id)
-        if sel_info.get_flag(op_id) & SelectionInfo.ALL_FACES:
-            #  trivial case, just need to fill in range
-            lst_info = list(range(other.count()))
-        else:
-            lst_info = []
+        new_face_seq = []
 
-            chunks = old_face_seq.copy()
-            for key, old_range_list in self.ranges.items():
-                if len(old_range_list) == 0:
-                    continue
-                all_full, range_full = self.test_full_key(key, old_face_seq)
-                for i_range, limits in enumerate(old_range_list):
-                    if range_full[i_range]:
-                        idx0 = chunks.index(limits[0])
-                        idx1 = chunks.index(limits[1])
-                        c0 = chunks[:idx0]
-                        c1 = [(key, i_range/len(old_range_list))]  # use tuple to indicate fractional range that is full
-                        c2 = chunks[idx1+1:]
-                        chunks = c0+c1+c2
+        for key in self.ranges:
+            all_full, range_full = self.test_full_key(key, old_face_seq)
+            for i, range_info in enumerate(self.ranges[key]):
+                is_full = range_full[i]
+                if is_full:
+                    f_range = i/len(self.ranges[key])
+                    lst = other.get_range_sequence(key, f_range)
+                    new_face_seq.extend(lst)
+                else:
+                    for face_seq in range(range_info[0], range_info[1]+1):
+                        if face_seq in old_face_seq:
+                            addr = self.address(face_seq)
+                            if addr is not None:
+                                s = other.sequence(addr)
+                                if s is not None:
+                                    new_face_seq.append(s)
 
-            for seq in chunks:
-                if isinstance(seq, tuple):  # full range
-                    key, f_range = seq
-                    lst_info = lst_info + other.get_range_sequence(key, f_range)
-                    continue
-
-                b_found = False
-                for key, old_range_list in self.ranges.items():
-                    if len(old_range_list)==0:
-                        continue
-                    for i_range, limits in enumerate(old_range_list):
-                        if len(limits)==0:
-                            continue
-                        if limits[0] <= seq <= limits[1]:
-                            if limits[0] == limits[1]:
-                                f_pos = 0
-                                d_pos = 0
-                            else:
-                                offset = seq-limits[0]
-                                if self.moduli[key] > 0:
-                                    d_pos = offset // self.moduli[key]  # row
-                                    m_pos = offset % self.moduli[key]
-                                    f_pos = m_pos / self.moduli[key]  # fractional position in row
-                                else:
-                                    d_pos = None
-                                    f_pos = offset/(limits[1] - limits[0])  # fractional position in range
-                            f_range = i_range/len(old_range_list)
-                            seq = other.map_sequence(key, f_range, d_pos, f_pos)
-                            if seq is not None:
-                                lst_info.append(seq)
-                                b_found = True
-                            break
-                    if b_found:
-                        break
-        print("before warp {} {}".format(op_id, sel_info.face_list(op_id)))
-        print("after warp {}".format(lst_info))
-        sel_info.replace_sequence(op_id, lst_info)
+        print("before warp {} {}".format(op_id, old_face_seq))
+        print("after warp {}".format(new_face_seq))
+        sel_info.replace_sequence(op_id, new_face_seq)
 
 
 def create_instancing_nodes(obj):
