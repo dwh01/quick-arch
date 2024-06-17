@@ -103,6 +103,8 @@ def create_hip_roof(bm, faces, prop):
 def vert_angle(v, v_prev, v_next):
     v1 = (v_prev.co-v.co).normalized()
     v2 = (v_next.co-v.co).normalized()
+    if (v1.length==0) or (v2.length==0):
+        return 0
     return v2.angle(v1)
 
 
@@ -170,11 +172,14 @@ def create_skeleton_verts_and_edges(bm, skeleton, original_edges, median, height
             if vs != vsource:
                 geom = bmesh.ops.contextual_create(bm, geom=[vsource, vs]).get("edges")
                 skeleton_edges.extend(geom)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
+
+    O_verts = [v for e in original_edges for v in e.verts]
+    vertset = set(skeleton_verts + O_verts)
+    bmesh.ops.remove_doubles(bm, verts=list(vertset), dist=0.0001)
 
     skeleton_edges = filter_invalid(skeleton_edges)
     S_verts = {v for e in skeleton_edges for v in e.verts}
-    O_verts = {v for e in original_edges for v in e.verts}
+    O_verts = {v for e in original_edges if e.is_valid for v in e.verts if v.is_valid}
     skeleton_verts = [v for v in skeleton_verts if v in S_verts and v not in O_verts]
     return join_intersections_and_get_skeleton_edges(bm, skeleton_verts, skeleton_edges)
 

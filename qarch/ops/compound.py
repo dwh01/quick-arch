@@ -1,6 +1,6 @@
 import bpy
 from .custom import CompoundOperator
-from .properties import SimpleWindowProperty, PointerProperty, SimpleDoorProperty
+from .properties import SimpleWindowProperty, PointerProperty, SimpleDoorProperty, SimpleRailProperty, ExtendGableProperty
 from ..object import Journal, get_obj_data, ACTIVE_OP_ID, SelectionInfo
 from ..mesh import ManagedMesh, SmartPoly
 from mathutils import Vector
@@ -162,6 +162,9 @@ class QARCH_OT_add_door(CompoundOperator):
         return script_text
 
     def recordset(self, op_id):
+        dct_c, lst_c = self.journal.child_ops(op_id)
+        for c in lst_c:
+            print(self.journal.op_label(c))
         # ops
         # 0 inset polygon (split wall)
         #  1 inset polygon (make inner frame)
@@ -173,7 +176,8 @@ class QARCH_OT_add_door(CompoundOperator):
         #  2 solidify edges (door frame)
         dct_records = {}
         for i, txt in enumerate(['split wall', 'inset frame', 'door trim', 'recess', 'delete face', 'bevel', 'knob base', 'knob']):
-            dct_records[txt] = self.journal[op_id + 1 + i]
+            j = lst_c[i]
+            dct_records[txt] = self.journal[j]
             dct_records[txt]['description'] = txt
         return dct_records
 
@@ -223,3 +227,437 @@ class QARCH_OT_add_door(CompoundOperator):
             self.props.handle_side = 'LEFT'
         else:
             self.props.handle_side = 'RIGHT'
+
+
+class QARCH_OT_add_rail(CompoundOperator):
+    bl_idname = "qarch.add_rail"
+    bl_label = "Add Railing"
+    bl_options = {"REGISTER", "UNDO"}
+
+    props: PointerProperty(type=SimpleRailProperty)
+
+    def get_script(self):
+        """Returns the same kind of script you get by exporting something"""
+        # make something, export it, and copy the script into your class
+        # or load one from the catalog
+        style = 'default'
+        category = 'Railings'
+        script_name = "Simple_Railings"
+        script_text = self.get_catalog_script(self.context, style, category, script_name)
+        return script_text
+
+    def recordset(self, op_id):
+        # ops
+        # 0 grid divide (bottom height)
+        #  1 solidify edges (top-bot rails)
+        #  2 grid divide (x cuts)
+        #    3 solidify edges (bars)
+        #    4 set face tag (delete)
+        #  4 set face tag (delete)
+        dct_c, lst_c = self.journal.child_ops(op_id)
+        for c in lst_c:
+            print(self.journal.op_label(c))
+        dct_records = {}
+        for i, txt in enumerate(['bottom ht', 'tob-bot rails', 'x cuts', 'bars', 'face tag']):
+            j = lst_c[i]
+            dct_records[txt] = self.journal[j]
+            dct_records[txt]['description'] = txt
+        return dct_records
+
+    def write_props_to_journal(self, op_id):
+        """After this operator properties are updated, push them down to the script operators
+        by updating the journal text
+        """
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['description'] = "Simple Railing"
+
+        mm = ManagedMesh(self.obj)
+        sel_info = self.journal.get_sel_info(op_id)
+        faces = mm.get_faces(sel_info)
+        poly = SmartPoly()
+        poly.add(list(faces[0].verts))
+        poly.calculate()
+        width = poly.box_size.x
+        mm.free()
+
+        spacing = self.props.rail_spacing
+        n = int(math.ceil(width / spacing)) - 1
+
+        child_rec = dct_records['x cuts']
+        child_rec['properties']['count_x'] = n
+
+        self.journal.flush()
+
+    def read_props_from_journal(self, op_id):
+        """Get the properties from the script and put them into this operator's properties
+        """
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        record = self.journal[op_id]
+        self.props.from_dict(record['properties'])
+
+
+
+class QARCH_OT_extend_gable(CompoundOperator):
+    bl_idname = "qarch.extend_gable"
+    bl_label = "Extend Gable"
+    bl_options = {"REGISTER", "UNDO"}
+
+    props: PointerProperty(type=ExtendGableProperty)
+
+    def divide_selections(self, initial_sel_info):
+        # because each gable has a unique direction
+        self.required_selection_mode = 'SINGLE'
+        return super().divide_selections(initial_sel_info)
+
+    def get_script(self):
+        """Returns the same kind of script you get by exporting something"""
+        # this script is not generally applicable because it has a globally set direction vector
+        # so we remove it from the catalog and only have it here
+        script_text = """{
+            "max_id": 3,
+            "controlled": {
+                "op-1": [
+                    0
+                ],
+                "op0": [
+                    1
+                ],
+                "op1": [
+                    2
+                ],
+                "op2": [
+                    3
+                ],
+                "op3": []
+            },
+            "adjusting": [],
+            "face_tags": [],
+            "version": "0.1",
+            "op0": {
+                "op_id": 0,
+                "op_name": "QARCH_OT_extrude_fancy",
+                "properties": {
+                    "distance": 0.0,
+                    "steps": 1,
+                    "on_axis": true,
+                    "axis": {
+                        "x": 1.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "twist": 0.0,
+                    "align_end": false,
+                    "size": {
+                        "size_x": 1.0,
+                        "is_relative_x": true,
+                        "size_y": 1.0,
+                        "is_relative_y": true
+                    },
+                    "flip_normals": false
+                },
+                "control_points": {
+                    "faces": {
+                        "op-1": [
+                            3
+                        ]
+                    },
+                    "verts": {},
+                    "flags": {},
+                    "mode": "GROUP"
+                },
+                "gen_info": {
+                    "ranges": {
+                        "Sides": [
+                            [
+                                0,
+                                2
+                            ]
+                        ],
+                        "Tops": [
+                            [
+                                3,
+                                3
+                            ]
+                        ]
+                    },
+                    "moduli": {
+                        "Sides": 3,
+                        "Tops": 0
+                    }
+                }
+            },
+            "op1": {
+                "op_id": 1,
+                "op_name": "QARCH_OT_inset_polygon",
+                "properties": {
+                    "position": {
+                        "offset_x": 0.10000000149011612,
+                        "is_relative_x": false,
+                        "offset_y": 0.0,
+                        "is_relative_y": false
+                    },
+                    "size": {
+                        "size_x": -0.20000000298023224,
+                        "is_relative_x": false,
+                        "size_y": -0.10000000149011612,
+                        "is_relative_y": false
+                    },
+                    "join": "BRIDGE",
+                    "add_perimeter": false,
+                    "shape_type": "SELF",
+                    "poly": {
+                        "num_sides": 4,
+                        "start_angle": -0.7853981852531433
+                    },
+                    "arch": {
+                        "num_sides": 12,
+                        "arch_type": "ROMAN"
+                    },
+                    "frame": 0.10000000149011612,
+                    "frame_material": "BT_Brass",
+                    "super_curve": {
+                        "x": 1.0,
+                        "y": 1.0,
+                        "sx": 1.0,
+                        "sy": 1.0,
+                        "px": 1.0,
+                        "py": 1.0,
+                        "pn": 1.0,
+                        "start_angle": 0.0
+                    },
+                    "local_object": {
+                        "search_text": "",
+                        "object_name": "0",
+                        "rotate": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    },
+                    "catalog_object": {
+                        "style_name": "default",
+                        "category_name": "Decks",
+                        "search_text": "",
+                        "category_item": "0",
+                        "rotate": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    },
+                    "resolution": 4,
+                    "center_material": "BT_Brick",
+                    "extrude_distance": 0.0
+                },
+                "control_points": {
+                    "faces": {
+                        "op0": [
+                            3
+                        ]
+                    },
+                    "verts": {},
+                    "flags": {},
+                    "mode": "GROUP"
+                },
+                "gen_info": {
+                    "ranges": {
+                        "Bridge": [
+                            [
+                                1,
+                                3
+                            ]
+                        ],
+                        "Center": [
+                            [
+                                0,
+                                0
+                            ]
+                        ],
+                        "Frame": []
+                    },
+                    "moduli": {
+                        "Bridge": 0,
+                        "Center": 0,
+                        "Frame": 0
+                    }
+                }
+            },
+            "op2": {
+                "op_id": 2,
+                "op_name": "QARCH_OT_extrude_fancy",
+                "properties": {
+                    "distance": 0.10000000149011612,
+                    "steps": 1,
+                    "on_axis": false,
+                    "axis": {
+                        "x": 1.0,
+                        "y": 0.0,
+                        "z": 0.0
+                    },
+                    "twist": 0.0,
+                    "align_end": false,
+                    "size": {
+                        "size_x": 1.0,
+                        "is_relative_x": true,
+                        "size_y": 1.0,
+                        "is_relative_y": true
+                    },
+                    "flip_normals": false
+                },
+                "control_points": {
+                    "faces": {
+                        "op1": [
+                            2,
+                            3
+                        ]
+                    },
+                    "verts": {},
+                    "flags": {
+                        "op1": 2
+                    },
+                    "mode": "GROUP"
+                },
+                "gen_info": {
+                    "ranges": {
+                        "Sides": [
+                            [
+                                0,
+                                3
+                            ],
+                            [
+                                5,
+                                8
+                            ]
+                        ],
+                        "Tops": [
+                            [
+                                4,
+                                4
+                            ],
+                            [
+                                9,
+                                9
+                            ]
+                        ]
+                    },
+                    "moduli": {
+                        "Sides": 4,
+                        "Tops": 0
+                    }
+                }
+            },
+            "op3": {
+                "op_id": 3,
+                "op_name": "QARCH_OT_set_face_tag",
+                "properties": {
+                    "tag": "TRIM"
+                },
+                "control_points": {
+                    "faces": {
+                        "op2": [
+                            2,
+                            3,
+                            4,
+                            6,
+                            7,
+                            9
+                        ]
+                    },
+                    "verts": {},
+                    "flags": {},
+                    "mode": "GROUP"
+                },
+                "gen_info": {
+                    "ranges": {
+                        "All": [
+                            [
+                                0,
+                                5
+                            ]
+                        ]
+                    },
+                    "moduli": {
+                        "All": 0
+                    }
+                }
+            },
+            "description": "Extend hip to gable"
+        }"""
+        return script_text
+
+    def recordset(self, op_id):
+        # ops
+        # 0 extrude (directed)
+        #  1 inset polygon (inset)
+        #    2 extrude (soffit)
+        #      3 set tag (trim)
+        dct_c, lst_c = self.journal.child_ops(op_id)
+        for c in lst_c:
+            print(self.journal.op_label(c))
+        dct_records = {}
+        for i, txt in enumerate(['directed', 'inset', 'soffit', 'face tag']):
+            j = lst_c[i]
+            dct_records[txt] = self.journal[j]
+            dct_records[txt]['description'] = txt
+        return dct_records
+
+    def write_props_to_journal(self, op_id):
+        """After this operator properties are updated, push them down to the script operators
+        by updating the journal text
+        """
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['description'] = "Simple Railing"
+
+        mm = ManagedMesh(self.obj)
+        sel_info = self.journal.get_sel_info(op_id)
+        faces = mm.get_faces(sel_info)
+        poly = SmartPoly()
+        poly.add(list(faces[0].verts))
+        poly.calculate()
+        mm.free()
+
+        z = Vector((0,0,1))
+        edir = z.cross(poly.xdir)
+
+        v = poly.make_3d(poly.bbox[0])
+        v1 = v - poly.center
+        dist = v1.dot(edir)
+
+        child_rec = dct_records['directed']
+        child_rec['properties']['axis']['x'] = edir.x
+        child_rec['properties']['axis']['y'] = edir.y
+        child_rec['properties']['axis']['z'] = edir.z
+        child_rec['properties']['distance'] = dist
+
+        child_rec = dct_records['inset']
+        child_rec['properties']['size']['size_x'] = -self.props.soffit_width
+        child_rec['properties']['size']['size_y'] = -self.props.soffit_width/2
+        child_rec['properties']['position']['offset_x'] = self.props.soffit_width/2
+
+        child_rec = dct_records['soffit']
+        child_rec['properties']['distance'] = self.props.overhang
+
+        self.journal.flush()
+
+    def read_props_from_journal(self, op_id):
+        """Get the properties from the script and put them into this operator's properties
+        """
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        record = self.journal[op_id]
+        self.props.from_dict(record['properties'])
+
+        child_rec = dct_records['inset']
+        self.props.soffit_width = -child_rec['properties']['size']['size_x']
+
+        child_rec = dct_records['soffit']
+        self.props.overhang = child_rec['properties']['distance']

@@ -180,18 +180,21 @@ class CustomOperator(bpy.types.Operator):
     def divide_selections(self, initial_sel_info):
         """Separate to single faces"""
         lst = []
-        if self.addon_prefs.select_mode == 'SINGLE':
+        mode = self.addon_prefs.select_mode
+        if hasattr(self, 'required_selection_mode'):  # derived class can set this in override of divide_selections
+            mode = self.required_selection_mode
+        if mode == 'SINGLE':
             for op in initial_sel_info.op_list():
                 for f in initial_sel_info.face_list(op):
                     sel = SelectionInfo()
                     sel.add_face(op, f)
-                    sel.set_mode(self.addon_prefs.select_mode)
+                    sel.set_mode(mode)
                     lst.append(sel)
-        elif self.addon_prefs.select_mode == 'GROUP':
-            initial_sel_info.set_mode(self.addon_prefs.select_mode)
+        elif mode == 'GROUP':
+            initial_sel_info.set_mode(mode)
             lst = [initial_sel_info]
         else:
-            initial_sel_info.set_mode(self.addon_prefs.select_mode)
+            initial_sel_info.set_mode(mode)
             lst = [initial_sel_info]
         return lst
 
@@ -561,7 +564,6 @@ class CompoundOperator(CustomOperator):
 
     def ensure_children(self, op_id):
         """Called by invoke to make sure the child script is in place"""
-        print("ensure children", self.props.arch_height)
         lst_controlled = self.journal.controlled_list(op_id)
         if len(lst_controlled) == 0:  # first time called
             script = self.get_script()

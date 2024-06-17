@@ -49,7 +49,7 @@ from .geom import (
     QARCH_OT_build_face,
     QARCH_OT_build_roof,
 )
-from .compound import QARCH_OT_add_window, QARCH_OT_add_door
+from .compound import QARCH_OT_add_window, QARCH_OT_add_door, QARCH_OT_add_rail, QARCH_OT_extend_gable
 
 classes = (
     QARCH_OT_load_script,
@@ -91,6 +91,8 @@ classes = (
     QARCH_OT_build_face,
     QARCH_OT_scan_catalogs,
     QARCH_OT_build_roof,
+    QARCH_OT_add_rail,
+    QARCH_OT_extend_gable,
     # QARCH_OT_load_object
 )
 

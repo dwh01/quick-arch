@@ -123,6 +123,26 @@ class ManagedMesh:
         print("creating wall thickness")
         self.create_wall_thickness()
 
+    def create_wall_thickness(self):
+        from .geom import calc_face_uv
+        lst_thick = []
+        for face in self.bm.faces:
+            t = face[self.key_thick]
+            n = -t * face.normal
+            if t != 0:
+                vlist = [n + v.co for v in face.verts]
+                luv = [l[self.key_uv_w] for l in face.loops]
+                vlist.reverse()
+                luv.reveres()
+                face_new = self.bm.faces.new(vlist)
+                for k in [self.key_face_op, self.key_uv_orig, self.key_uv_rot, self.key_uv, self.key_tag]:
+                    face_new[k] = face[k]
+                face_new.material_index = face.material_index
+                for loop, uv in zip(face_new.loops, luv):
+                    loop[self.key_uv_w] = uv
+                calc_face_uv(face_new, self)
+
+                face[self.key_thick] = 0
 
     def cube(self, x, y, z, tag=None):
         verts = [(0,0,0),(0,y,0),(x,y,0),(x,0,0),

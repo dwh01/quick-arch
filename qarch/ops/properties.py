@@ -395,8 +395,8 @@ class SweepProperty(CustomPropertyBase):
     size: PointerProperty(name='End Size', type=SizeProperty, description='Scale result face to this size')
 
     field_layout = [
-        ('','origin'),
-        ('','axis'),
+        ('Rot Origin','origin'),
+        ('Rot Axis','axis'),
         ['angle', 'steps'],
         ('','size'),
     ]
@@ -460,6 +460,25 @@ class SimpleDoorProperty(CustomPropertyBase):
     field_layout = [
         ['rel_x', 'panel_depth'],
         ['handle_side']
+    ]
+    topology_lock = []
+
+
+class SimpleRailProperty(CustomPropertyBase):
+    rail_spacing: FloatProperty(name="Rail Spacing", default=0.2, description="Distance between vertical bars")
+
+    field_layout = [
+        ['rail_spacing']
+    ]
+    topology_lock = []
+
+
+class ExtendGableProperty(CustomPropertyBase):
+    soffit_width: FloatProperty(name="Soffit Width", default=0.1, description="Thickness of soffit")
+    overhang: FloatProperty(name="Overhang", default=0.1, description="Extension past wall")
+
+    field_layout = [
+        ['soffit_width', 'overhang']
     ]
     topology_lock = []
 
@@ -587,5 +606,7 @@ ops_properties = [
     BuildFaceProperty,
     BuildRoofProperty,
     SimpleDoorProperty,
+    SimpleRailProperty,
+    ExtendGableProperty,
 AssetLibProps
 ]

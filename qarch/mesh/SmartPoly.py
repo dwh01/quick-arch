@@ -639,7 +639,7 @@ class SmartPoly:
                     if q_poly.orientation(0) == 1:
                         q_pts.reverse()
                     combined = s_pts + q_pts
-                    m_poly = SmartPoly(self.matrix)
+                    m_poly = SmartPoly(matrix=self.matrix)
                     for v2 in combined:
                         m_poly.add(self.make_3d(v2))
                     m_poly.center = self.make_3d(Vector(ctr))
@@ -648,7 +648,7 @@ class SmartPoly:
                     b_merged = True
                     break
             if not b_merged:
-                m_poly = SmartPoly(self.matrix)
+                m_poly = SmartPoly(matrix=self.matrix)
                 m_poly.center = self.make_3d(Vector(ctr))
                 s_pts = [Vector(v) for v in s_poly.contour(0)]
                 if s_poly.orientation(0) == -1:
@@ -1092,6 +1092,43 @@ class SmartPoly:
             self.add(co, True)
 
         self.calculate()
+
+    def generate_revolve(self, r_origin, r_axis, n_steps, vz, mm, b_make):
+        rot_theta = 2 * math.pi / n_steps
+        mat_r = Matrix.Rotation(rot_theta, 3, r_axis)
+        pts_rel = [sv.co3 - r_origin for sv in self.coord]
+        lst_pts = [pts_rel]
+        for i in range(1, n_steps):
+            p_rot = [mat_r @ p for p in lst_pts[-1]]
+            lst_pts.append(p_rot)
+
+        minpt = self.make_3d(self.bbox[0])
+        v = minpt - r_origin
+        v_align = v.dot(r_axis) * r_axis  # shift along axis to start point
+        for lst in lst_pts:  # delayed adding origin since we rotated previous list each time
+            for i in range(len(lst)):
+                lst[i] = lst[i] + r_origin - v_align + vz * r_axis
+
+
+        if b_make:  # replace with bm_verts
+            for lst in lst_pts:
+                for i in range(len(lst)):
+                    lst[i] = mm.new_vert(lst[i])
+
+        lst_poly = []
+        ncp = len(self.coord)
+        for i in range(n_steps):
+            ii = (i+1) % n_steps
+            for j in range(ncp):
+                jj = (j+1) % ncp
+                pts = [lst_pts[i][j], lst_pts[ii][j], lst_pts[ii][jj], lst_pts[i][jj]]
+                poly = SmartPoly()
+                poly.add(pts, break_link=False)
+                poly.calculate()
+                if b_make:
+                    poly.make_face(mm)
+                lst_poly.append(poly)
+        return lst_poly
 
     def generate_super(self, x, sx, px, y, sy, py, n, resolution, start_angle):
         def radius(theta):

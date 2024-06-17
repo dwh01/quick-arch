@@ -36,13 +36,12 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("qarch.set_active_op")
-        row.operator("qarch.save_script")
+        # row.operator("qarch.save_script")
 
         if context.object:
             active = get_obj_data(context.object, ACTIVE_OP_ID)
             if (active is not None) and (active > -1):
                 row.alert = True
-                row = layout.row(align=True)
                 row.label(text="Active = {}".format(active))
 
         row = layout.row(align=True)
@@ -56,10 +55,10 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.clean_object")
 
-        row = layout.row(align=True)
-        row.operator("qarch.apply_script")
-        row.operator("qarch.load_script")
-        row = layout.row(align=True)
+        # row = layout.row(align=True)
+        # row.operator("qarch.apply_script")
+        # row.operator("qarch.load_script")
+        # row = layout.row(align=True)
         row.operator("qarch.import_mesh")
 
 
@@ -95,15 +94,21 @@ class QARCH_PT_hi_level(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Quick Arch"
-    bl_options = {"DEFAULT_CLOSED"}
+    # bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         layout = self.layout
         row = layout.row(align=True)
+        row.operator("qarch.apply_script")
+        row = layout.row(align=True)
         row.operator("qarch.add_window")
         row = layout.row(align=True)
         row.operator("qarch.add_door")
-
+        row = layout.row(align=True)
+        row.operator("qarch.add_rail")
+        row = layout.row(align=True)
+        row.operator("qarch.build_roof")
+        row.operator("qarch.extend_gable")
 
 class QARCH_PT_low_level(bpy.types.Panel):
     bl_parent_id = "QARCH_PT_mesh_tools"
@@ -142,8 +147,7 @@ class QARCH_PT_low_level(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.flip_normal")
         row.operator("qarch.build_face")
-        row = layout.row(align=True)
-        row.operator("qarch.build_roof")
+
 
 
 class QARCH_PT_settings(bpy.types.Panel):
