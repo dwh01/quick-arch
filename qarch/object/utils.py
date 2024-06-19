@@ -173,6 +173,7 @@ class SelectionInfo:
 
     def renumber_ops(self, dct_new):
         tmp = self.sel_face
+
         self.sel_face = {}
         for k, v in tmp.items():
             op_id = unwrap_id(k)

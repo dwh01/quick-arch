@@ -10,6 +10,7 @@ BT_IMG_CAT = 'BT_Category'
 BT_IMG_DESC = 'BT_Description'
 BT_IMG_SCRIPT = 'script_'
 BT_IMG_CURVE = 'curve_'
+BT_IMG_MESH = "mesh_"
 
 # storage for icons
 preview_collections = {}
@@ -58,7 +59,7 @@ def file_type(name):
         return "script", name[len(BT_IMG_SCRIPT):]
     if name.startswith(BT_IMG_CURVE):
         return "curve", name[len(BT_IMG_CURVE):]
-    return "", name
+    return "mesh", name
 
 
 def script_name(stem):
@@ -69,8 +70,13 @@ def curve_name(stem):
     return BT_IMG_CURVE + stem + ".txt"
 
 
+def mesh_name(stem):
+    return BT_IMG_MESH + stem + ".stl"
+
+
 def text_name(stem):
     return stem + ".txt"
+
 
 def load_catalog(reload=False):
     """Fill global dictionary"""
@@ -149,7 +155,10 @@ def load_previews(reload=False):
                 enum_items = []
 
             for stem in catalog[style_name][cat_name]:
-                p_test = to_path(style_name, cat_name, stem).with_suffix(".txt")
+                if stem.startswith(BT_IMG_MESH):
+                    p_test = to_path(style_name, cat_name, stem).with_suffix(".stl")
+                else:
+                    p_test = to_path(style_name, cat_name, stem).with_suffix(".txt")
                 if p_test.exists():
                     icon = pcoll.get(stem)
                     if not icon:
@@ -163,7 +172,6 @@ def load_previews(reload=False):
                         description = as_dict.get('description', '')
                     enum_val = (str(p_test), user_name, description, icon.icon_id, len(enum_items)+1)
                     enum_items.append(enum_val)
-
 
             previews[cat_name] = pcoll
             dyn_set[cat_name] = enum_items
@@ -232,13 +240,11 @@ def enum_category_items(self, context):
     if hasattr(self, "style_name") and (self.style_name != ""):
         lst_style_enum = [self.style_name]
 
-
     category_name = self.category_name
     if category_name == "0":
         return empty_icon_enums
     lst_return = []
     search, show_curves, show_scripts = find_search_props(self, context)
-
     lst_style_enum = enum_catalogs(self, context)
     for es in lst_style_enum:
         style_name = es[0]
@@ -256,6 +262,8 @@ def enum_category_items(self, context):
                 if show_curves and (ftype != "curve"):
                     continue
                 elif show_scripts and (ftype != "script"):
+                    continue
+                elif (not (show_curves or show_scripts)) and (ftype != 'mesh'):
                     continue
                 if len(search) > 2:
                     if search in e[1].lower():
@@ -351,7 +359,6 @@ dct_obj_enum = {}
 def enum_objects_or_curves(self, context):
     search, show_curves, show_scripts = find_search_props(self, context)
     lst_enum = []
-
     if show_curves:
         col = bpy.data.curves
     else:

@@ -10,7 +10,7 @@ from .assets import (
     QARCH_OT_catalog_script,
     QARCH_OT_catalog_curve,
     QARCH_OT_open_catalogs,
-    # QARCH_OT_catalog_object,
+    QARCH_OT_catalog_mesh,
     QARCH_OT_scan_catalogs,
     # QARCH_OT_load_object,
 #register_assets, unregister_assets
@@ -49,7 +49,7 @@ from .geom import (
     QARCH_OT_build_face,
     QARCH_OT_build_roof,
 )
-from .compound import QARCH_OT_add_window, QARCH_OT_add_door, QARCH_OT_add_rail, QARCH_OT_extend_gable
+from .compound import QARCH_OT_add_window, QARCH_OT_add_door, QARCH_OT_add_rail, QARCH_OT_extend_gable, QARCH_OT_add_dormer
 
 classes = (
     QARCH_OT_load_script,
@@ -81,6 +81,7 @@ classes = (
     QARCH_OT_apply_script,
     QARCH_OT_catalog_script,
     QARCH_OT_catalog_curve,
+    QARCH_OT_catalog_mesh,
     QARCH_OT_open_catalogs,
     # QARCH_OT_catalog_object,
     QARCH_OT_clean_object,
@@ -93,6 +94,7 @@ classes = (
     QARCH_OT_build_roof,
     QARCH_OT_add_rail,
     QARCH_OT_extend_gable,
+    QARCH_OT_add_dormer,
     # QARCH_OT_load_object
 )
 

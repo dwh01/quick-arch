@@ -61,5 +61,27 @@ def draw(image_name):
     image.pixels = [v / 255 for v in buffer]
     return image
 
+def find_or_load(obj_name, txt_file):
+    try:
+        obj = bpy.data.objects[obj_name]
+        return obj
+    except Exception:
+        pass
 
+    active = bpy.context.active_object
+    # probably the last item in objects, but just in case
+    cur_objs = set(obj.name for obj in bpy.data.objects)
+    bpy.ops.import_mesh.stl(filepath=str(txt_file))
+    bpy.ops.ed.undo_push(message="loaded {}".format(obj_name))
 
+    for obj in bpy.data.objects:
+        if obj.name in cur_objs:
+            continue
+        obj.name = obj_name
+
+        obj.select_set(False)
+        active.select_set(True)
+        bpy.context.view_layer.objects.active = active
+        bpy.ops.object.mode_set(mode='EDIT')  # load seems to kick us into object mode
+
+        return obj

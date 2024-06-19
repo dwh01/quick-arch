@@ -411,7 +411,7 @@ class QARCH_OT_project_face(CustomOperator):
         if cls.is_face_selected(context):
             mm = ManagedMesh(context.object)
             sel_info = mm.get_selection_info()
-            return 2 == sel_info.count_faces()
+            return sel_info.count_faces() > 1
 
 
 class QARCH_OT_extrude_walls(CustomOperator):

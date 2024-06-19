@@ -1,0 +1,1586 @@
+{
+    "max_id": 15,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1,
+            2,
+            14
+        ],
+        "op1": [
+            5
+        ],
+        "op2": [
+            3,
+            4,
+            11,
+            13,
+            13
+        ],
+        "op3": [],
+        "op4": [],
+        "op5": [
+            6,
+            8,
+            8
+        ],
+        "op6": [
+            7,
+            9
+        ],
+        "op7": [
+            8,
+            8
+        ],
+        "op8": [],
+        "op9": [
+            10
+        ],
+        "op10": [],
+        "op11": [
+            12
+        ],
+        "op12": [
+            15
+        ],
+        "op13": [],
+        "op14": [],
+        "op15": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.5,
+                "is_relative_x": false,
+                "offset_y": 0.10000000149011612,
+                "is_relative_y": false
+            },
+            "size": {
+                "size_x": 1.7999999523162842,
+                "is_relative_x": false,
+                "size_y": 2.4000000953674316,
+                "is_relative_y": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": true,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    3
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Bridge": [
+                    [
+                        1,
+                        4
+                    ]
+                ],
+                "Center": [
+                    [
+                        0,
+                        0
+                    ]
+                ],
+                "Frame": []
+            },
+            "moduli": {
+                "Bridge": 0,
+                "Center": 0,
+                "Frame": 0
+            }
+        }
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": -0.08000000566244125,
+                "is_relative_x": false,
+                "offset_y": 1.0,
+                "is_relative_y": true
+            },
+            "size": {
+                "size_x": 1.9600000381469727,
+                "is_relative_x": false,
+                "size_y": 0.5,
+                "is_relative_y": false
+            },
+            "join": "FREE",
+            "add_perimeter": true,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 3,
+                "start_angle": -0.5235987901687622
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Bridge": [],
+                "Center": [
+                    [
+                        0,
+                        0
+                    ]
+                ],
+                "Frame": []
+            },
+            "moduli": {
+                "Bridge": 0,
+                "Center": 0,
+                "Frame": 0
+            }
+        }
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 1.25,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0,
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        0,
+                        3
+                    ],
+                    [
+                        5,
+                        8
+                    ]
+                ],
+                "Tops": [
+                    [
+                        4,
+                        4
+                    ],
+                    [
+                        9,
+                        9
+                    ]
+                ]
+            },
+            "moduli": {
+                "Sides": 4,
+                "Tops": 0
+            }
+        }
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.30000001192092896,
+                "is_relative_x": false,
+                "size_y": 0.10000000149011612,
+                "is_relative_y": false
+            },
+            "side_list": "",
+            "z_offset": -0.05000000074505806,
+            "inset": 0.15000000596046448,
+            "face_tag": "NOTHING",
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "revolutions": 0,
+            "dashed": false,
+            "dash_info": {
+                "dash_length": 0.10000000149011612,
+                "dash_offset": 0.0,
+                "dash_spacing": 0.0
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        0,
+                        15
+                    ]
+                ],
+                "Starts": [],
+                "Ends": []
+            },
+            "moduli": {
+                "Sides": 0,
+                "Starts": 0,
+                "Ends": 0
+            }
+        }
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.20000000298023224,
+                "is_relative_x": false,
+                "size_y": 0.20000000298023224,
+                "is_relative_y": false
+            },
+            "side_list": "0,2",
+            "z_offset": -0.15000000596046448,
+            "inset": 0.15000000596046448,
+            "face_tag": "TRIM",
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 8,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "revolutions": 0,
+            "dashed": false,
+            "dash_info": {
+                "dash_length": 0.10000000149011612,
+                "dash_offset": 0.0,
+                "dash_spacing": 0.0
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        2,
+                        9
+                    ],
+                    [
+                        12,
+                        19
+                    ]
+                ],
+                "Starts": [
+                    [
+                        0,
+                        0
+                    ],
+                    [
+                        10,
+                        10
+                    ]
+                ],
+                "Ends": [
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        11,
+                        11
+                    ]
+                ]
+            },
+            "moduli": {
+                "Sides": 0,
+                "Starts": 0,
+                "Ends": 0
+            }
+        }
+    },
+    "op5": {
+        "op_id": 5,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 1.25,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op1": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        0,
+                        2
+                    ]
+                ],
+                "Tops": [
+                    [
+                        3,
+                        3
+                    ]
+                ]
+            },
+            "moduli": {
+                "Sides": 3,
+                "Tops": 0
+            }
+        }
+    },
+    "op6": {
+        "op_id": 6,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.05000000074505806,
+                "is_relative_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": true
+            },
+            "size": {
+                "size_x": -0.10000000149011612,
+                "is_relative_x": false,
+                "size_y": -0.03999999910593033,
+                "is_relative_y": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 3,
+                "start_angle": -0.5235987901687622
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op5": [
+                    3
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Bridge": [
+                    [
+                        1,
+                        3
+                    ]
+                ],
+                "Center": [
+                    [
+                        0,
+                        0
+                    ]
+                ],
+                "Frame": []
+            },
+            "moduli": {
+                "Bridge": 0,
+                "Center": 0,
+                "Frame": 0
+            }
+        }
+    },
+    "op7": {
+        "op_id": 7,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.10000000149011612,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op6": [
+                    1,
+                    2
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op6": 2
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        0,
+                        3
+                    ],
+                    [
+                        5,
+                        8
+                    ]
+                ],
+                "Tops": [
+                    [
+                        4,
+                        4
+                    ],
+                    [
+                        9,
+                        9
+                    ]
+                ]
+            },
+            "moduli": {
+                "Sides": 4,
+                "Tops": 0
+            }
+        }
+    },
+    "op8": {
+        "op_id": 8,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "ROOF"
+        },
+        "control_points": {
+            "faces": {
+                "op5": [
+                    1,
+                    0
+                ],
+                "op7": [
+                    0,
+                    5
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op5": 2
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        3
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 0
+            }
+        }
+    },
+    "op9": {
+        "op_id": 9,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.10000000149011612,
+                "is_relative_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": true
+            },
+            "size": {
+                "size_x": -0.20000000298023224,
+                "is_relative_x": false,
+                "size_y": -0.06000000238418579,
+                "is_relative_y": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 3,
+                "start_angle": -0.5235987901687622
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": -0.05000000074505806
+        },
+        "control_points": {
+            "faces": {
+                "op6": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Bridge": [
+                    [
+                        1,
+                        3
+                    ]
+                ],
+                "Center": [
+                    [
+                        0,
+                        0
+                    ]
+                ],
+                "Frame": []
+            },
+            "moduli": {
+                "Bridge": 0,
+                "Center": 0,
+                "Frame": 0
+            }
+        }
+    },
+    "op10": {
+        "op_id": 10,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.029999999329447746,
+                "is_relative_x": false,
+                "size_y": 0.029999999329447746,
+                "is_relative_y": false
+            },
+            "side_list": "0,1",
+            "z_offset": 0.0,
+            "inset": 0.0,
+            "face_tag": "NOTHING",
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "revolutions": 0,
+            "dashed": true,
+            "dash_info": {
+                "dash_length": 0.029999999329447746,
+                "dash_offset": 0.0,
+                "dash_spacing": 0.029999999329447746
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op9": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "Sides": [
+                    [
+                        2,
+                        5
+                    ],
+                    [
+                        8,
+                        11
+                    ],
+                    [
+                        14,
+                        17
+                    ],
+                    [
+                        20,
+                        23
+                    ],
+                    [
+                        26,
+                        29
+                    ],
+                    [
+                        32,
+                        35
+                    ],
+                    [
+                        38,
+                        41
+                    ],
+                    [
+                        44,
+                        47
+                    ],
+                    [
+                        50,
+                        53
+                    ],
+                    [
+                        56,
+                        59
+                    ],
+                    [
+                        62,
+                        65
+                    ],
+                    [
+                        68,
+                        71
+                    ],
+                    [
+                        74,
+                        77
+                    ],
+                    [
+                        80,
+                        83
+                    ],
+                    [
+                        86,
+                        89
+                    ],
+                    [
+                        91,
+                        94
+                    ],
+                    [
+                        96,
+                        99
+                    ],
+                    [
+                        102,
+                        105
+                    ],
+                    [
+                        108,
+                        111
+                    ],
+                    [
+                        114,
+                        117
+                    ],
+                    [
+                        120,
+                        123
+                    ],
+                    [
+                        126,
+                        129
+                    ],
+                    [
+                        132,
+                        135
+                    ],
+                    [
+                        138,
+                        141
+                    ],
+                    [
+                        144,
+                        147
+                    ],
+                    [
+                        150,
+                        153
+                    ],
+                    [
+                        156,
+                        159
+                    ],
+                    [
+                        162,
+                        165
+                    ],
+                    [
+                        168,
+                        171
+                    ],
+                    [
+                        174,
+                        177
+                    ],
+                    [
+                        180,
+                        183
+                    ],
+                    [
+                        186,
+                        189
+                    ]
+                ],
+                "Starts": [
+                    [
+                        0,
+                        0
+                    ],
+                    [
+                        6,
+                        6
+                    ],
+                    [
+                        12,
+                        12
+                    ],
+                    [
+                        18,
+                        18
+                    ],
+                    [
+                        24,
+                        24
+                    ],
+                    [
+                        30,
+                        30
+                    ],
+                    [
+                        36,
+                        36
+                    ],
+                    [
+                        42,
+                        42
+                    ],
+                    [
+                        48,
+                        48
+                    ],
+                    [
+                        54,
+                        54
+                    ],
+                    [
+                        60,
+                        60
+                    ],
+                    [
+                        66,
+                        66
+                    ],
+                    [
+                        72,
+                        72
+                    ],
+                    [
+                        78,
+                        78
+                    ],
+                    [
+                        84,
+                        84
+                    ],
+                    [
+                        90,
+                        90
+                    ],
+                    [
+                        100,
+                        100
+                    ],
+                    [
+                        106,
+                        106
+                    ],
+                    [
+                        112,
+                        112
+                    ],
+                    [
+                        118,
+                        118
+                    ],
+                    [
+                        124,
+                        124
+                    ],
+                    [
+                        130,
+                        130
+                    ],
+                    [
+                        136,
+                        136
+                    ],
+                    [
+                        142,
+                        142
+                    ],
+                    [
+                        148,
+                        148
+                    ],
+                    [
+                        154,
+                        154
+                    ],
+                    [
+                        160,
+                        160
+                    ],
+                    [
+                        166,
+                        166
+                    ],
+                    [
+                        172,
+                        172
+                    ],
+                    [
+                        178,
+                        178
+                    ],
+                    [
+                        184,
+                        184
+                    ]
+                ],
+                "Ends": [
+                    [
+                        1,
+                        1
+                    ],
+                    [
+                        7,
+                        7
+                    ],
+                    [
+                        13,
+                        13
+                    ],
+                    [
+                        19,
+                        19
+                    ],
+                    [
+                        25,
+                        25
+                    ],
+                    [
+                        31,
+                        31
+                    ],
+                    [
+                        37,
+                        37
+                    ],
+                    [
+                        43,
+                        43
+                    ],
+                    [
+                        49,
+                        49
+                    ],
+                    [
+                        55,
+                        55
+                    ],
+                    [
+                        61,
+                        61
+                    ],
+                    [
+                        67,
+                        67
+                    ],
+                    [
+                        73,
+                        73
+                    ],
+                    [
+                        79,
+                        79
+                    ],
+                    [
+                        85,
+                        85
+                    ],
+                    [
+                        95,
+                        95
+                    ],
+                    [
+                        101,
+                        101
+                    ],
+                    [
+                        107,
+                        107
+                    ],
+                    [
+                        113,
+                        113
+                    ],
+                    [
+                        119,
+                        119
+                    ],
+                    [
+                        125,
+                        125
+                    ],
+                    [
+                        131,
+                        131
+                    ],
+                    [
+                        137,
+                        137
+                    ],
+                    [
+                        143,
+                        143
+                    ],
+                    [
+                        149,
+                        149
+                    ],
+                    [
+                        155,
+                        155
+                    ],
+                    [
+                        161,
+                        161
+                    ],
+                    [
+                        167,
+                        167
+                    ],
+                    [
+                        173,
+                        173
+                    ],
+                    [
+                        179,
+                        179
+                    ],
+                    [
+                        185,
+                        185
+                    ]
+                ]
+            },
+            "moduli": {
+                "Sides": 0,
+                "Starts": 0,
+                "Ends": 0
+            }
+        }
+    },
+    "op11": {
+        "op_id": 11,
+        "op_name": "QARCH_OT_import_mesh",
+        "properties": {
+            "position": {
+                "offset_x": 0.14999999105930328,
+                "is_relative_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false
+            },
+            "rotation": [
+                -1.5707963705062866,
+                0.0,
+                0.0
+            ],
+            "z_offset": -0.15000000596046448,
+            "scale": 1.0,
+            "as_instance": true,
+            "array": {
+                "count": 2,
+                "spacing": 1.5,
+                "direction": {
+                    "x": 1.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "do_orbit": false,
+                "origin": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 1.0
+                }
+            },
+            "use_catalog": true,
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "/home/dave/.config/blender/4.0/scripts/addons/qarch/assets/default/Columns/mesh_Plinth_1.stl",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        0
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 0
+            }
+        }
+    },
+    "op12": {
+        "op_id": 12,
+        "op_name": "QARCH_OT_import_mesh",
+        "properties": {
+            "position": {
+                "offset_x": 0.14999999105930328,
+                "is_relative_x": false,
+                "offset_y": 2.299999952316284,
+                "is_relative_y": false
+            },
+            "rotation": [
+                1.5707963705062866,
+                0.0,
+                0.0
+            ],
+            "z_offset": -0.15000000596046448,
+            "scale": 1.0,
+            "as_instance": true,
+            "array": {
+                "count": 2,
+                "spacing": 1.5,
+                "direction": {
+                    "x": 1.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "do_orbit": false,
+                "origin": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 1.0
+                }
+            },
+            "use_catalog": true,
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "/home/dave/.config/blender/4.0/scripts/addons/qarch/assets/default/Columns/mesh_Plinth_1.stl",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op11": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op11": 1
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        0
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 0
+            }
+        }
+    },
+    "op13": {
+        "op_id": 13,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "DELETE"
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    2,
+                    1,
+                    0,
+                    3
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        3
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 0
+            }
+        }
+    },
+    "op14": {
+        "op_id": 14,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "WALL"
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        0
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 0
+            }
+        }
+    },
+    "op15": {
+        "op_id": 15,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "DELETE"
+        },
+        "control_points": {
+            "faces": {
+                "op12": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op12": 1
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {
+            "ranges": {
+                "All": [
+                    [
+                        0,
+                        0
+                    ]
+                ]
+            },
+            "moduli": {
+                "All": 0
+            }
+        }
+    },
+    "description": "Portico for standard door"
+}

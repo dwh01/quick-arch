@@ -80,11 +80,13 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
 
                 rna = self.bl_rna.properties[pname]
                 if isinstance(rna, bpy.types.EnumProperty):
-                    row.label(text=getattr(self, pname))
                     if pname == "category_item":  # preview
-                        row.template_icon_view(self, pname, show_labels=True, scale_popup=10)
+                        col = row.column(align=True)
+                        col.template_icon_view(self, pname, show_labels=True, scale_popup=10)
+                        col.label(text=getattr(self, pname))
                     else:
                         row.prop_menu_enum(self, pname)
+                        row.label(text=getattr(self, pname))
                 else:
                     row.prop(self, pname)
 
@@ -181,8 +183,6 @@ class CustomOperator(bpy.types.Operator):
         """Separate to single faces"""
         lst = []
         mode = self.addon_prefs.select_mode
-        if hasattr(self, 'required_selection_mode'):  # derived class can set this in override of divide_selections
-            mode = self.required_selection_mode
         if mode == 'SINGLE':
             for op in initial_sel_info.op_list():
                 for f in initial_sel_info.face_list(op):
@@ -568,7 +568,7 @@ class CompoundOperator(CustomOperator):
         if len(lst_controlled) == 0:  # first time called
             script = self.get_script()
             subset = json.loads(script)
-
+            print("first time call", op_id)
             # Points were just generated for us to attach to. Find them
             mm = ManagedMesh(self.obj)
             mm.deselect_all()
@@ -578,10 +578,10 @@ class CompoundOperator(CustomOperator):
 
             # add the script
             first_op_id = merge_record(self.obj, subset, child_sel_info)
-
+            print("new id", first_op_id)
             self.journal = Journal(self.obj)  # update our copy
             lst_controlled = self.journal.controlled_list(op_id)
-
+            print("lst", lst_controlled)
         return lst_controlled
 
     def get_descent_id(self, op_id, levels):

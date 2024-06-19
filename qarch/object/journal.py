@@ -68,7 +68,13 @@ class Journal:
 
     def controlled_list(self, op_id):
         """Get list of child ops controlled by this one"""
-        return self.controlled.get(wrap_id(op_id), [])
+        lst = self.controlled.get(wrap_id(op_id), [])
+        # strip out duplicates
+        lst2 = []
+        for op in lst:
+            if op not in lst2:
+                lst2.append(op)
+        return lst2
 
     def describe(self, op_id):
         record = self.jj[wrap_id(op_id)]
@@ -254,19 +260,19 @@ def extract_record(obj, operation_id, description):
 
     dct_subset = blank_journal()  # the bit to store
     new_id_number = 0  # renumbering stored operations from zero
-    queued_operations = [operation_id]
+    dct, lst = journal.child_ops(operation_id)
+    lst.sort()
+    queued_operations = lst
+    queued_operations.sort()
     dct_new_ids = {-1:-1}  # as we come across them, assign new ids to operations
 
     parents = journal.parents(operation_id)
     for p_id in parents:  # all parents now point to root
         dct_new_ids[p_id] = -1
 
-    while len(queued_operations):
-        old_id = queued_operations.pop(0)
-        # add children to end of queue for breadth first, to head for depth first
-        # don't think it matters much
-        queued_operations = queued_operations + journal['controlled'][wrap_id(old_id)]
+    queued_operations.insert(0, operation_id)
 
+    for old_id in queued_operations:
         if old_id in dct_new_ids:  # previously observed id
             op_id = dct_new_ids[old_id]
         else:
@@ -274,6 +280,8 @@ def extract_record(obj, operation_id, description):
             new_id_number = new_id_number + 1
             dct_new_ids[old_id] = op_id
 
+    for old_id in queued_operations:
+        op_id = dct_new_ids[old_id]
         record = copy.deepcopy(journal[old_id])
         record['op_id'] = op_id
         inf = SelectionInfo(record['control_points'])
@@ -284,6 +292,8 @@ def extract_record(obj, operation_id, description):
         parents = journal.parents(old_id)
         for control_op in parents:
             new_control = dct_new_ids[control_op]
+            if wrap_id(new_control) not in dct_subset['controlled']:
+                dct_subset['controlled'][wrap_id(new_control)] = []
             dct_subset['controlled'][wrap_id(new_control)].append(op_id)
 
         dct_subset['controlled'][wrap_id(op_id)] = []  # prepare for children of this operation
@@ -351,10 +361,14 @@ def merge_record(obj, dct_operation, sel_info):
             old_inf = SelectionInfo(record['control_points'])
             # is the vertex count compatible? We should test more but usually we apply to one face or to
             # similar faces
-            vtest1 = old_inf.face_list(old_inf.op_list()[0])
-            vtest2 = sel_info.face_list(sel_info.op_list()[0])
-            if len(vtest1) != len(vtest2):
-                return "Topology mismatch with selection vertex count"  # TODO make it possible
+            if old_inf.mode in ['SINGLE', 'REGION']:
+                if sel_info.mode not in ['SINGLE', 'REGION']:
+                    return "Topology mismatch with selection mode, expect single or region"
+            else:
+                vtest1 = old_inf.face_list(old_inf.op_list()[0])
+                vtest2 = sel_info.face_list(sel_info.op_list()[0])
+                if len(vtest1) != len(vtest2):
+                    return "Topology mismatch with selection face count, expected {}".format(len(vtest1))
 
             inf = sel_info
         else:

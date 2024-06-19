@@ -7,7 +7,7 @@ import bpy.utils.previews
 import pathlib, os, json, uuid, shutil
 from .custom import CustomOperator, replay_history
 from .dynamic_enums import enum_categories, enum_category_items, qarch_asset_dir, load_previews, enum_catalogs
-from .dynamic_enums import BT_IMG_CAT, BT_IMG_DESC, BT_IMG_CURVE, file_type, to_path, script_name, curve_name
+from .dynamic_enums import BT_IMG_CAT, BT_IMG_DESC, BT_IMG_CURVE, BT_IMG_MESH, file_type, to_path, script_name, curve_name, mesh_name
 from ..object import (
     export_record,
     get_obj_data,
@@ -131,6 +131,7 @@ class QARCH_OT_apply_script(bpy.types.Operator):
     category_item: EnumProperty(items=enum_category_items, name="Scripts")
     apply: BoolProperty(name="Apply to Selection", default = False)
     show_scripts: BoolProperty(name="Show Scripts", default = True)
+    show_curves: BoolProperty(name="Show Scripts", default = False)
 
     @classmethod
     def poll(cls, context):
@@ -317,6 +318,49 @@ class QARCH_OT_catalog_curve(bpy.types.Operator):
         txt = curve_to_text(obj, self.description)
         txt_file = to_path(self.style_name, self.category_name, curve_name(self.category_item))
         txt_file.write_text(txt)
+
+        return {"FINISHED"}
+
+
+
+class QARCH_OT_catalog_mesh(bpy.types.Operator):
+    bl_idname = "qarch.catalog_mesh"
+    bl_label = "Catalog Mesh"
+    bl_description = "Export mesh to catalog without materials"
+    bl_options = {"REGISTER", "UNDO"}
+
+    style_name: StringProperty(name="Style", description="Style name (default, scifi, etc.)")
+    category_name: StringProperty(name="Category", description="Collection name (Doors, Windows, etc.)")
+    description: StringProperty(name="Description", description="Description text")
+    category_item: StringProperty(name="Name", description="Name of object in catalog")
+
+    @classmethod
+    def poll(cls, context):
+        if context and context.active_object:
+            if type(context.active_object.data) in [bpy.types.Mesh]:
+                return True
+        return False
+
+    def invoke(self, context, event):
+        self.category_item = ""
+        return self.execute(context)
+
+    def execute(self, context):
+        from ..mesh import draw
+        if (len(self.category_name)== 0) or (len(self.category_item)== 0) or (len(self.style_name)==0):
+            return {"FINISHED"}
+
+        cat_name = self.category_name
+        qual_name = mesh_name(self.category_item)
+        txt_file = to_path(self.style_name, self.category_name, qual_name)
+        img_file = txt_file.with_suffix(".png")
+        img_file.parent.mkdir(parents=True, exist_ok=True)
+
+        img = draw(self.category_item)
+        img.save(filepath=str(img_file))
+
+        obj = context.active_object
+        bpy.ops.export_mesh.stl(filepath=str(txt_file), check_existing=False, filter_glob='*.stl', use_selection=True)
 
         return {"FINISHED"}
 

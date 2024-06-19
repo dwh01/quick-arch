@@ -55,13 +55,6 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.clean_object")
 
-        # row = layout.row(align=True)
-        # row.operator("qarch.apply_script")
-        # row.operator("qarch.load_script")
-        # row = layout.row(align=True)
-        row.operator("qarch.import_mesh")
-
-
         # Draw Operators
         # ``````````````
         # col = layout.column(align=True)
@@ -100,6 +93,7 @@ class QARCH_PT_hi_level(bpy.types.Panel):
         layout = self.layout
         row = layout.row(align=True)
         row.operator("qarch.apply_script")
+        row.operator("qarch.import_mesh")
         row = layout.row(align=True)
         row.operator("qarch.add_window")
         row = layout.row(align=True)
@@ -109,6 +103,9 @@ class QARCH_PT_hi_level(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.build_roof")
         row.operator("qarch.extend_gable")
+        row = layout.row(align=True)
+        row.operator("qarch.add_dormer")
+
 
 class QARCH_PT_low_level(bpy.types.Panel):
     bl_parent_id = "QARCH_PT_mesh_tools"
@@ -176,6 +173,8 @@ class QARCH_PT_settings(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.catalog_script", text="Catalog script")
         row.operator("qarch.catalog_curve", text="Catalog curve")
+        row = layout.row(align=True)
+        row.operator("qarch.catalog_mesh", text="Catalog mesh")
 
 
 classes = (QARCH_PT_mesh_tools, QARCH_PT_hi_level, QARCH_PT_low_level, QARCH_PT_settings)

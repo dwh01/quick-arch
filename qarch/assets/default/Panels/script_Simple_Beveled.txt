@@ -134,7 +134,9 @@
                 "size_y": 1.0,
                 "is_relative_y": true
             },
-            "flip_normals": false
+            "flip_normals": false,
+            "side_material": "BT_Wood",
+            "center_material": "BT_Wood"
         },
         "control_points": {
             "faces": {

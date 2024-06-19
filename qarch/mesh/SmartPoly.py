@@ -507,6 +507,7 @@ class SmartPoly:
         for c in self.coord:
             if c.co3 is None:  # special case convert to 3d points
                 c.co3 = c.co2.to_3d()
+        self.calc_remove_duplicates()
         self.center = functools.reduce(operator.add, [c.co3 for c in self.coord]) / n
 
     def calc_2d(self):
@@ -547,6 +548,18 @@ class SmartPoly:
             c = self.coord[i+1].co2
             area = area + mathutils.geometry.area_tri(a, b, c)
         self.area = area
+
+    def calc_remove_duplicates(self):
+        lst = []
+        n = len(self.coord)
+        for i in range(n):
+            j = (i+1) % n
+            if (self.coord[i].co3 - self.coord[j].co3).length < 0.001:
+                pass
+            else:
+                lst.append(self.coord[i])
+        if len(lst) > 2:
+            self.coord = lst
 
     def calculate(self):
         """Get everything ready once the points are added
@@ -1491,12 +1504,13 @@ class SmartPoly:
     def union(self, lst_poly):
         """Create a merged polygon"""
         self_pts = [c.co2 for c in self.coord]
-        print(self_pts)
+        print(["{0[0]:.3f},{0[1]:.3f}".format(p) for p in self_pts])
         self_poly = Polygon.Polygon(self_pts)
-        Polygon.setTolerance(1e-4)
+        Polygon.setTolerance(1e-3)
         for other in lst_poly:
             v_offset = self.make_2d(other.center)
             other_pts = [c.co2 + v_offset for c in other.coord]
+            print(["{0[0]:.3f},{0[1]:.3f}".format(p) for p in other_pts])
             self_poly.addContour(other_pts)
 
         self_poly.simplify()
@@ -1505,7 +1519,22 @@ class SmartPoly:
         s_pts = [Vector(v) for v in contour]
         if self_poly.orientation(0) == -1:
             s_pts.reverse()
+        print(["{0[0]:.3f},{0[1]:.3f}".format(p) for p in s_pts])
         verts = [self.make_3d(v) for v in s_pts]
+
+        # test for bad verts that sometimes appear at seams
+        n = len(verts)
+        lst = []
+        for j in range(n):
+            k = (j+1) % n
+            i = (j-1+n) % n
+            e1 = verts[j]-verts[i]
+            e2 = verts[k] - verts[j]
+            e1.normalize()
+            e2.normalize()
+            if e1.dot(e2) > -.99:
+                lst.append(verts[j])
+        verts = lst
 
         u_poly = SmartPoly()
         u_poly.add(verts)

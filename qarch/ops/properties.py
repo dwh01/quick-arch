@@ -324,6 +324,19 @@ class InsetPolygonProperty(CustomPropertyBase):
     topology_lock = ['shape_type', 'join', 'frame']
 
 
+class DashedProperty(CustomPropertyBase):
+    dash_offset: FloatProperty(name="Offset", description="Offset to first dash", default=0)
+    dash_length: FloatProperty(name="Length", description="Dash length", default=.1)
+    dash_spacing: FloatProperty(name="Spacing", description="Spacing between dashes", default=.0)
+
+    field_layout = [
+        ['dash_length'],
+        ['dash_offset', 'dash_spacing']
+    ]
+
+    topology_lock = []
+
+
 class SolidifyEdgesProperty(CustomPropertyBase):
     size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
     side_list: StringProperty(name="Sides", description="Comma separated list of numbers, or empty for all")
@@ -340,6 +353,8 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
     super_curve: PointerProperty(name="Super", type=SuperCurveProperty)
     resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
+    dashed: BoolProperty(name="Dashed", description="Dashed instead of solid", default=False)
+    dash_info: PointerProperty(name="Dash Settings", type=DashedProperty)
 
     # wouldn't it be nice to do "revolution" to make shaped columns along edges? in that case we wouldnt be
     # extruding the curve, we'd stretch it to fit the edge length and revolve it. Making corners match wouldn't
@@ -361,9 +376,10 @@ class SolidifyEdgesProperty(CustomPropertyBase):
         ({'shape_type': 'CATALOG'}, 'catalog_object'),
         ({'shape_type': {'CURVE', 'CATALOG', 'SUPER'}}, 'resolution'),
         ['revolutions'],
+        ('dashed','dash_info'),
     ]
 
-    topology_lock = ['shape_type', 'revolutions']
+    topology_lock = ['shape_type', 'revolutions', 'dashed']
 
 
 class ExtrudeProperty(CustomPropertyBase):
@@ -375,6 +391,8 @@ class ExtrudeProperty(CustomPropertyBase):
     twist: FloatProperty(name="Twist Angle", default=0.0, unit="ROTATION", description="Degrees to rotate top")
     size: PointerProperty(name='End Size', type=SizeProperty, description='Scale result face to this size')
     flip_normals: BoolProperty(name="Flip Normals", description="Flip normals on extruded faces", default=False)
+    side_material: EnumProperty(name="Side Material", items=enum_all_material)
+    center_material: EnumProperty(name="Center Material", items=enum_all_material)
 
     field_layout = [
         ['distance', 'steps'],
@@ -382,6 +400,8 @@ class ExtrudeProperty(CustomPropertyBase):
         ['twist', 'align_end'],
         ('','size'),
         ['flip_normals'],
+        ['side_material'],
+        ['center_material']
     ]
 
     topology_lock = ['steps', 'twist']
@@ -393,12 +413,16 @@ class SweepProperty(CustomPropertyBase):
     angle: FloatProperty(name="Angle", default=math.pi, min=-2*math.pi, max=2*math.pi, unit="ROTATION", description="Sweep Angle")
     steps: IntProperty(name="Steps", min=1, default=8, description="Number of steps along axis")
     size: PointerProperty(name='End Size', type=SizeProperty, description='Scale result face to this size')
+    side_material: EnumProperty(name="Side Material", items=enum_all_material)
+    center_material: EnumProperty(name="Center Material", items=enum_all_material)
 
     field_layout = [
         ('Rot Origin','origin'),
         ('Rot Axis','axis'),
         ['angle', 'steps'],
         ('','size'),
+        ['side_material'],
+        ['center_material']
     ]
 
     topology_lock = ['steps']
@@ -483,7 +507,24 @@ class ExtendGableProperty(CustomPropertyBase):
     topology_lock = []
 
 
+class DormerProperty(CustomPropertyBase):
+    position: PointerProperty(name="Position", type=PositionProperty)
+    rounded: BoolProperty(name="Rounded Top", default = False, description="Toggle rounded or pointy roof")
+    soffit_width: FloatProperty(name="Soffit Width", default=0.1, description="Thickness of soffit")
+    overhang: FloatProperty(name="Overhang", default=0.1, description="Extension past wall")
+    octagon_window: BoolProperty(name="Octagon Window", default = False, description="Toggle rounded or square window")
+
+    field_layout = [
+        ('','position'),
+        ['rounded', 'octagon_window'],
+        ['soffit_width', 'overhang']
+    ]
+    topology_lock = []
+
+
 class MeshImportProperty(CustomPropertyBase):
+    use_catalog: BoolProperty(name="From Catalog", default=False)
+    catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
     local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
     position: PointerProperty(name="Position", type=PositionProperty)
     z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
@@ -497,7 +538,9 @@ class MeshImportProperty(CustomPropertyBase):
         ['rotation'],
         ['z_offset', 'scale'],
         ('as_instance', 'array'),
-        ['local_object'],
+        ['use_catalog'],
+        ({'use_catalog': True}, 'catalog_object'),
+        ({'use_catalog': False}, 'local_object'),
     ]
 
     topology_lock = ['as_instance', 'mesh_type']
@@ -519,13 +562,14 @@ project_face_enum = [
 
 
 class ProjectFaceProperty(CustomPropertyBase):
-    mode: EnumProperty(name="Mode", items=project_face_enum, default="A2B")
+    target: IntProperty(name='Target', description='Face defining projection plane', default=0)
     tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for new faces")
+    bridge: BoolProperty(name='Bridge', description="Bridge to target", default=False)
 
-    field_layout = [['mode'],
+    field_layout = [['target', 'bridge'],
                     ['tag']]
 
-    topology_lock = ['mode']
+    topology_lock = ['bridge']
 
 
 class BuildFaceProperty(CustomPropertyBase):
@@ -595,6 +639,7 @@ ops_properties = [
     InsetPolygonProperty,
     ExtrudeProperty,
     SweepProperty,
+    DashedProperty,
     SolidifyEdgesProperty,
     MakeLouversProperty,
     SimpleWindowProperty,
@@ -608,5 +653,6 @@ ops_properties = [
     SimpleDoorProperty,
     SimpleRailProperty,
     ExtendGableProperty,
+    DormerProperty,
 AssetLibProps
 ]
