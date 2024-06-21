@@ -893,7 +893,7 @@ def solidify_by_bridge(control_poly, side_list, i_edge, e, vz, inset, mm, frame_
     b_bevel_start = ((i_edge + ncp - 1) % ncp) in side_list
     b_bevel_end = ((i_edge + 1) % ncp) in side_list
     if b_make:
-        print("bevels", (i_edge + ncp - 1) % ncp, i_edge, (i_edge + 1) % ncp, b_bevel_start, b_bevel_end)
+        pass  # print("bevels", (i_edge + ncp - 1) % ncp, i_edge, (i_edge + 1) % ncp, b_bevel_start, b_bevel_end)
     else:
         return
     lst_start = []
@@ -1464,22 +1464,25 @@ def _find_instance_object(obj, op_id):
 
 
 def import_mesh(self, obj, sel_info, op_id, prop_dict):
-    from .assets import find_or_load
+    from .assets import import_mesh
     from ..ops import file_type, from_path, BT_CATALOG_SRC
 
+    topo = TopologyInfo(from_keys=['All'])
     if prop_dict['use_catalog']:
         cat_dict = prop_dict['catalog_object']
-        obj_path = pathlib.Path(cat_dict['category_item'])
+        obj_path = pathlib.Path(cat_dict['category_item'])  # actually points to text file
         if str(obj_path) in ['', '0', 'N/A']:
-            topo = TopologyInfo(from_keys=['All'])
             return topo
         ftype, obj_name = file_type(obj_path.stem)
-        obj_original = find_or_load(obj_name, obj_path)
-
+        print("importing ", cat_dict['style_name'], cat_dict['category_name'], obj_name)
+        obj_original = import_mesh(cat_dict['style_name'], cat_dict['category_name'], obj_name)
+        # we could load the text journal if it exists
+        if obj_original is None:
+            self.report({"ERROR_INVALID_INPUT"}, "Mesh not retrieved from library")
+            return topo
     else:
         obj_name = prop_dict['local_object']['object_name']
         if obj_name in ['', '0', 'N/A']:
-            topo = TopologyInfo(from_keys=['All'])
             return topo
 
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)

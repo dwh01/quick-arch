@@ -261,7 +261,7 @@ class CustomOperator(bpy.types.Operator):
                 self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
                 return {'CANCELLED'}
             else:
-                self.journal[cur_op_id]['gen_info'] = ret.to_dict()  # topology info
+                self.journal[cur_op_id]['gen_info'] = ret  # .to_dict()  # topology info kept as object for compact json output
 
             # this first so compound operations can add children, which might need to be updated by the write_props call
             lst_controlled = self.ensure_children(cur_op_id)

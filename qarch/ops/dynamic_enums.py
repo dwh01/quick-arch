@@ -71,7 +71,7 @@ def curve_name(stem):
 
 
 def mesh_name(stem):
-    return BT_IMG_MESH + stem + ".stl"
+    return BT_IMG_MESH + stem + ".txt"
 
 
 def text_name(stem):
@@ -155,10 +155,7 @@ def load_previews(reload=False):
                 enum_items = []
 
             for stem in catalog[style_name][cat_name]:
-                if stem.startswith(BT_IMG_MESH):
-                    p_test = to_path(style_name, cat_name, stem).with_suffix(".stl")
-                else:
-                    p_test = to_path(style_name, cat_name, stem).with_suffix(".txt")
+                p_test = to_path(style_name, cat_name, stem).with_suffix(".txt")
                 if p_test.exists():
                     icon = pcoll.get(stem)
                     if not icon:
@@ -167,7 +164,7 @@ def load_previews(reload=False):
 
                     ftype, user_name = file_type(stem)
                     description = ftype
-                    if ftype in ['script', 'curve']:
+                    if ftype in ['script', 'curve', 'mesh']:
                         as_dict = json.loads(p_test.read_text())
                         description = as_dict.get('description', '')
                     enum_val = (str(p_test), user_name, description, icon.icon_id, len(enum_items)+1)
@@ -378,3 +375,9 @@ def enum_objects_or_curves(self, context):
     if len(lst_enum)==0:
         return empty_enums
     return empty_enums + lst_enum
+
+
+def exists_in_catalog(style, category, item):
+    d1 = catalogs.get(style, {})
+    d2 = d1.get(category, [])
+    return item in d2

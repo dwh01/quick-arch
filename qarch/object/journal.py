@@ -10,6 +10,68 @@ from collections import defaultdict
 
 from .utils import get_obj_data, JOURNAL_PROP_NAME, SelectionInfo, wrap_id, unwrap_id, TopologyInfo
 
+#  https://stackoverflow.com/questions/13249415/how-to-implement-custom-indentation-when-pretty-printing-with-the-json-module
+#  with updates to allow a user class to be its own wrapper
+from _ctypes import PyObj_FromPtr
+import re
+
+class NoIndent(object):
+    """ Value wrapper. """
+    def __init__(self, value):
+        self.value = value
+
+    def json_compact(self, sort_keys):
+        return json.dumps(self.value, sort_keys=sort_keys)
+
+
+class MyEncoder(json.JSONEncoder):
+    FORMAT_SPEC = '@@{}@@'
+    regex = re.compile(FORMAT_SPEC.format(r'(\d+)'))
+
+    def __init__(self, **kwargs):
+        # Save copy of any keyword argument values needed for use here.
+        self.__sort_keys = kwargs.get('sort_keys', None)
+        super(MyEncoder, self).__init__(**kwargs)
+
+    def default(self, obj):
+        compact = hasattr(obj, 'json_compact')
+        return (self.FORMAT_SPEC.format(id(obj)) if compact
+                else super(MyEncoder, self).default(obj))
+
+    def encode(self, obj):
+        format_spec = self.FORMAT_SPEC  # Local var to expedite access.
+        json_repr = super(MyEncoder, self).encode(obj)  # Default JSON.
+
+        # Replace any marked-up object ids in the JSON repr with the
+        # value returned from the json.dumps() of the corresponding
+        # wrapped Python object.
+        for match in self.regex.finditer(json_repr):
+            # see https://stackoverflow.com/a/15012814/355230
+            id = int(match.group(1))
+            no_indent = PyObj_FromPtr(id)
+            json_obj_repr = no_indent.json_compact(self.__sort_keys)
+            # Replace the matched id string with json formatted representation
+            # of the corresponding Python object.
+            json_repr = json_repr.replace(
+                            '"{}"'.format(format_spec.format(id)), json_obj_repr)
+
+        return json_repr
+
+def object_hook(d):
+    from .utils import TopologyInfo
+    if isinstance(d, dict):
+        dkeys = set(d.keys())
+        t = TopologyInfo.blank_dict()
+        tkeys = set(t.keys())
+
+        if len(dkeys)==len(tkeys):
+            if len(dkeys.difference(tkeys))==0:
+                topo = TopologyInfo()
+                topo.from_dict(d)
+                return topo
+    return d
+
+
 class Journal:
     """Encapsulate the history function"""
     def __init__(self, obj):
@@ -80,6 +142,9 @@ class Journal:
         record = self.jj[wrap_id(op_id)]
         t = record.get('description', '')
         return t
+
+    def set_description(self, txt):
+        self.jj['description'] = txt
 
     def flush(self):
         """Save changes to text block"""
@@ -195,6 +260,7 @@ def blank_journal():
         'adjusting': [],  # using adjust last panel on these op ids
         'face_tags': [],  # face tags for this object
         'version': "0.1",  # reserved for compatibility over time
+        'description': ""  # object description
     }
     return journal
 
@@ -242,7 +308,7 @@ def export_record(obj, operation_id, filename, do_screenshot, imagefile, descrip
     from ..mesh import draw
     dct_subset = extract_record(obj, operation_id, description)
 
-    text = json.dumps(dct_subset, indent=4)
+    text = json.dumps(dct_subset, cls=MyEncoder, indent=4)
 
     file_path = pathlib.Path(filename)
     with open(file_path.with_suffix(".txt"), 'w') as outfile:
@@ -332,7 +398,7 @@ def import_record(filename):
     with open(file_path.with_suffix(".txt"), 'r') as infile:
         text = infile.read()
 
-    return json.loads(text)
+    return json.loads(text, object_hook=object_hook)
 
 
 def merge_record(obj, dct_operation, sel_info):
@@ -399,7 +465,7 @@ def parse_block(text_block):
     lines = [line.body for line in text_block.lines]
     txt = "\n".join(lines)
     if len(txt) and txt[0] == "{":
-        journal = json.loads(txt)
+        journal = json.loads(txt, object_hook=object_hook)
     else:
         journal = blank_journal()
     return journal
@@ -408,7 +474,7 @@ def parse_block(text_block):
 def update_block(text_block, journal):
     """Store dictionary in json format"""
     text_block.clear()
-    text = json.dumps(journal, indent=4)
+    text = json.dumps(journal, cls=MyEncoder, indent=4)
     text_block.write(text)
 
 

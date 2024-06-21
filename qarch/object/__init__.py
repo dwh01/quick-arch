@@ -22,6 +22,9 @@ from .utils import (
     BT_INST_ROT,
     BT_INST_SCALE,
     get_instance_collection,
+    is_bt_object,
+    BT_OBJ_DATA,
+    upgrade_object
 )
 
 from .journal import (
@@ -34,7 +37,9 @@ from .journal import (
     merge_record,
     get_journal,
     set_journal,
-    wrap_id
+    wrap_id,
+    JOURNAL_PROP_NAME,
+    get_block
 )
 
 from .materials import lst_bt_materials, enum_oriented_material, material_best_mode, enum_all_material

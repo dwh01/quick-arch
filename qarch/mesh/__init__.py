@@ -22,4 +22,4 @@ from .geom import (
 )
 
 
-from .assets import draw
+from .assets import draw, export_mesh

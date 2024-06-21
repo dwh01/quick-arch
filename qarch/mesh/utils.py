@@ -445,7 +445,7 @@ class ManagedMesh:
                         break
                 if not match:
                     del self.existing_face[self.cur_face_seq]
-                    print("true delete face {} {}".format(face[self.key_face_op], face[self.key_face_seq]))
+                    # print("true delete face {} {}".format(face[self.key_face_op], face[self.key_face_seq]))
                     bmesh.ops.delete(self.bm, geom=[face], context='FACES_ONLY')
                     face = None
 

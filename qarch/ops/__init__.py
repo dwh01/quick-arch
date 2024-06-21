@@ -2,6 +2,7 @@ import bpy
 
 from .properties import ops_properties, uv_mode_list, uv_mode_to_int
 from .dynamic_enums import face_tag_to_int, int_to_face_tag, BT_CATALOG_SRC, load_previews, file_type, from_path, BT_IMG_DESC
+from .dynamic_enums import qarch_asset_dir, mesh_name, to_path, exists_in_catalog
 
 from .assets import (
     QARCH_OT_load_script,

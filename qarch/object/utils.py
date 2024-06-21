@@ -36,6 +36,10 @@ BT_IMPORT_COLLECTION = "BT_Imported"  # collection for imported objects
 BT_INST_COLLECTION = "_sources"  # append to object name to get instancer collection name
 
 
+def is_bt_object(obj):
+    return hasattr(obj, BT_OBJ_DATA)
+
+
 def get_bt_collection():
     try:
         col = bpy.data.collections[BT_IMPORT_COLLECTION]
@@ -210,6 +214,9 @@ class TopologyInfo:
 
     def __str__(self):
         return str(self.to_dict())
+
+    def json_compact(self, sort_keys):
+        return json.dumps(self.to_dict(), sort_keys=sort_keys)
 
     @classmethod
     def blank_dict(cls):
@@ -508,11 +515,26 @@ def create_object(collection, name):
     collection.objects.link(obj)
 
     # create custom property on object
+    upgrade_object(obj)
+
+    return obj
+
+
+def upgrade_object(obj):
+    """Add data to make an external object into one bt can handle"""
+    from .journal import get_block, update_block, blank_journal
+    from .materials import tag_to_material
+    from ..ops import dynamic_enums
+    from ..mesh import ManagedMesh
+
+    import_bt_materials()  # only import
+
+    # create custom property on object
     obj[BT_OBJ_DATA] = "{}"
 
     # protect against name changes and collisions
     unique_str = str(uuid.uuid4())
-    journal_name = f"{name}{unique_str}"
+    journal_name = "{}{}".format(obj.name,unique_str)
     set_obj_data(obj, JOURNAL_PROP_NAME, journal_name)
 
     # create the block
@@ -547,11 +569,17 @@ def create_object(collection, name):
     for i in range(1, len(lst)):
         tag = lst[i][0]
         matname = tag_to_material(tag)
-        mesh.materials.append(bpy.data.materials[matname])
+        obj.data.materials.append(bpy.data.materials[matname])
 
     # instancer
     create_instancing_nodes(obj)
-
+    if len(obj.data.polygons):  # almost everything can default to 0, but we need to identify faces
+        mm = ManagedMesh(obj)
+        for face in mm.bm.faces:
+            face[mm.key_face_seq] = face.index
+        for vert in mm.bm.verts:
+            vert[mm.key_seq] = vert.index
+        mm.to_mesh()
     return obj
 
 

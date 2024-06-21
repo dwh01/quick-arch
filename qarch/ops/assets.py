@@ -6,7 +6,7 @@ from bpy.props import StringProperty, PointerProperty, BoolProperty, EnumPropert
 import bpy.utils.previews
 import pathlib, os, json, uuid, shutil
 from .custom import CustomOperator, replay_history
-from .dynamic_enums import enum_categories, enum_category_items, qarch_asset_dir, load_previews, enum_catalogs
+from .dynamic_enums import enum_categories, enum_category_items, qarch_asset_dir, load_previews, enum_catalogs, exists_in_catalog
 from .dynamic_enums import BT_IMG_CAT, BT_IMG_DESC, BT_IMG_CURVE, BT_IMG_MESH, file_type, to_path, script_name, curve_name, mesh_name
 from ..object import (
     export_record,
@@ -329,6 +329,7 @@ class QARCH_OT_catalog_mesh(bpy.types.Operator):
     bl_description = "Export mesh to catalog without materials"
     bl_options = {"REGISTER", "UNDO"}
 
+    overwrite: BoolProperty(name="Overwrite", description="Overwrite existing", default=True)
     style_name: StringProperty(name="Style", description="Style name (default, scifi, etc.)")
     category_name: StringProperty(name="Category", description="Collection name (Doors, Windows, etc.)")
     description: StringProperty(name="Description", description="Description text")
@@ -346,21 +347,18 @@ class QARCH_OT_catalog_mesh(bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
-        from ..mesh import draw
+        from ..mesh import export_mesh
+
         if (len(self.category_name)== 0) or (len(self.category_item)== 0) or (len(self.style_name)==0):
             return {"FINISHED"}
 
-        cat_name = self.category_name
-        qual_name = mesh_name(self.category_item)
-        txt_file = to_path(self.style_name, self.category_name, qual_name)
-        img_file = txt_file.with_suffix(".png")
-        img_file.parent.mkdir(parents=True, exist_ok=True)
+        if not self.overwrite:
+            qual_name = mesh_name(self.category_item)
+            if exists_in_catalog(self.style_name, self.category_name, qual_name):
+                self.report({"ERROR_INVALID_INPUT"}, "Mesh name is in use")
+                return {'CANCELLED'}
 
-        img = draw(self.category_item)
-        img.save(filepath=str(img_file))
-
-        obj = context.active_object
-        bpy.ops.export_mesh.stl(filepath=str(txt_file), check_existing=False, filter_glob='*.stl', use_selection=True)
+        export_mesh(context.active_object, self.style_name, self.category_name, self.category_item, self.description)
 
         return {"FINISHED"}
 
