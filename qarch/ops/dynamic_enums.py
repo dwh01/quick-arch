@@ -5,6 +5,23 @@ import bpy
 import bpy.utils.previews
 import json
 
+# registration and module init info
+lst_classes = []
+lst_funcs = [
+    'qarch_asset_dir',
+    'int_to_face_tag',
+    'face_tag_to_int',
+    'file_type',
+    'from_path',
+    'BT_CATALOG_SRC',
+    'BT_IMG_DESC',
+    'mesh_name',
+    'text_name',
+    'curve_name',
+    'script_name',
+    'to_path',
+]
+
 BT_CATALOG_SRC = 'BT_Catalog_Src'
 BT_IMG_CAT = 'BT_Category'
 BT_IMG_DESC = 'BT_Description'
@@ -63,18 +80,29 @@ def file_type(name):
 
 
 def script_name(stem):
+    if stem[-4]==".":
+        stem = stem[:-4]
     return BT_IMG_SCRIPT + stem + ".txt"
 
 
 def curve_name(stem):
+    if stem[-4] == ".":
+        stem = stem[:-4]
+
     return BT_IMG_CURVE + stem + ".txt"
 
 
 def mesh_name(stem):
+    if stem[-4] == ".":
+        stem = stem[:-4]
+
     return BT_IMG_MESH + stem + ".txt"
 
 
 def text_name(stem):
+    if stem[-4] == ".":
+        stem = stem[:-4]
+
     return stem + ".txt"
 
 
@@ -277,13 +305,19 @@ def enum_category_items(self, context):
 lst_FaceEnums = [
     ("DELETE", "Delete", "Delete face at end"),
     ("NOTHING", "Nothing", "No special tag"),
-    ("WALL", "Wall", "Wall face"),
-    ("GLASS", "Glass", "Glass face"),
-    ("TRIM", "Trim", "Framing around door or window"),
-    ("DOOR", "Door", "Face of door, may become vertex group"),
-    ("ROOF", "Roof", "Face of roof"),
-    ("BRASS", "Brass", "Metal highlights"),
-    ("IRON", "Iron", "Wrought iron")
+    # floor plan tags
+    ('PLAN_ARCH', 'Plan Arch', "Open arch in wall"),
+    ('PLAN_COLUMNS', 'Plan Columns', "Columns instead of solid wall"),
+    ('PLAN_DOOR', 'Plan Door', 'Door'),
+    ('PLAN_EXT_EXT_WALL', 'Plan Ext Wall', 'Exterior wall (both sides)'),
+    ('PLAN_EXT_INT_WALL', 'Plan Ext-Int Wall', 'Exterior-Interior wall'),
+    ('PLAN_INT_INT_wALL', 'Plan Int Wall', "Interior wall (both sides)"),
+    ('PLAN_HALF_WALL', 'Plan Half Wall', "Half height wall (interior)"),
+    ('PLAN_SASH_WINDOW', 'Plan Sash Window', "Window that opens"),
+    ('PLAN_FIXED_WINDOW', 'Plan Fixed Window', "Window that doesn't open"),
+    ('PLAN_FIREPLACE', 'Plan Fireplace', 'Fireplace'),
+    ('PLAN_FIREPLACE_2', 'Plan Fireplace-2', 'Double sided fireplace for interior wall'),
+    ('PLAN_FLOOR', 'Plan Floor', "Floor area"),
 ]
 
 

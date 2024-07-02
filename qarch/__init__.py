@@ -4,6 +4,8 @@ from .utils import FaceMap, bmesh_from_active_object
 from .ops import register_ops, unregister_ops
 from .object import get_obj_data, ACTIVE_OP_ID
 
+from .ops.state import QARCH_PT_faceinfo, QARCH_PT_calculator  # must register at end
+
 bl_info = {
     "name": "Quick Arch",
     "author": "Lucky Kadam (luckykadam94@gmail.com)",
@@ -19,7 +21,6 @@ bl_info = {
 
 
 class QARCH_PT_mesh_tools(bpy.types.Panel):
-
     bl_label = "Quick Arch Tools"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -27,17 +28,17 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        # row = layout.row(align=True)
-        # row.operator("qarch.scan_catalogs")  now in object creation
-        # row.operator("qarch.load_object")  asset based testing
+        preferences = context.preferences
+        addon_prefs = preferences.addons['qarch'].preferences
+        row = layout.row(align=True)
+        row.prop(addon_prefs, "select_mode")
+
         row = layout.row(align=True)
         row.operator("qarch.create_object")
         row.operator("qarch.rebuild_object")
 
         row = layout.row(align=True)
         row.operator("qarch.set_active_op")
-        # row.operator("qarch.save_script")
-
         if context.object:
             active = get_obj_data(context.object, ACTIVE_OP_ID)
             if (active is not None) and (active > -1):
@@ -50,10 +51,28 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("qarch.calc_uvs")
-        row.operator("qarch.add_face_tags")
+        row.operator("qarch.clean_object")
 
         row = layout.row(align=True)
-        row.operator("qarch.clean_object")
+        row.operator("qarch.inset_polygon")
+
+
+class QARCH_PT_plan_level(bpy.types.Panel):
+    bl_parent_id = "QARCH_PT_mesh_tools"
+    bl_label = "Plan Tools"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Quick Arch"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row(align=True)
+        row.operator("qarch.plan_inset_walls")
+        row.operator("qarch.plan_feature")
+        row = layout.row(align=True)
+        row.operator("qarch.set_plan_floor")
+        row.operator("qarch.extrude_walls")
 
         # Draw Operators
         # ``````````````
@@ -119,7 +138,7 @@ class QARCH_PT_low_level(bpy.types.Panel):
         layout = self.layout
 
         row = layout.row(align=True)
-        row.operator("qarch.inset_polygon")
+        row.operator("qarch.solidify_edges")
         row = layout.row(align=True)
         row.operator("qarch.split_face")
         row.operator("qarch.grid_divide")
@@ -128,27 +147,18 @@ class QARCH_PT_low_level(bpy.types.Panel):
         row.operator("qarch.extrude_sweep")
         row = layout.row(align=True)
         row.operator("qarch.project_face")
-        row.operator("qarch.extrude_walls")
+        row.operator("qarch.build_face")
         row = layout.row(align=True)
         row.operator("qarch.make_louvers")
-        row.operator("qarch.solidify_edges")
+        row.operator("qarch.perpendicular_face")
         row = layout.row(align=True)
-        row.operator("qarch.set_face_tag")
-        row.operator("qarch.set_face_thickness")
-        row = layout.row(align=True)
-        row.operator("qarch.set_face_uv_mode")
-        row.operator("qarch.set_face_uv_orig")
-        row = layout.row(align=True)
-        row.operator("qarch.set_face_uv_rotate")
         row.operator("qarch.set_oriented_mat")
-        row = layout.row(align=True)
         row.operator("qarch.flip_normal")
-        row.operator("qarch.build_face")
 
 
 
-class QARCH_PT_settings(bpy.types.Panel):
-    bl_label = "Settings"
+class QARCH_PT_catalog(bpy.types.Panel):
+    bl_label = "Catalog"
     bl_parent_id = "QARCH_PT_mesh_tools"
     bl_options = {'DEFAULT_CLOSED'}
     bl_space_type = "VIEW_3D"
@@ -156,17 +166,6 @@ class QARCH_PT_settings(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        col = layout.column(align=True)
-        col.use_property_split = True
-        col.use_property_decorate = False
-        col.prop(context.scene.qarch_settings, "libpath")
-
-        preferences = context.preferences
-        addon_prefs = preferences.addons['qarch'].preferences
-        # col.prop(addon_prefs, "user_tag")
-        col.prop(addon_prefs, "select_mode")
-        col.prop(addon_prefs, "build_style")
-
         row = layout.row(align=True)
         row.operator("qarch.open_catalogs", text="Open catalogs")
         row.operator("qarch.scan_catalogs", text="Reload catalogs")
@@ -177,7 +176,8 @@ class QARCH_PT_settings(bpy.types.Panel):
         row.operator("qarch.catalog_mesh", text="Catalog mesh")
 
 
-classes = (QARCH_PT_mesh_tools, QARCH_PT_hi_level, QARCH_PT_low_level, QARCH_PT_settings)
+classes = (QARCH_PT_mesh_tools, QARCH_PT_plan_level, QARCH_PT_hi_level, QARCH_PT_low_level, QARCH_PT_faceinfo,
+           QARCH_PT_catalog, QARCH_PT_calculator)
 
 
 def register():

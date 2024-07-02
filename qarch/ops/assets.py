@@ -17,8 +17,20 @@ from ..object import (
     merge_record,
     Journal
     )
-from .properties import AssetLibProps
+
 from ..mesh import ManagedMesh
+
+lst_classes = [
+    'QARCH_OT_load_script',
+    'QARCH_OT_save_script',
+    'QARCH_OT_apply_script',
+    'QARCH_OT_open_catalogs',
+    'QARCH_OT_catalog_script',
+    'QARCH_OT_catalog_curve',
+    'QARCH_OT_catalog_mesh',
+    'QARCH_OT_scan_catalogs'
+]
+lst_funcs = []
 
 # load script and apply to selected face
 # load mesh from blend file and add to current mesh
@@ -155,6 +167,7 @@ class QARCH_OT_apply_script(bpy.types.Operator):
         row.prop(self, 'apply')
 
     def invoke(self, context, event):
+        self.apply = False
         return self.execute(context)
         # wm = context.window_manager
         # wm.invoke_popup(self)
@@ -404,204 +417,180 @@ class QARCH_OT_scan_catalogs(bpy.types.Operator):
 
 # unused classes that might be good in the future
 # this pushes an object into asset catalog, but from current file. you have to be in library file to be useful
-class QARCH_OT_catalog_object(bpy.types.Operator):
-    bl_idname = "qarch.catalog_object"
-    bl_label = "Catalog Object"
-    bl_description = "Add selected object to asset catalog"
-
-    category_name: StringProperty(name="Category", description="Collection name (Doors, Windows, etc.)")
-    category_item: StringProperty(name="Name", description="Name of object in catalog")
-    description: StringProperty(name="Description", description="Description text")
-
-    @classmethod
-    def poll(cls, context):
-        if context and context.active_object:
-            if type(context.active_object.data) in [bpy.types.Curve, bpy.types.Mesh]:
-                return True
-        return False
-
-    def invoke(self, context, event):
-        wm = context.window_manager
-        return context.window_manager.invoke_props_dialog(self)
-
-    def asset_execute(self, context):
-        """This method when the asset_template_view becomes useful"""
-        obj = context.active_object
-        obj.name = self.category_item
-        obj.asset_mark()
-        obj.asset_generate_preview()
-        obj.asset_data.description = self.description
-        obj.asset_data.tags.new(self.category_name)
-        # asset_data.author
-
-        cat = load_catalog()
-        for parts in cat:
-            uid, pth, name = parts[0], parts[1], parts[2]
-            if name == self.category_name:
-                obj.asset_data.catalog_id = uid
-                return {"FINISHED"}
-
-        uid = str(uuid.uuid4())
-        pth = self.category_name
-        name = self.category_name
-
-        append_catalog(uid, pth, name)
-        obj.asset_data.catalog_id = uid
-        return {"FINISHED"}
-
-
-    def execute(self, context):
-        from ..mesh import draw
-        img = draw(self.category_item)
-        cat_name = self.category_name
-        if type(context.active_object.data) is bpy.types.Curve:
-            cat_name = BT_IMG_CURVE + cat_name
-        img[BT_IMG_CAT] = cat_name
-        img[BT_IMG_DESC] = self.description
-        img.use_fake_user = True
-        img.pack()
-
-        obj = context.active_object
-        obj.name = self.category_item
-        try:
-            col = bpy.data.collections[self.category_name]
-        except Exception:
-            col = bpy.data.collections.new(self.category_name)
-            bpy.data.collections['Collection'].children.link(col)
-
-        if obj.name not in col.objects:
-            col.objects.link(obj)
-
-        return {"FINISHED"}
-
-
+# class QARCH_OT_catalog_object(bpy.types.Operator):
+#     bl_idname = "qarch.catalog_object"
+#     bl_label = "Catalog Object"
+#     bl_description = "Add selected object to asset catalog"
+#
+#     category_name: StringProperty(name="Category", description="Collection name (Doors, Windows, etc.)")
+#     category_item: StringProperty(name="Name", description="Name of object in catalog")
+#     description: StringProperty(name="Description", description="Description text")
+#
+#     @classmethod
+#     def poll(cls, context):
+#         if context and context.active_object:
+#             if type(context.active_object.data) in [bpy.types.Curve, bpy.types.Mesh]:
+#                 return True
+#         return False
+#
+#     def invoke(self, context, event):
+#         wm = context.window_manager
+#         return context.window_manager.invoke_props_dialog(self)
+#
+#     def asset_execute(self, context):
+#         """This method when the asset_template_view becomes useful"""
+#         obj = context.active_object
+#         obj.name = self.category_item
+#         obj.asset_mark()
+#         obj.asset_generate_preview()
+#         obj.asset_data.description = self.description
+#         obj.asset_data.tags.new(self.category_name)
+#         # asset_data.author
+#
+#         cat = load_catalog()
+#         for parts in cat:
+#             uid, pth, name = parts[0], parts[1], parts[2]
+#             if name == self.category_name:
+#                 obj.asset_data.catalog_id = uid
+#                 return {"FINISHED"}
+#
+#         uid = str(uuid.uuid4())
+#         pth = self.category_name
+#         name = self.category_name
+#
+#         append_catalog(uid, pth, name)
+#         obj.asset_data.catalog_id = uid
+#         return {"FINISHED"}
+#
+#
+#     def execute(self, context):
+#         from ..mesh import draw
+#         img = draw(self.category_item)
+#         cat_name = self.category_name
+#         if type(context.active_object.data) is bpy.types.Curve:
+#             cat_name = BT_IMG_CURVE + cat_name
+#         img[BT_IMG_CAT] = cat_name
+#         img[BT_IMG_DESC] = self.description
+#         img.use_fake_user = True
+#         img.pack()
+#
+#         obj = context.active_object
+#         obj.name = self.category_item
+#         try:
+#             col = bpy.data.collections[self.category_name]
+#         except Exception:
+#             col = bpy.data.collections.new(self.category_name)
+#             bpy.data.collections['Collection'].children.link(col)
+#
+#         if obj.name not in col.objects:
+#             col.objects.link(obj)
+#
+#         return {"FINISHED"}
 
 # experimental asset shelf that pops up under the right conditions
-class VIEW3D_AST_qarch_objects(bpy.types.AssetShelf):
-    bl_space_type = "VIEW_3D"
-    bl_idname = "VIEW3D_AST_my_asset_shelf"
-    show_names = True
-    asset_library_reference='CUSTOM'
-
-    @classmethod
-    def poll(cls, context):
-        return bool(context.object and context.object.mode == 'EDIT')
-
-    @classmethod
-    def asset_poll(cls, asset):
-        print("asset poll", asset)
-        return asset.id_type in {'CURVE', 'OBJECT'}
-        cat = load_catalog()
-        for uid, pth, name in cat:
-            if asset.catalog_id == uid:
-                return True
-        return False
+# class VIEW3D_AST_qarch_objects(bpy.types.AssetShelf):
+#     bl_space_type = "VIEW_3D"
+#     bl_idname = "VIEW3D_AST_my_asset_shelf"
+#     show_names = True
+#     asset_library_reference='CUSTOM'
+#
+#     @classmethod
+#     def poll(cls, context):
+#         return bool(context.object and context.object.mode == 'EDIT')
+#
+#     @classmethod
+#     def asset_poll(cls, asset):
+#         print("asset poll", asset)
+#         return asset.id_type in {'CURVE', 'OBJECT'}
+#         cat = load_catalog()
+#         for uid, pth, name in cat:
+#             if asset.catalog_id == uid:
+#                 return True
+#         return False
 
 # use the asset library system to load objects
 # but there is no filtering support except to pick library (and type name search text)
 # so this is not as good as template_icon where we can filter for categories like Doors
-class QARCH_OT_load_object(bpy.types.Operator):
-    """Divide a face into patches"""
-    bl_idname = "qarch.load_object"
-    bl_label = "Load Object"
-    bl_options = {"REGISTER","UNDO"}
-
-    props: PointerProperty(type=AssetLibProps)
-
-
-    @classmethod
-    def poll(cls, context):
-        return True
-
-    def execute(self, context):
-        return {'FINISHED'}
-
-    def draw(self, context):
-        workspace = context.workspace
-        activate_op_props, drag_op_props = self.layout.template_asset_view("LoadObject",
-                                        workspace, "asset_library_reference",
-                                        self.props, "asset",
-                                        self.props, "active",
-                                        filter_id_types={'filter_object'},
-                                        # display_options={'NO_LIBRARY'},
-                                        activate_operator='asset.print_selected_assets')
-        # activate_operator='qarch.load_object' causes undo stack to grow, must send to another operator
-
-# used to make sure the qarch asset directory is known to blender
-class QARCH_OT_add_library(bpy.types.Operator):
-    """For cleanup when old faces are left behind"""
-    bl_idname = "qarch.add_library"
-    bl_label = "Add Library"
-    bl_description = "Add asset library path to preferences"
-
-    def execute(self, context):
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        b_found = False
-        for lib in context.preferences.filepaths.asset_libraries:
-            if lib.name == 'qarch':
-                print("found")
-                b_found = True
-                break
-
-        if not b_found:
-            bpy.ops.preferences.asset_library_add()
-            lib = context.preferences.filepaths.asset_libraries[-1]
-            lib.name = "qarch"
-            lib.path = str(qarch_asset_dir)
-            print("added")
-
-        #scan_builtin_styles()
-        return self.execute(context)
-
-# just a demonstration of the context.asset after picking with the template_asset_view
-class PrintSelectedAssets(bpy.types.Operator):
-    bl_idname = "asset.print_selected_assets"
-    bl_label = "Print Selected Assets"
-
-    @classmethod
-    def poll(cls, context):
-        return context.asset
-
-    def execute(self, context):
-        if context.asset:
-            print("print execute")
-            print(context.asset)
-            asset_representation = context.asset
-            print(f"{asset_representation.full_path=}")
-            print(f"{asset_representation.full_library_path=}")
-            print(f"{asset_representation.id_type=}")
-            print(f"{asset_representation.name=}")
-            # This will be None if the asset is not located in current file :
-            print(f"{asset_representation.local_id=}")
-
-
-        return {"FINISHED"}
-
-
-def display_button(self, context):
-    self.layout.operator(PrintSelectedAssets.bl_idname)
-
-
-addon_keymaps = []
-def register_assets():
-    bpy.utils.register_class(PrintSelectedAssets)
-    #bpy.types.ASSETBROWSER_MT_editor_menus.append(display_button)
-
-    # bpy.utils.register_class(VIEW3D_AST_qarch_objects)
-    # # Asset Shelf
-    # wm = bpy.context.window_manager
-    # km = wm.keyconfigs.addon.keymaps.new(name="Asset Shelf")
-    # kmi = km.keymap_items.new("asset.print_selected_assets", "LEFTMOUSE", "CLICK")
-    # addon_keymaps.append((km, kmi))
-
-
-def unregister_assets():
-    # wm = bpy.context.window_manager
-    # for km, km1 in addon_keymaps:
-    #     wm.keyconfigs.addon.keymaps.remove(km)
-
-    #bpy.types.ASSETBROWSER_MT_editor_menus.remove(display_button)
-    bpy.utils.unregister_class(PrintSelectedAssets)
-    # bpy.utils.unregister_class(VIEW3D_AST_qarch_objects)
+# the user can always use the blender asset library to get a local object copy and then reference that in the operation
+#
+# class AssetLibProps(bpy.types.PropertyGroup):
+#     asset: CollectionProperty(name="Asset", description="Asset Name", type=bpy.types.AssetHandle)
+#     active: IntProperty(name="Index", description="Asset Index")
+#
+# class QARCH_OT_load_object(bpy.types.Operator):
+#     """Divide a face into patches"""
+#     bl_idname = "qarch.load_object"
+#     bl_label = "Load Object"
+#     bl_options = {"REGISTER","UNDO"}
+#
+#     props: PointerProperty(type=AssetLibProps)
+#
+#     @classmethod
+#     def poll(cls, context):
+#         return True
+#
+#     def execute(self, context):
+#         return {'FINISHED'}
+#
+#     def draw(self, context):
+#         workspace = context.workspace
+#         activate_op_props, drag_op_props = self.layout.template_asset_view("LoadObject",
+#                                         workspace, "asset_library_reference",
+#                                         self.props, "asset",
+#                                         self.props, "active",
+#                                         filter_id_types={'filter_object'},
+#                                         # display_options={'NO_LIBRARY'},
+#                                         activate_operator='asset.print_selected_assets')
+#         # activate_operator='qarch.load_object' causes undo stack to grow, must send to another operator
+#
+# # used to make sure the qarch asset directory is known to blender
+# class QARCH_OT_add_library(bpy.types.Operator):
+#     """For cleanup when old faces are left behind"""
+#     bl_idname = "qarch.add_library"
+#     bl_label = "Add Library"
+#     bl_description = "Add asset library path to preferences"
+#
+#     def execute(self, context):
+#         return {'FINISHED'}
+#
+#     def invoke(self, context, event):
+#         b_found = False
+#         for lib in context.preferences.filepaths.asset_libraries:
+#             if lib.name == 'qarch':
+#                 print("found")
+#                 b_found = True
+#                 break
+#
+#         if not b_found:
+#             bpy.ops.preferences.asset_library_add()
+#             lib = context.preferences.filepaths.asset_libraries[-1]
+#             lib.name = "qarch"
+#             lib.path = str(qarch_asset_dir)
+#             print("added")
+#
+#         #scan_builtin_styles()
+#         return self.execute(context)
+#
+# # just a demonstration of the context.asset after picking with the template_asset_view
+# class PrintSelectedAssets(bpy.types.Operator):
+#     bl_idname = "asset.print_selected_assets"
+#     bl_label = "Print Selected Assets"
+#
+#     @classmethod
+#     def poll(cls, context):
+#         return context.asset
+#
+#     def execute(self, context):
+#         if context.asset:
+#             print("print execute")
+#             print(context.asset)
+#             asset_representation = context.asset
+#             print(f"{asset_representation.full_path=}")
+#             print(f"{asset_representation.full_library_path=}")
+#             print(f"{asset_representation.id_type=}")
+#             print(f"{asset_representation.name=}")
+#             # This will be None if the asset is not located in current file :
+#             print(f"{asset_representation.local_id=}")
+#
+#
+#         return {"FINISHED"}

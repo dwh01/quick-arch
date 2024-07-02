@@ -10,10 +10,11 @@ from .materials import import_bt_materials
 
 # custom layer names
 FACE_CATEGORY = 'bt_face_cat'
-FACE_THICKNESS = 'bt_face_thick'
+FACE_ELEVATION = 'bt_face_thick'
 FACE_UV_MODE = 'bt_uv_mode'
 FACE_UV_ORIGIN = 'bt_uv_origin'
 FACE_UV_ROTATE = 'bt_uv_rot'
+FACE_RADIAL = 'bt_face_radial'
 FACE_OP_ID = 'bt_face_op'
 FACE_OP_SEQUENCE = 'bt_face_seq'
 VERT_OP_ID = 'bt_op_id'
@@ -37,7 +38,11 @@ BT_INST_COLLECTION = "_sources"  # append to object name to get instancer collec
 
 
 def is_bt_object(obj):
-    return hasattr(obj, BT_OBJ_DATA)
+    try:
+        v = obj[BT_OBJ_DATA]
+    except Exception:
+        return False
+    return True
 
 
 def get_bt_collection():
@@ -500,11 +505,6 @@ def create_object(collection, name):
     """Create object and initialize layers, etc
     Return object
     """
-    # hide import here to prevent load sequence conflicts
-    from .journal import get_block, update_block, blank_journal
-    from .materials import tag_to_material
-    from ..ops import dynamic_enums
-
     import_bt_materials()  # only imports if the materials aren't here
 
     # empty mesh object
@@ -524,7 +524,6 @@ def upgrade_object(obj):
     """Add data to make an external object into one bt can handle"""
     from .journal import get_block, update_block, blank_journal
     from .materials import tag_to_material
-    from ..ops import dynamic_enums
     from ..mesh import ManagedMesh
 
     import_bt_materials()  # only import
@@ -547,9 +546,10 @@ def upgrade_object(obj):
     # setup layers for mesh based data
     key = obj.data.attributes.new(FACE_CATEGORY, 'INT', 'FACE')
     key = obj.data.attributes.new(FACE_UV_MODE, 'INT', 'FACE')
-    key = obj.data.attributes.new(FACE_THICKNESS, 'FLOAT', 'FACE')
+    key = obj.data.attributes.new(FACE_ELEVATION, 'FLOAT', 'FACE')
     key = obj.data.attributes.new(FACE_UV_ORIGIN, 'FLOAT_VECTOR', 'FACE')
     key = obj.data.attributes.new(FACE_UV_ROTATE, 'FLOAT_VECTOR', 'FACE')
+    key = obj.data.attributes.new(FACE_RADIAL, 'FLOAT_VECTOR', 'FACE')
     key = obj.data.attributes.new(FACE_OP_SEQUENCE, 'INT', 'FACE')
     key = obj.data.attributes.new(FACE_OP_ID, 'INT', 'FACE')
     key = obj.data.attributes.new(LOOP_UV_W, 'FLOAT', 'CORNER')
@@ -564,12 +564,11 @@ def upgrade_object(obj):
     key = obj.data.attributes.new(BT_INST_ROT, 'FLOAT_VECTOR', 'POINT')
     key = obj.data.attributes.new(BT_INST_SCALE, 'FLOAT_VECTOR', 'POINT')
 
-    # default materials for visualization
-    lst = dynamic_enums.lst_FaceEnums
-    for i in range(1, len(lst)):
-        tag = lst[i][0]
-        matname = tag_to_material(tag)
-        obj.data.materials.append(bpy.data.materials[matname])
+    # minimal default materials for visualization
+    lst_tag = ['BT_NOTHING', 'BT_DELETE']  # note that we load nothing first because it becomes the default material
+    for tag in lst_tag:
+        mat_name = tag_to_material(tag)
+        obj.data.materials.append(bpy.data.materials[mat_name])
 
     # instancer
     create_instancing_nodes(obj)

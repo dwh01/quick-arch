@@ -1000,15 +1000,15 @@ def polygonize(verts, firstVertIndex, numVerts, holesInfo=None, height=0., tan=0
             edgeContours.append(holeEdges)
             uIndex += numVertsHole
 
-	# compute skeleton
+    # compute skeleton
     skeleton = skeletonize(edgeContours)
 
     # evetual debug output of skeleton
     if 'skeleton' in debugOutputs:
         debugOutputs['skeleton'] = skeleton
 
-	# compute skeleton node heights and append nodes to original verts list,
-	# see also issue #4 at https://github.com/prochitecture/bpypolyskel
+    # compute skeleton node heights and append nodes to original verts list,
+    # see also issue #4 at https://github.com/prochitecture/bpypolyskel
     if height:
         maxSkelHeight = max(arc.height for arc in skeleton)
         tan_alpha = height/maxSkelHeight

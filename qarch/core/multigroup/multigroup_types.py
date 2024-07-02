@@ -105,13 +105,13 @@ def create_multigroup(bm, faces, prop):
                     for knob,origin,scale in zip(knobs,origins,scales):
                         knob.matrix_local.translation = origin
                         align_obj(knob, normal)
-                        knob.scale = scale
+                        knob.scale2d = scale
 
                 # set handle origin, rotations and scale
                 for handle,origin,scale in zip(handles,handle_origins,handle_scales):
                     handle[0].matrix_local.translation = origin[0]
                     align_obj(handle[0], normal)
-                    handle[0].scale = scale[0]
+                    handle[0].scale2d = scale[0]
 
                 # create arch
                 if prop.add_arch:

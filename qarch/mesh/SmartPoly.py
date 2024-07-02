@@ -1,578 +1,315 @@
-"""Polygon class that allows work in a virtual 2D space"""
-import bpy
+import mathutils
+from mathutils import Matrix, Vector
+import bpy, bmesh
 import functools
 import operator
-import bmesh.types
-import math
-import mathutils
-import mathutils.geometry
-from mathutils import Vector, Matrix
+from .geom_2d import (bridge_points_by_circumfrence,
+                      generate_arch, generate_inset, generate_ngon, generate_revolve, generate_super)
 import Polygon, Polygon.Shapes
+from .coordsys import CoordSys, SmartPoint, approx, approx_vector
 
 
-def atan(v):
-    if isinstance(v, SmartVec):
-        return atan(v.co2)
-    a = math.atan2(v.y, v.x)
-    if a < 0:
-        a = 2 * math.pi + a
-    return a
+def polygon3_to_smart(coord_sys, poly3):
+    """returns polygons, ignores holes
 
-
-def sort_winding(pts):
-    """Order vectors by clockwise angle"""
-    w = [atan(p)for p in pts]
-    minv = 100
-    min_i = 0
-    for i, a in enumerate(w):
-        if math.fabs(a) < minv:
-            min_i = i
-            minv = math.fabs(a)
-
-    pts = pts[1:] + pts[:i]
-    return pts
-
-
-def merge_contour(pts_outer, pts_hole):
-    p0 = sort_winding(pts_outer)
-    p1 = sort_winding(pts_hole)
-    p1.reverse()
-    p = p0 + p1
-    return p
-
-
-def parallel(e1, e2):
-    """are two edges parallel"""
-    v1 = (e1[1]-e1[0]).normalized()
-    v2 = (e2[1]-e2[0]).normalized()
-    a = v1.to_3d().dot(v2.to_3d())
-    if abs(a) > 0.99999:
-        return True
-    return False
-
-
-def coincident(pt1, pt2):
-    dv = (pt1-pt2).length
-    if dv < 1e-6:
-        return True
-    return False
-
-
-def parallel_overlap(e1, e2):
-    v1 = (e1[1] - e1[0])
-    l1 = v1.length()
-    v1 = v1/l1
-    v2 = (e2[0] - e1[0])
-    along2 = v1.to_3d().dot(v2.to_3d())
-    v3 = (e2[1] - e1[0])
-    along3 = v1.to_3d().dot(v2.to_3d())
-
-    if (along2 < 0 and along3 < 0) or (along2 > l1 and along3 > l1):
-        return None
-
-    if (along2 <= 0 and l1 <= along3) or (along3 <= 0 and l1 <= along2):
-        return e1
-
-    if (0 <= along2 <= l1) and (0 <= along3 <= l1):
-        return e2
-
-    if 0 <= along2 <= 1:
-        if along3 < 0:
-            return e1[0], e2[0]
-        elif along3 > 1:
-            return e1[1], e2[0]
-    elif 0 <= along3 <= 1:
-        if along2 < 0:
-            return e1[0], e2[1]
-        elif along2 > 1:
-            return e1[1], e2[1]
-
-    assert False
-
-
-def cycle_winding(coord):
-    """Start with rightmost coordinate"""
-    center_sort = list(coord)
-    lst_min = [0]
-    w_min = center_sort[0].winding
-    for i in range(1, len(center_sort)):
-        if center_sort[i].winding == w_min:
-            lst_min.append(i)
-        elif center_sort[i].winding < w_min:
-            w_min = center_sort[i].winding
-            lst_min = [i]
-    if len(lst_min) > 1:
-        lst_min.sort(key=lambda i: center_sort[i].co2.x)
-    i_min = lst_min[-1]
-    center_sort = center_sort[i_min:] + center_sort[:i_min]
-    return center_sort
-
-
-class SmartVec:
-    """Wrapper to track bmesh index and changed state"""
-    def __init__(self, pt, vert=None):
-        if len(pt)==3:
-            self.co3 = Vector(pt)
-            self.co2 = None
+    :param CoordSys coord_sys: the coordinate system to apply
+    :param Polygon.Polygon poly3: the polygon3 library polygon to convert
+    :return list(SmartPoly):
+    """
+    lst_out = []
+    for i in range(len(poly3)):
+        if poly3.isHole(i):
+            pass
         else:
-            self.co3 = None
-            self.co2 = Vector(pt)
-        self.winding = 0  # angle counter-clockwise
-        self.bm_vert = vert
-        self.changed = False
+            contour = poly3.contour(i)
+            s_pts = [Vector(v) for v in contour]
+            if poly3.orientation(i) == -1:
+                s_pts.reverse()
+            s_pts = [coord_sys.make_3d(v) for v in s_pts]
 
-    def __str__(self):
-        if self.co2 is not None:
-            return "SV({:.2f},{:.2f}|{:.1f})".format(self.co2.x, self.co2.y, self.winding*180/math.pi)
-        return "SV({:.2f},{:.2f},{:.2f})".format(self.co3.x, self.co3.y, self.co3.z)
+            m_poly = SmartPoly(coord_sys=coord_sys, pt_list=s_pts)
+            lst_out.append(m_poly)
 
-    def __repr__(self):
-        if self.co2 is not None:
-            return "SV({:.2f},{:.2f}|{:.1f})".format(self.co2.x, self.co2.y, self.winding*180/math.pi)
-        return "SV({:.2f},{:.2f},{:.2f})".format(self.co3.x, self.co3.y, self.co3.z)
+    return lst_out
 
 
 class SmartPoly:
-    def __init__(self, matrix=None, name="poly"):
-        self.name = name
-        self.coord = []
-        self.edges = []
+    def __init__(self, coord_sys, pt_list=None, break_link=False, b_no_roll=False):
+        """Polygon will be built in coord_sys, use pt_list if provided
+        :param CoordSys coord_sys: orient and locate the polygon
+        :param pt_list: source of points [optional]
+        :type pt_list: SmartPoly, BMFace, list of BMVert, or list of Vector
+        :param bool break_link: if true, do not save BMVert connection
+        :param bool b_no_roll: if true, do not sort points
+        :return: None """
+        self.coord_sys = coord_sys
+        self.points = []
+        self.bbox_min = Vector((0, 0))
+        self.bbox_max = Vector((0, 0))
+        self.box_size = Vector((0, 0))
 
-        self.center = Vector((0, 0, 0))
-        self.uv_origin = Vector((0, 0, 0))
-        self.matrix = Matrix.Identity(3)  # map 3d to 2d
-        self.inverse = Matrix.Identity(3)  # map 2d to 3d
+        self.face_attr = {'uv_origin': Vector((0, 0, 0))}
+        if coord_sys.reference_face:
+            self.face_attr['uv_origin'] = coord_sys.reference_face[coord_sys.mm.key_uv_orig]
+            self.face_attr['material'] = coord_sys.reference_face.material_index
+            self.face_attr['uv_mode'] = coord_sys.reference_face[coord_sys.mm.key_uv]
+            self.face_attr['uv_rot'] = coord_sys.reference_face[coord_sys.mm.key_uv_rot]
+            self.face_attr['material'] = coord_sys.reference_face.material_index
+            self.face_attr['radial'] = coord_sys.reference_face[coord_sys.mm.key_radial]
 
-        self.xdir = Vector((1,0,0))
-        self.ydir = Vector((0,1,0))
-        self.normal = Vector((0, 0, 1))
+        if pt_list:
+            self.add(pt_list, break_link)
+            self.calc_2d(b_no_roll)
 
-        self.bbox = [Vector((0, 0)), Vector((0, 0))]
-        self.box_size = Vector((0,0))
-        self.is_oriented_rect = False
-        # self.is_convex = False
-        self.area = 0
-
-        # sometimes we want to add 2d points with a known matrix
-        if matrix is not None:
-            self.matrix = matrix
-            self.xdir = Vector(matrix[0])
-            self.ydir = Vector(matrix[1])
-            self.normal = Vector(matrix[2])
-            self.inverse = matrix.transposed()
-
-        # arches need special handling, others can use bbox[0] and FACE_XY
-        self.uv_mode = 'GLOBAL_XY'
-
-    def add(self, pt, break_link=False):
-        """Handles lots of things that could be points"""
-        if isinstance(pt, bmesh.types.BMFace):
-            for v in pt.verts:
+    def add(self, ptlist, break_link=False):
+        """Add points to polygon
+        :param ptlist: list of points or a single point
+        :type ptlist: BMFace or a list of Vector(2) or Vector(3) or BMVert or SmartPoint
+        :param break_link: True if we don't want to keep the bm vert connections
+        :type break_link: None or bool
+        :return: None
+        """
+        if isinstance(ptlist, bmesh.types.BMFace):
+            for v in ptlist.verts:
                 self.add(v, break_link)
             return
-        elif isinstance(pt, SmartPoly):
-            for v in pt.coord:
+        elif isinstance(ptlist, SmartPoly):
+            for v in ptlist.points:
                 self.add(v, break_link)
             return
-        elif isinstance(pt, list):
-            for v in pt:
+        elif isinstance(ptlist, list):
+            for v in ptlist:
                 self.add(v, break_link)
             return
 
-        if isinstance(pt, bmesh.types.BMVert):
-            sv = SmartVec(pt.co)
-            if not break_link:
-                sv.bm_vert = pt
-        elif isinstance(pt, Vector):
-            sv = SmartVec(pt)
-        elif isinstance(pt, tuple):
-            sv = SmartVec(Vector(pt))
-        elif isinstance(pt, SmartVec):
-            if pt.co3 is not None:
-                sv = SmartVec(pt.co3)
-            else:
-                sv = SmartVec(pt.co2)
-            if not break_link:
-                sv.bm_vert = pt.bm_vert
+        if type(ptlist) in [bmesh.types.BMVert, Vector, SmartPoint, tuple]:
+            sv = SmartPoint(ptlist, break_link)
+            if sv.co3 is None:
+                sv.co3 = self.coord_sys.make_3d(sv.co2)
         else:
-            raise TypeError("Unexpected point type {}".format(type(pt)))
+            raise TypeError("Unexpected point type {}".format(type(ptlist)))
 
-        self.coord.append(sv)
+        self.points.append(sv)
 
-    def apply_matrix(self, mat):
-        for c in self.coord:
-            c.co3 = mat @ c.co3
-        self.center = mat @ self.center
-        self.uv_origin = mat @ self.uv_origin
+    def apply_rotation_matrix(self, mat):
+        """Apply matrix to points, updates coord_sys
+        :param Matrix mat: rotation matrix(3x3)
+        """
+        for pt in self.points:
+            v = pt.co3 - self.coord_sys.origin
+            pt.co3 = (mat @ v) + self.coord_sys.origin
+            pt.co2 = None
+        # bring uv origin along
+        v = self.face_attr['uv_origin'] - self.coord_sys.origin
+        self.face_attr['uv_origin'] = (mat @ v) + self.coord_sys.origin
 
-    def bridge(self, other, mm, insert_perimeter=False, b_extruding=False, b_close=True):
-        """Avoid twist that can happen with bmesh.ops.bridge_loops"""
-        # this is a crucial routine, we will make it handle many special cases
-        #   for each case, consider if we can only use existing outside points or if we can add more
-        #
-        # 0) aligned rectangle within
-        # 1) inner polygon center is inside outer
-        #   a)  point on inner is inside outer
-        #   b)  point on inner is outside outer
-        # 2) inner polygon center is outside outer
-        #   a)  point on inner is inside outer
-        #   b)  point on inner is outside outer
-        #
-        # case 0, we want to keep all rectangle patches if allowed to insert on the perimeter, else match corners
-        # otherwise, we calculate the optimal outward angle based on the edges meeting at a corner
-        # in principle, we project that ray from the interior to the exterior, but we must consider the containment
-        # case 1a, all is well
-        # case 2a, all is well, but, for consistency with the points not inside, follow 2b
-        # case 1b, fire ray towards polygon center
-        # case 2b, here we probably want to connect "like" corners, so fire the ray from the outer polygon center
-        #
-        # when we find an edge intersection, if we are not allowed to insert a new point
-        #   move to the closest end point except:
-        #   if that makes us go backwards in connection location (don't cross the streams)
-        #   or if that ray intersects the inner polygon
-        #      but if the ray to the next point (the farther one on the edge) also intersects
-        #         then we don't connect this point, make a goofy shaped bridging polygon instead
-        # HOWEVER, for cases (b), we may have to cross self, and it's likely that the user is extruding at the same time
-        #   which makes it ok. So only check the not going backwards test.
-        #
-        # also, we must remember that each 2d coordinate system is relative to the polygon center
-        # we should do intersection in "other-space" because when insert is allowed, then we already have the point
+        # update coord_sys
+        self.coord_sys.apply_rotation_matrix(mat)
 
-        # how long of a segment do we test? We must account for cosine of plane angles
-        dp = self.normal.dot(other.normal)
-        if round(dp,3) == 0:
-            return []  # failed, planes are perpendicular
-        far = other.box_size.x + other.box_size.y
-        far = far/dp
+        self.calc_2d(b_no_roll=True)  # fix 2d coordinates
 
-        def test_other_edge(pt3d_, ray3d_, cases):
-            """Wrap ray test for different cases"""
-            case_0, case_1, case_a = cases
-            if case_0:
-                if ray3d_.dot(self.ydir) > 0:
-                    ray3d_ = self.ydir
-                else:
-                    ray3d_ = -self.ydir
-            elif case_1:
-                if case_a:
-                    pass
-                else:
-                    ray3d_ = -ray3d
-            else:
-                pt3d_ = other.center
+    def bridge(self, other, insert_perimeter=False, v_extruding=None, b_close=True, b_allow_square=False):
+        lst1 = [p.co3 for p in self.points]
+        lst2 = [p.co3 for p in other.points]
 
-            res = other.intersect_projection(pt3d_, pt3d_ + ray3d_*far)
-            if res is not None:
-                pt2, idx = res
-                pt = other.make_3d(pt2)
-                return other.coord[idx % len(other.coord)].co3, other.coord[(idx+1) % len(other.coord)].co3, pt, idx
-            return None
-
-        def collect_points(i, idx_outer, last_inner, cur_outer, n_other):
-            pts_inside = []
-            if last_inner > i:
-                i = i + len(self.coord)
-            for k in range(last_inner, i + 1):
-                pts_inside.append(self.coord[k % n_inner])
-            pts_outside = []
-            if cur_outer > idx_outer:
-                idx_outer = idx_outer + n_other
-            for k in range(cur_outer, idx_outer + 1):
-                pts_outside.append(other.coord[k % n_other])
-            pts_inside.reverse()
-            pts = pts_outside + pts_inside
-            #print("collect inside ", last_inner, i, "outside ", cur_outer % n_other, idx_outer % n_other)
-            # advance markers
-            cur_outer = idx_outer
-            last_inner = i
-            return cur_outer, last_inner, pts
-
-        case_0 = False
-        case_1 = False
-        case_2 = False
-        if self.is_oriented_rect and (insert_perimeter == True):
-            b_inside = True
-            for i in range(4):
-                check = other.pt_inside(other.make_2d(self.coord[i].co3))
-                b_inside = b_inside and check
-
-            case_0 = b_inside
-
-        if other.pt_inside(other.make_2d(self.center)):
-            case_1 = True
+        if other.normal().dot(self.normal()) < 0:  # make winding go same way by flipping order
+            lst2.reverse()
+            b_reverse = True
+            print("reverse")
         else:
-            case_2 = True
+            b_reverse = False
 
-        # the first edge of one poly may be clocked with respect to the other
-        # find alignment
+        lst_links = bridge_points_by_circumfrence(lst1, lst2, self.coord_sys)
 
-        pt3d, ray3d = self.outward_ray_idx(0)
-        other_start_idx = None
-        case_a = other.pt_inside(other.make_2d(pt3d))
-        cases = case_0, case_1, case_a
-        res = test_other_edge(pt3d, ray3d, cases)
-        if res is not None:
-            other_start_idx = res[-1]
+        if b_reverse:  # fix indexing
+            ll2 = len(lst2)
+            for lnk in lst_links:
+                lnk[1] = ll2 - lnk[1] - 1
 
-        assert other_start_idx is not None, "Overly concave polygons?"
+        # by circumfrence is pretty robust, although concave polygons can always cause self intersection,
+        # but sometimes we want to project lines to make new points on other so the line angles are pretty
+        # b_extruding could be used to permit crossing lines if we tried to remove them
+        if insert_perimeter:
+            for i_link, link in enumerate(lst_links):
+                i = link[0]
+                j = link[1]
 
-        lst_poly = []  # polygons making up the bridge
-        b_make = other.coord[0].bm_vert is not None  # do we need to make a bm vert for inserted points for consistency
-        n_inner = len(self.coord)
-        last_inner = None  # start a polygon here
-        # points run last_inner to cur_inner then jump across and back to cur_outer
-        cur_outer = other_start_idx
-        last_pt = None
-        first_pt = None # for closure polygon
-        for i in range(n_inner):
-            pt3d, ray3d = self.outward_ray_idx(i)
-            # print("bridge from", i, pt3d, ray3d)
-            case_a = other.pt_inside(other.make_2d(pt3d))
-            cases = case_0, case_1, case_a
-            b_test_self_intersect = case_a or case_0
-            n_other = len(other.coord)
+                a = self.points[i-1]
+                b = self.points[i]
+                c = self.points[(i+1) % len(self.points)]
+                out_ray = self.outward_ray(a, b, c, b_allow_square=b_allow_square)
+                pt, e = other.ray_intersection(b.co3, out_ray, True)  # check outward ray only
+                if pt is None:
+                    continue
 
-            # no going backwards test
-            if last_pt is not None:
-                ray_last = last_pt - pt3d
-                crs = ray_last.cross(ray3d)
-                if crs.dot(self.normal) < 0:  # advance to point at last connected point
-                    # print("forced advance")
-                    ray3d = ray_last
-                    # actually, why don't we skip the testing!
-                    # self intersection test to make us skip inner point instead of making poly
-                    res2 = None
-                    if b_test_self_intersect:
-                        res2 = self.intersect_projection(self.coord[i].co3, last_pt)
-                    if res2 is None:
-                        cur_outer, last_inner, pts = collect_points(i, cur_outer, last_inner, cur_outer, n_other)
-                        if len(pts) >= 3:
-                            lst_poly.append(pts)
-                            continue
-                    #     print('too few points on forced advance')
-                    # else:
-                    #     print("skip intersect on forced advance")
+                if approx_vector(pt, other.points[j].co3):  # already best spot
+                    continue
 
-            res = test_other_edge(pt3d, ray3d, cases)
-            # print("result",res)
-            pts = []
-            if res is not None:
-                e0, e1, pt_i, idx_outer = res
-                d0 = (pt_i - e0).length
-                d1 = (pt_i - e1).length
-                p_sel = e0  # selected point to connect
-                if round(d1, 3) == 0:  # connect to last point by advancing index
-                    idx_outer = (idx_outer + 1) % n_other
-                    p_sel = e1
-                elif not insert_perimeter:
-                    if d1 < d0:  # advance index so we attach to closest end
-                        idx_outer = (idx_outer + 1) % n_other
-                        p_sel = e1
+                # check that we don't jump indices on other (cross rays)
+                prev = lst_links[i_link-1][1]
+                nxt = lst_links[(i_link+1) % len(lst_links)][1]
+                # if b_reverse:  # swap edge order
+                #     prev, nxt = nxt, prev
+                # if nxt == 0:
+                #     nxt = len(other.points)-1
+                # if prev == len(other.points)-1:
+                #     prev = 0
+                # print(prev, e[0], e[1], nxt, "check crossing")
+                # if (e[0] >= prev) and (e[1] <= nxt):
 
-                if (round(d0, 3) == 0) or (round(d1, 3) == 0) or (not insert_perimeter):  # connect to existing
-                    if last_inner is None:
-                        last_inner = i
-                        first_pt = other.coord[idx_outer % len(other.coord)]
-                        cur_outer = idx_outer # point to new spot, not the corner we found to initialize things
-                    else:
-                        # self intersection test to make us skip inner point instead of making poly
-                        res2 = None
-                        if b_test_self_intersect:
-                            p_from = self.coord[i].co3 + 0.01 * ray3d # don't hit start vertex!
-                            res2 = self.intersect_projection(p_from, p_sel)
-                            # but don't intersect own line
-                            if res2 and res2[1] in [i, (i+len(self.coord)-1) % len(self.coord)]:
-                                res2 = None
+                if True:
+                    if e[0] > e[1]:  # wrap around
+                        e = e[0], len(other.points)  # splice at end
+                    other.splice(e[1], pt)
+                    for lnk in lst_links:  # fix numbering
+                        if lnk[1] >= e[1]:
+                            lnk[1] += 1
+                    link[1] = e[1]
 
-                        if res2 is None:
-                            cur_outer, last_inner, pts = collect_points(i, idx_outer, last_inner, cur_outer, len(other.coord))
-                            last_pt = p_sel
-                        # else:
-                        #     print("Skip due to self intersection", pt3d, ray3d, res2)
+        # make bridge share points
+        lst_poly = []
+        ctr = self.calc_center_median()
+        self.make_verts()
+        other.make_verts()
+        n = len(lst_links)
+        for i_link, link in enumerate(lst_links):
+            if (not b_close) and (i_link == len(lst_links)):  # don't wrap
+                break
 
-                else:  # create point
-                    d_tot = (e1-e0).length
-                    f = d0 / d_tot
-                    pt_new = other.coord[idx_outer].co3 * (1 - f) + other.coord[(idx_outer + 1) % n_other].co3 * f
-                    sv = other.splice(idx_outer + 1, pt_new)
-                    if b_make:
-                        sv.bm_vert = mm.new_vert(sv.co3)
-                    dbg= pt_new-pt3d
-                    if cur_outer > idx_outer:
-                        cur_outer = cur_outer + 1
-                    idx_outer = idx_outer + 1
-                    if last_inner is None:
-                        last_inner = i
-                        first_pt = other.coord[idx_outer]
-                        cur_outer = idx_outer  # point to new spot, not the corner we found to initialize things
-                    else:
-                        # self intersection test to make us skip inner point instead of making poly
-                        res2 = None
-                        if b_test_self_intersect:
-                            p_from = self.coord[i].co3 + 0.01 * ray3d  # don't hit start vertex!
-                            res2 = self.intersect_projection(p_from, pt_new)
-                            # but don't intersect own line
-                            if res2 and res2[1] in [i, (i + len(self.coord) - 1) % len(self.coord)]:
-                                res2 = None
-                        if res2 is None:
-                            cur_outer, last_inner, pts = collect_points(i, idx_outer, last_inner, cur_outer, len(other.coord))
-                            last_pt = pt_new
-                        # else:
-                        #     print("skip self intersect ", p_from, res2)
-                if len(pts) >= 3:
-                    lst_poly.append(pts)
-                # else:
-                #     print("skip < 3 pts", pts)
+            link_next = lst_links[(i_link + 1) % n]
+            if b_reverse:
+                if link_next[1] <= link[1]:  # expected case
+                    pts_out = list(range(link_next[1], link[1]+1))
+                else:  # wrap around
+                    pts_out = list(range(link_next[1], len(other.points))) + list(range(link[1]+1))
+            else:
+                if link_next[1] >= link[1]:  # expected case
+                    pts_out = list(range(link[1], link_next[1]+1))
+                else:  # wrap around
+                    pts_out = list(range(link[1], len(other.points))) + list(range(link_next[1]+1))
+            pts_out = [other.points[k] for k in pts_out]
+            if b_reverse:
+                pts_out.reverse()
 
-        if b_close:  # closure from n-1 back to 0, we skip for arches?
-            n_other = len(other.coord)
-            for j in range(cur_outer, cur_outer + n_other):
-                jj = j % n_other
-                if other.coord[jj] is first_pt:
-                    cur_outer, last_inner, pts = collect_points(len(self.coord), j, last_inner, cur_outer, len(other.coord))
-                    if len(pts) >= 3:
-                        lst_poly.append(pts)
-                    # else:
-                    #     print("skip < 3 pts", pts)
+            if link_next[0] >= link[0]:
+                pts_in = list(range(link[0], link_next[0] + 1))
+            else:
+                pts_in = list(range(link[0], len(self.points))) + list(range(link_next[0] + 1))
+            pts_in.reverse()
+            pts_in = [self.points[k] for k in pts_in]
 
+            points = pts_out + pts_in
+            poly = SmartPoly(coord_sys=self.coord_sys, pt_list=points, break_link=False)
+            poly.calc_coord_sys()
+
+            if approx(1, abs(poly.normal().z)):  # on flat, point towards center
+                v_edge = pts_out[-1] - pts_out[0]
+                if v_edge.length:
+                    v_radial = poly.normal().cross(v_edge.normalized()).normalized()
+                    poly.face_attr['radial'] = v_radial
+                    poly.calc_coord_sys(radial=v_radial)
+            elif v_extruding:  # y in extrude direction
+                poly.face_attr['radial'] = v_extruding.normalized()
+                poly.calc_coord_sys(radial=poly.face_attr['radial'])
+            # else use control coord sys
+
+            lst_poly.append(poly)
+
+        return lst_poly
+
+    def bridge_by_number(self, other, idx_offset=0, b_reversed=False):
+        """Simple bridging for when we know the polys match (extrude, for instance)
+        :param SmartPoly other: target to bridge to
+        :param int idx_offset: used to handle twisting
+        :param bool b_reversed: True if the other order is reversed (flipped normal)"""
+        from .coordsys import ppstr
+        ncp = len(self.points)
+        assert ncp == len(other.points)
         new_faces = []
-        for vlist in lst_poly:
-            tmp = []
-            for v in vlist:
-                if v not in tmp:
-                    tmp.append(v)
-            vlist = tmp
-            if len(vlist) < 3:
-                continue
-
-            p_new = SmartPoly()
-            p_new.add(vlist)
-            p_new.calculate()
-            p_new.uv_origin = Vector(self.center)  # for xy, doesn't really matter, but allows polar frame if desired
-            new_faces.append(p_new)
-        return new_faces
-
-    def bridge_by_number(self, other, idx_offset=0, reversed=False):
-        ncp = len(self.coord)
-        assert ncp == len(other.coord)
-        new_faces = []
+        radial = self.calc_center_box() - other.calc_center_box()
         for i in range(ncp):
             ii = (i+1) % ncp
-            if reversed:
+            if b_reversed:
                 j = ncp - i -1
                 jj = (2*ncp - i - 2) % ncp
-                vlist = [self.coord[ii], self.coord[i], other.coord[(j + idx_offset) % ncp], other.coord[(jj+idx_offset) % ncp]]
+                vlist = [self.points[ii], self.points[i], other.points[(j + idx_offset) % ncp], other.points[(jj+idx_offset) % ncp]]
             else:
-                vlist = [self.coord[ii], self.coord[i], other.coord[(i+idx_offset) % ncp], other.coord[(ii+idx_offset) % ncp]]
+                vlist = [self.points[ii], self.points[i], other.points[(i+idx_offset) % ncp], other.points[(ii+idx_offset) % ncp]]
 
-            p_new = SmartPoly()
-            p_new.add(vlist)
-            p_new.calculate()
-            p_new.uv_origin = Vector(self.center)  # for xy, doesn't really matter, but allows polar frame if desired
+            p_new = SmartPoly(self.coord_sys, pt_list=vlist, break_link=False)
+            p_new.calc_coord_sys(radial)
+            if approx(1, abs(p_new.normal().z)):  # on flat, point towards center
+                v_edge = vlist[-1].co3 - vlist[-2].co3
+                if v_edge.length:
+                    v_radial = p_new.normal().cross(v_edge.normalized()).normalized()
+                    p_new.face_attr['radial'] = v_radial
+                    p_new.calc_coord_sys(radial=v_radial)
+            else:  # y in extrude direction
+                p_new.face_attr['radial'] = radial.normalized()
+                p_new.calc_coord_sys(radial=p_new.face_attr['radial'])
+            # else use control coord sys
+
+            p_new.face_attr['uv_origin'] = Vector(self.calc_center_box())  # for xy, doesn't really matter, but allows polar frame if desired
             new_faces.append(p_new)
         return new_faces
 
-    def calc_matrix(self):
-        """Use points to make a coordinate system"""
-        if len(self.coord) < 3:
-            return
+    def calc_2d(self, b_no_roll=False):
+        """Convert 3d positions to 2d"""
+        for pt in self.points:
+            assert pt.co3, "Can't calc 2d because 3d is invalid"
+            pt.co2 = self.coord_sys.make_2d(pt.co3)
 
-        if self.coord[0].co3 is not None:
-            v1 = (self.coord[0].co3 - self.center).normalized()
-            v2 = (self.coord[1].co3 - self.center).normalized()
-            self.normal = v1.cross(v2)
-            if self.normal.length == 0:
-                # maybe we were giving a matrix at creation
-                self.normal = self.matrix[2]
-            else:
-                self.normal.normalize()
+        xx = [pt.co2.x for pt in self.points]
+        yy = [pt.co2.y for pt in self.points]
+        self.bbox_min = Vector((min(xx), min(yy)))
+        self.bbox_max = Vector((max(xx), max(yy)))
+        self.box_size = self.bbox_max - self.bbox_min
+        if not b_no_roll:
+            self.roll_point_start()
 
-                if self.normal[2] < -0.99:
-                    self.ydir = -self.ydir
-                elif self.normal[2] < 0.99:
-                    self.xdir = Vector((0, 0, 1)).cross(self.normal).normalized()
-                    self.ydir = self.normal.cross(self.xdir).normalized()
+        return self.box_size
 
-                # matrix to rotate flat, transpose brings us back
-                self.matrix[0] = self.xdir
-                self.matrix[1] = self.ydir
-                self.matrix[2] = self.normal
-                self.inverse = self.matrix.transposed()
+    def calc_center_box(self):
+        """return center of bounding box, in 3d"""
+        ctr = self.bbox_min + self.box_size/2
+        return self.coord_sys.make_3d(ctr)
 
-    def calc_center(self):
-        """Assumes 3d coords calculated else polygon in canonical position
-        if not, set the matrix in the constructor and call update_3d, but that sets center to 0,0 in 2d
+    def calc_center_median(self):
+        """Median point, in 3d"""
+        n = len(self.points)
+        lst = [pt.co3 for pt in self.points]
+        ctr = functools.reduce(operator.add, lst) / n
+        return ctr
+
+    def calc_coord_sys(self, radial=None, b_no_roll=False):
+        """Used when adding free points with no face reference: calculate a plane matrix
+        :param radial: if known, the inward direction for y
+        :type radial: None or Vector(3)
+        :return CoordSys: coordinate system
         """
-        n = len(self.coord)
-        for c in self.coord:
-            if c.co3 is None:  # special case convert to 3d points
-                c.co3 = c.co2.to_3d()
-        self.calc_remove_duplicates()
-        self.center = functools.reduce(operator.add, [c.co3 for c in self.coord]) / n
-
-    def calc_2d(self):
-        """Make 2d points"""
-        # note - this may change 2d points that were used for initialization
-        # because it will move the center to the origin
-        for pt in self.coord:
-            pt.co2 = self.make_2d(pt.co3)
-            pt.winding = math.atan2(pt.co2.y, pt.co2.x)
-            if pt.winding < 0:
-                pt.winding = 2 * math.pi + pt.winding
-
-    def calc_bbox(self):
-        v_min = Vector(self.coord[0].co2)
-        v_max = Vector(v_min)
-        for pt in self.coord:
-            for i in range(2): # x and y
-                v_min[i] = min(v_min[i], pt.co2[i])
-                v_max[i] = max(v_max[i], pt.co2[i])
-        self.bbox = v_min, v_max
-        self.box_size = v_max - v_min
-
-        all_passed = True
-        n = len(self.coord)
-        for i in range(n):
-            e = self.coord[(i+1) % n].co2 - self.coord[i].co2
-            if not((round(e.x, 6) == 0) or (round(e.y, 6) == 0)):
-                all_passed = False
+        normal = self.coord_sys.normal
+        # try to find a normal based on points
+        v0 = self.points[0].co3
+        for i in range(1, len(self.points)):
+            v1 = (self.points[i].co3 - v0)
+            if v1.length > 0:
+                v1.normalize()
+                for j in range(i+1, len(self.points)):
+                    v2 = (self.points[j].co3 - v0)
+                    if v2.length > 0:
+                        v2.normalize()
+                        if approx(1, abs(v1.dot(v2))):
+                            continue
+                        else:
+                            normal = v1.cross(v2).normalized()
+                            break
                 break
-        self.is_oriented_rect = all_passed
 
-    def calc_area(self):
-        n = len(self.coord) - 1
-        area = 0
-        a = self.coord[0].co2
-        for i in range(1, n):
-            b = self.coord[i].co2
-            c = self.coord[i+1].co2
-            area = area + mathutils.geometry.area_tri(a, b, c)
-        self.area = area
+        origin = self.calc_center_median()
+        self.coord_sys = CoordSys(self.coord_sys.mm, None, radial=radial, normal=normal, origin=origin)
+        self.calc_2d(b_no_roll)
 
-    def calc_remove_duplicates(self):
-        lst = []
-        n = len(self.coord)
-        for i in range(n):
-            j = (i+1) % n
-            if (self.coord[i].co3 - self.coord[j].co3).length < 0.001:
-                pass
-            else:
-                lst.append(self.coord[i])
-        if len(lst) > 2:
-            self.coord = lst
-
-    def calculate(self):
-        """Get everything ready once the points are added
-        if you have a hole or badly convex poly, don't sort
-        """
-        if len(self.coord)==0:
-            return
-        self.calc_center()
-        self.calc_matrix()
-        self.calc_2d()
-        self.calc_bbox()
-        self.calc_area()
-
+        return self.coord_sys
 
     def clip_with(self, other, join_type):
         """Return 0 or more pieces of this polygon after clipping with other"""
@@ -582,14 +319,13 @@ class SmartPoly:
         # import sys, os, subprocess
         # python_exe = os.path.join(sys.prefix, 'bin', 'python3.10')
         # subprocess.call([python_exe, "-m", "pip", "install", "Polygon3"])
-        if len(self.coord) < 3:
+        if len(self.points) < 3:
             return []
-        if len(other.coord) < 3:
+        if len(other.points) < 3:
             return [self]
 
-        v_offset = self.make_2d(other.center)
-        self_pts = [c.co2 for c in self.coord]
-        other_pts = [c.co2 + v_offset for c in other.coord]
+        self_pts = [c.co2 for c in self.points]
+        other_pts = [self.coord_sys.make_2d(c.co3) for c in other.points]
         self_poly = Polygon.Polygon(self_pts)
         other_poly = Polygon.Polygon(other_pts)
 
@@ -604,813 +340,535 @@ class SmartPoly:
             a = res_poly = other_poly - self_poly
             b = res_poly = self_poly & other_poly
             c = res_poly = self_poly - other_poly
-            lst= self._polygon_to_smart(a)
-            lst= lst + self._polygon_to_smart(b)
-            lst = lst + self._polygon_to_smart(c)
+            lst = polygon3_to_smart(self.coord_sys, a)
+            lst = lst + polygon3_to_smart(self.coord_sys, b)
+            lst = lst + polygon3_to_smart(self.coord_sys, c)
             return lst
 
-        return self._polygon_to_smart(res_poly)
-
-    def flip_z(self):
-        self.normal = -self.normal
-        self.ydir = self.normal.cross(self.xdir)
-        self.matrix[0] = self.xdir
-        self.matrix[1] = self.ydir
-        self.matrix[2] = self.normal
-        self.inverse = self.matrix.transposed()
-        self.coord.reverse()
-        self.calc_2d()
-        self.sort_winding()
-        self.calc_bbox()
-
-    def _polygon_to_smart(self, res_poly):
-        """Deal with potential holes and disjoint polygons"""
-        # and fix the center point location
-        lst_poly = []
-        lst_hole = []
-        lst_ctr = []
-        for i in range(len(res_poly)):
-            contour = res_poly.contour(i)
-            s_poly = Polygon.Polygon(contour)
-            if res_poly.isHole(i):
-                lst_hole.append(s_poly)
-            else:
-                lst_poly.append(s_poly)
-                lst_ctr.append(s_poly.center())
-
-        # to add holes, have to find best pair of points to connect
-        # will assume only one hole per polygon
-        lst_out = []
-        for s_poly, ctr in zip(lst_poly, lst_ctr):
-            b_merged = False
-            for q_poly in lst_hole:
-                if s_poly.covers(q_poly):
-                    s_pts = [Vector(v) for v in s_poly.contour(0)]
-                    if s_poly.orientation(0) == -1:
-                        s_pts.reverse()
-                    q_pts = [Vector(v) for v in q_poly.contour(0)]
-                    if q_poly.orientation(0) == 1:
-                        q_pts.reverse()
-                    combined = s_pts + q_pts
-                    m_poly = SmartPoly(matrix=self.matrix)
-                    for v2 in combined:
-                        m_poly.add(self.make_3d(v2))
-                    m_poly.center = self.make_3d(Vector(ctr))
-                    m_poly.calculate()
-                    lst_out.append(m_poly)
-                    b_merged = True
-                    break
-            if not b_merged:
-                m_poly = SmartPoly(matrix=self.matrix)
-                m_poly.center = self.make_3d(Vector(ctr))
-                s_pts = [Vector(v) for v in s_poly.contour(0)]
-                if s_poly.orientation(0) == -1:
-                    s_pts.reverse()
-                for v2 in s_pts:
-                    m_poly.add(self.make_3d(v2))
-                m_poly.calculate()
-                lst_out.append(m_poly)
-
-        return lst_out
+        return polygon3_to_smart(self.coord_sys, res_poly)
 
     def debug_str(self):
-        lines = [
-            f"Poly {self.name}",
-            "ctr={:.2f},{:.2f},{:.2f}  uv_org={:.2f},{:.2f},{:.2f}".format(self.center.x, self.center.y, self.center.z, self.uv_origin.x, self.uv_origin.y, self.uv_origin.z),
-            "X={:.2f},{:.2f},{:.2f}  Z={:.2f},{:.2f},{:.2f}".format(self.xdir.x, self.xdir.y, self.xdir.z, self.normal.x, self.normal.y, self.normal.z),
-            "bbox={:.2f},{:.2f}-{:.2f},{:.2f}, size={:.2f},{:.2f}".format(self.bbox[0].x, self.bbox[0].y, self.bbox[1].x, self.bbox[1].y, self.box_size.x, self.box_size.y),
-            "  {}".format(self.coord),
-        ]
-        return "\n".join(lines)
+        from .coordsys import ppstr
+        s = "SmartPoly\n"
+        s = s + str(self.coord_sys) + "\n"
+        for p in self.points:
+            s = s + "  " + str(p) + "\n"
+        s = s + "box min {} size {}\n".format(ppstr(self.bbox_min), ppstr(self.box_size))
+        return s
 
-    def generate_arch(self, w, h, n_sides, arch_type, thickness, mm):
-        """arch_type_list =
-        ("JACK", "Jack", "Flat", 1),
-        ("ROMAN", "Roman", "Round/Oval (1 pt)", 2),
-        ("GOTHIC", "Gothic", "Gothic pointed (2 pt)", 3),
-        ("OVAL", "Oval", "Victorian oval (3 pt)", 4),
-        ("TUDOR", "Tudor", "Tudor pointed (4 pt)", 5),
+    def fit_box(self, min_corner3, size2):
+        """Align bbox min to min_corner (in global space) and resize to fit size2 in 2d space
+        :param Vector min_corner3: align bbox min here (in world space)
+        :param size2: width and height
+        :type size2: Vector(2) or tuple"""
+        min_cur = self.coord_sys.make_3d(self.bbox_min)
+        shift_3d = min_corner3 - min_cur
 
-        Thickness 0 means just a single poly (or line for JACK)
-        Otherwise return a list of polygons (each has different uv origin) for the frame
-        self will be the interior of the arch
+        # avoid division errors
+        if self.box_size.x == 0:
+            self.box_size.x = 1
+        if self.box_size.y == 0:
+            self.box_size.y = 1
+
+        sx = size2[0] / self.box_size.x
+        sy = size2[1] / self.box_size.y
+
+        for pt in self.points:
+            pt.co2 = self.scale_2d(pt.co2, (sx,sy))
+            pt.co3 = self.coord_sys.make_3d(pt)
+            pt.co3 += shift_3d  # shift to new box corner
+            pt.co2 = None  # invalid now
+
+        # bring uv origin along; if it was out of plane, we lose that knowledge
+        o2 = self.face_attr['uv_origin'].to_2d()
+        o2 = self.scale_2d(o2, (sx,sy))
+        o3 = self.coord_sys.make_3d(o2) + shift_3d
+        self.face_attr['uv_origin'] = o3
+
+        self.calc_2d()  # updates bbox and size as well as co2 values
+
+    def flip_normal(self):
+        """Reverse winding and normal"""
+        self.points.reverse()
+        self.coord_sys.flip_normal()
+        self.calc_2d()
+
+    def generate_arch(self, w, h, n_sides, arch_type, thickness):
+        """Return list of SmartPoly, with last being center of arch
+        :param float w: width of bounding box
+        :param float h: height of bounding box
+        :param int n_sides: approx number of sides (may be increased for symmetry reasons)
+        :param str arch_type: name of arch method [JACK, ROMAN, GOTHIC, OVAL, TUDOR]
+        :param float thickness: width of arch frame, or 0 for no frame
+        :param bool bridge_result: add bridging polygons to self
+        :returns lst_poly, boundary_points: list of smart poly with center last, list of boundary points for bridging
         """
-        # thanks to ThisIsCarpentry.com for classic geometric construction algorithms
-        lst_pts = []
-        lst_pts2 = []  # for thickness case
-        lst_poly = []  # TODO
+        lst_pts1, lst_pts2, lst_ctr, lst_pts3 = generate_arch(w, h, n_sides, arch_type, thickness)
+        if thickness:
+            lst_facepoints, newverts = self.zip_quads(lst_pts1, lst_pts2, False)
+            lst_poly = [SmartPoly(self.coord_sys, pt_list=ptlist, break_link=False) for ptlist in lst_facepoints]
 
-        def trailing_poly(lst_pts, lst_pts2, ctr):
-            i = len(lst_pts)-1
-            frame_poly = SmartPoly(self.matrix)
-            frame_poly.center = self.center
-            frame_poly.add(self.make_3d(lst_pts[i-1]))
-            frame_poly.add(self.make_3d(lst_pts[i]))
-            frame_poly.add(self.make_3d(lst_pts2[i]))
-            frame_poly.add(self.make_3d(lst_pts2[i-1]))
-            frame_poly.calculate()
-            frame_poly.uv_origin = self.make_3d(ctr)
-            if frame_poly.normal != self.normal:
-                print("Bad arch polygon", self.normal, frame_poly.normal)
-            frame_poly.uv_mode = 'FACE_POLAR'
-            frame_poly.make_verts(mm)  # so they are shared with inside face
-            return frame_poly
+            for p, ctr in zip(lst_poly, lst_ctr):
+                c = p.calc_center_box()
+                ctr = self.coord_sys.make_3d(ctr)
+                r = ctr - c
+                p.face_attr['radial'] = r
+                p.face_attr['uv_origin'] = ctr
+                p.face_attr['uv_mode'] = 'FACE_POLAR'
+                p.calc_coord_sys(radial=r)
 
-        if arch_type == 'JACK':
-            # we really need thickness to make a single Jack arch polygon
-            if thickness == 0:
-                thickness = h/10
-            # points are spaced in angle, not in distance
-            theta_0 = math.atan2(h, w/2)
-            theta_1 = math.pi - theta_0
-            step = (theta_1 - theta_0) / n_sides
+            boundary_pts = [lst_pts2[0]] + lst_pts1 + [lst_pts2[-1]]
 
-            for i in range(0, n_sides + 1, n_sides):  # skipping flat points
-                t = step * i + theta_0
-                if t == math.pi/2:
-                    x = 0
-                else:
-                    x = h / math.tan(t)
-                lst_pts.append(Vector((x, h)))
-                if thickness > 0:
-                    h1 = h - thickness
-                    if t == math.pi / 2:
-                        x = 0
-                    else:
-                        x = h1 / math.tan(t)
-                    lst_pts2.append(Vector((x, h1)))
-
-            frame_poly = trailing_poly(lst_pts, lst_pts2, self.make_3d(Vector((0,0))))
-            lst_poly.append(frame_poly)
-
-            # face under arch
-            self.add(Vector((lst_pts2[0].x, 0)))
-            self.add(frame_poly.coord[-1])
-            self.add(frame_poly.coord[-2])
-            self.add(Vector((lst_pts2[-1].x, 0)))
-
-            thickness = 0
-            lst_pts2 = []
-
-        elif arch_type == 'ROMAN':
-            r = w**2/(8*h) + h/2
-            d = h-r
-            if round(d,3) == 0:  # full circular arc
-                theta = math.pi
+            if len(lst_pts3):
+                boundary_pts = boundary_pts + lst_pts3[1:3]
+                poly = SmartPoly(self.coord_sys, pt_list=lst_pts3)  # the space below the jack arch
             else:
-                theta = 2 * math.atan2(w/2, -d)
-            theta_0 = math.pi/2 - theta/2
-            step = theta / n_sides
-            for i in range(n_sides + 1):
-                t = step * i + theta_0
-                vx = 0 + r * math.cos(t)
-                vy = d + r * math.sin(t)
-                lst_pts.append(Vector((vx, vy)))
-                if thickness > 0:
-                    offset = thickness * (lst_pts[-1] - Vector((0,d))).normalized()
-                    lst_pts2.append(lst_pts[-1]-offset)
-                    if i > 0:
-                        ctr = Vector((0, d)) # self.make_3d()
-                        frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                        lst_poly.append(frame_poly)
-            if thickness > 0:
-                # inside face
-                for p in lst_poly:
-                    self.add(p.coord[-1])
-                self.add(lst_poly[-1].coord[-2])
-            else:
-                self.add(lst_pts)
+                poly = SmartPoly(self.coord_sys, pt_list=lst_pts2)  # the inside
 
-        elif arch_type == 'GOTHIC':
-            a = w/4
-            b = h/2
-            c = a - b**2/a
-            if c <= 0:  # normal gothic arch
-                d = 0  # center on springline
-                r_arc = w/2 - c
-                theta_start = 0
-            else:  # segmented pointed arch, center dropped
-                c1 = c
-                p1 = Vector((a,b))
-                p2 = Vector((c,0))
-                p3 = Vector((-a,0))
-                p4 = Vector((-a,-1))
-                p_i = mathutils.geometry.intersect_line_line(p1, p2, p3, p4)[0]
-                c = p_i.x
-                d = p_i.y
-                p5 = Vector([0, h]).to_2d()
-                r_arc = (p5 - p_i.to_2d()).length
-                p6 = Vector([w/2, 0]) - p_i.to_2d()
-                theta_start = math.atan2(p6.y, p6.x)
+            lst_poly.append(poly)
 
-            theta = math.atan2(h-d, -c)  # angle from horizontal to peak
-            if n_sides % 2 == 1:
-                n_sides = n_sides + 1
-            n_arc = n_sides // 2
+        else:
+            poly = SmartPoly(self.coord_sys, pt_list=lst_pts1)
+            lst_poly = [poly]
+            boundary_pts = poly.points
 
-            step = (theta-theta_start) / n_arc
-            for i in range(n_arc + 1):
-                t = step * i + theta_start
-                vx = c + r_arc * math.cos(t)
-                vy = d + r_arc * math.sin(t)
-                lst_pts.append(Vector((vx, vy)))
-                if thickness > 0:
-                    offset = thickness * (lst_pts[-1] - Vector((c, d))).normalized()
-                    if i == n_arc:  # drop point straight down
-                        e = lst_pts[-1] - lst_pts[-2]
-                        if lst_pts2[-1].x > 0:
-                            dy = -e.y / e.x * lst_pts2[-1].x
-                            dx = lst_pts2[-1].x
-                            correction = lst_pts2[-1] + Vector((-dx, dy))
-                            offset = lst_pts[-1] - correction
-                        else:
-                            offset.x = 0
-                    lst_pts2.append(lst_pts[-1]-offset)
-                    if i > 0:
-                        ctr = Vector((c, d))
-                        frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                        lst_poly.append(frame_poly)
-
-            theta_1 = math.pi - theta  # for downward stroke
-            for i in range(1, n_arc + 1):
-                t = step * i + theta_1
-                vx = -c + r_arc * math.cos(t)
-                vy = d + r_arc * math.sin(t)
-                lst_pts.append(Vector((vx, vy)))
-                if thickness > 0:
-                    offset = thickness * (lst_pts[-1]-Vector((-c,d))).normalized()
-                    lst_pts2.append(lst_pts[-1]-offset)
-                    if True:
-                        ctr = Vector((-c, d))
-                        frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                        lst_poly.append(frame_poly)
-
-            if thickness > 0:
-                # inside face
-                for p in lst_poly:
-                    self.add(p.coord[-1])
-                self.add(lst_poly[-1].coord[-2])
-            else:
-                self.add(lst_pts)
-
-        elif arch_type == 'OVAL':
-            r_corner = 2 * (h / 3)
-            c = w / 2 - r_corner
-            alpha = math.atan2(h/3, c)
-            a = math.sqrt((h/3)**2 + c**2)/2
-            b = a/math.sin(alpha)
-            d = b - h/3
-            r_center = h + d
-            theta = math.atan2(c, d)  # angle from center line
-
-            f_center = 2 * theta / math.pi  # fraction taken up by center arc
-            n_center = int(f_center * n_sides)
-            if (n_sides - n_center) % 2 == 1:  # ensure even side count to divide between ends
-                n_center = n_center - 1  # rounding center down because sides have sharper curvature
-            n_corner = (n_sides - n_center) // 2
-            if n_corner == 0:
-                theta_0 = 0
-                theta_1 = math.pi
-                theta = math.pi/2
-            else:
-                # we sweep points up from horizontal, not from center
-                theta_0 = math.pi / 2 - theta
-                theta_1 = math.pi / 2 + theta
-
-            if n_corner > 0:
-                step = theta_0 / n_corner
-                for i in range(n_corner + 1):
-                    t = step * i
-                    vx = c + r_corner * math.cos(t)
-                    vy = 0 + r_corner * math.sin(t)
-                    lst_pts.append(Vector((vx, vy)))
-                    if thickness > 0:
-                        offset = thickness * (lst_pts[-1]-Vector((c,0))).normalized()
-                        lst_pts2.append(lst_pts[-1] - offset)
-                        if i > 0:
-                            ctr = Vector((c, 0))
-                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                            lst_poly.append(frame_poly)
-
-            if n_center > 0:
-                step = (2 * theta) / n_center
-                if n_corner == 0:
-                    c_start = 0
-                else:
-                    c_start = 1
-                for i in range(c_start, n_center + 1):  # don't duplicate point at 0
-                    t = step * i + theta_0
-                    vx = 0 + r_center * math.cos(t)
-                    vy = -d + r_center * math.sin(t)
-                    lst_pts.append(Vector((vx, vy)))
-                    if thickness > 0:
-                        offset = thickness * (lst_pts[-1]-Vector((0,-d))).normalized()
-                        lst_pts2.append(lst_pts[-1] - offset)
-                        if len(lst_pts) > 0:
-                            ctr = Vector((0, -d))
-                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                            lst_poly.append(frame_poly)
-
-            if n_corner > 0:
-                step = theta_0 / n_corner
-                for i in range(1, n_corner + 1):
-                    t = step * i + theta_1
-                    vx = -c + r_corner * math.cos(t)
-                    vy = 0 + r_corner * math.sin(t)
-                    lst_pts.append(Vector((vx, vy)))
-                    if thickness > 0:
-                        offset = thickness * (lst_pts[-1]-Vector((-c,0))).normalized()
-                        lst_pts2.append(lst_pts[-1] - offset)
-                        if True:
-                            ctr = Vector((-c, 0))
-                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                            lst_poly.append(frame_poly)
-            if thickness > 0:
-                # inside face
-                for p in lst_poly:
-                    self.add(p.coord[-1])
-                self.add(lst_poly[-1].coord[-2])
-            else:
-                self.add(lst_pts)
-
-        elif arch_type == 'TUDOR':
-            r_corner = 2 * (h / 3)
-            cc = w / 2 - r_corner
-            # angle of ray 1, starting from top center, away from centerline
-            alpha = math.atan2(h / 3, w / 2)
-
-            p1 = Vector((-r_corner * math.sin(alpha), h-r_corner * math.cos(alpha)))
-            p2 = (p1 + Vector((cc, 0))) / 2
-            # angle of ray 3, start from midpoint between c and p1
-            beta = math.atan2(p2.y, cc-p2.x)
-            dir_beta = Vector((-math.sin(beta), -math.cos(beta)))
-
-            a = Vector((0,h,0))
-            b = p1.to_3d()
-            c = p2.to_3d()
-            d = (p2 + dir_beta).to_3d()
-            res = mathutils.geometry.intersect_line_line(a, b, c, d)[0]
-            v_peak = Vector((0, h, 0)) - res
-            r_center = v_peak.length
-            theta_peak = math.atan2(v_peak.y, v_peak.x)  # angle from springline
-            v_corner = Vector((cc, 0, 0)) - res
-            theta_corner = math.atan2(v_corner.y, v_corner.x)
-
-            f_center = (math.pi - 2 * theta_corner) / math.pi  # fraction taken up by center arc
-            n_center = int(f_center * n_sides)
-            if (n_sides - n_center) % 2 == 1:  # ensure even side count to divide between ends
-                n_center = n_center - 1  # rounding center down because sides have sharper curvature
-            n_corner = (n_sides - n_center) // 2
-
-            if n_center % 2 == 1:
-                n_center = n_center + 1  # ensure two halves even if we have extra side
-            n_center = n_center // 2
-
-            # we sweep points up from horizontal, not from center
-            theta_0 = theta_corner
-            theta_1 = math.pi - theta_corner
-
-            if n_corner>0:
-                step = theta_0 / n_corner
-                for i in range(n_corner + 1):
-                    t = step * i
-                    vx = cc + r_corner * math.cos(t)
-                    vy = 0 + r_corner * math.sin(t)
-                    lst_pts.append(Vector((vx, vy)))
-                    if thickness > 0:
-                        offset = thickness * (lst_pts[-1]-Vector((cc,0))).normalized()
-                        lst_pts2.append(lst_pts[-1] - offset)
-                        if i > 0:
-                            ctr = Vector((cc, 0))
-                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                            lst_poly.append(frame_poly)
-            if n_center > 0:
-                if n_corner == 0:
-                    c_start = 0
-                else:
-                    c_start = 1
-                step = (theta_peak - theta_0) / n_center
-                for i in range(c_start, n_center + 1):  # don't duplicate point at 0
-                    t = step * i + theta_0
-                    vx = res.x + r_center * math.cos(t)
-                    vy = res.y + r_center * math.sin(t)
-                    lst_pts.append(Vector((vx, vy)))
-                    if thickness > 0:
-                        offset = thickness * (lst_pts[-1] - Vector((res.x, res.y))).normalized()
-                        if i == n_center:  # drop point straight down
-                            e = lst_pts[-1] - lst_pts[-2]
-                            if lst_pts2[-1].x > 0:
-                                dy = -e.y / e.x * lst_pts2[-1].x
-                                dx = lst_pts2[-1].x
-                                correction = lst_pts2[-1] + Vector((-dx, dy))
-                                offset = lst_pts[-1] - correction
-                            else:
-                                offset.x = 0
-                        lst_pts2.append(lst_pts[-1] - offset)
-                        if len(lst_pts) > 0:
-                            ctr = Vector((res.x, res.y))
-                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                            lst_poly.append(frame_poly)
-                for i in range(1, n_center + 1):  # don't duplicate point at 0
-                    t = step * i + math.pi - theta_peak
-                    vx = -res.x + r_center * math.cos(t)  # mirror image
-                    vy = res.y + r_center * math.sin(t)
-                    lst_pts.append(Vector((vx, vy)))
-                    if thickness > 0:
-                        offset = thickness * (lst_pts[-1]-Vector((-res.x,res.y))).normalized()
-                        lst_pts2.append(lst_pts[-1] - offset)
-                        if len(lst_pts) > 0:
-                            ctr = Vector((-res.x, res.y))
-                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                            lst_poly.append(frame_poly)
-            if n_corner > 0:
-                step = theta_0 / n_corner
-                for i in range(1, n_corner + 1):
-                    t = step * i + theta_1
-                    vx = -cc + r_corner * math.cos(t)  # mirror
-                    vy = 0 + r_corner * math.sin(t)
-                    lst_pts.append(Vector((vx, vy)))
-                    if thickness > 0:
-                        offset = thickness * (lst_pts[-1]-Vector((-cc,0))).normalized()
-                        lst_pts2.append(lst_pts[-1] - offset)
-                        if len(lst_pts) > 0:
-                            ctr = Vector((-cc, 0))
-                            frame_poly = trailing_poly(lst_pts, lst_pts2, ctr)
-                            lst_poly.append(frame_poly)
-
-            if thickness > 0:
-                # inside face
-                for p in lst_poly:
-                    self.add(p.coord[-1])
-                self.add(lst_poly[-1].coord[-2])
-            else:
-                self.add(lst_pts)
-
-        self.calculate()
-
-        return lst_poly
+        return lst_poly, boundary_pts
 
     def generate_inset(self, thickness):
-        lst_v_in = []
-        n = len(self.coord)
-        for i in range(n):
-            j = (i+1) % n
-            e = self.coord[j].co3 - self.coord[i].co3
-            e.normalize()
-            v_in = self.normal.cross(e).normalized()
-            lst_v_in.append(v_in)
-
-        lst_pts = []
-        b_skip = False
-        for i in range(n):
-            if b_skip:
-                b_skip = False
-                continue
-            h = (i+n-1) % n
-            j = (i+1) % n
-            m = (i+2) % n
-            a = self.coord[h].co3 + lst_v_in[h]*thickness
-            b = self.coord[i].co3 + lst_v_in[h]*thickness
-            c = self.coord[i].co3 + lst_v_in[i]*thickness
-            d = self.coord[j].co3 + lst_v_in[i]*thickness
-            pts = mathutils.geometry.intersect_line_line(a, b, c, d)
-            if pts is not None:
-                # make sure we don't have a small edge disappearing
-                # should test multiple next points, but we just test one
-                c = self.coord[j].co3 + lst_v_in[j] * thickness
-                d = self.coord[m].co3 + lst_v_in[j] * thickness
-                pts2 = mathutils.geometry.intersect_line_line(a, b, c, d)
-                if pts2 is not None:
-                    dist1 = (pts[0] - a).length
-                    dist2 = (pts2[0] - a).length
-                    if dist2 < dist1:
-                        lst_pts.append(pts2[0])
-                        b_skip = True
-                    else:
-                        lst_pts.append(pts[0])
-                else:
-                    lst_pts.append(pts[0])
-
-        poly = SmartPoly()
-        poly.add(lst_pts)
-        poly.calculate()
+        """Create an inset of self at distance thickness
+        :param float thickness: distance to inset
+        :return SmartPoly: inset polygon"""
+        lst_pts = generate_inset(self.points, self.coord_sys.normal, thickness)
+        poly = SmartPoly(self.coord_sys, pt_list=lst_pts)
+        poly.make_verts()
         return poly
 
     def generate_ngon(self, n_sides, start_angle):
-        angle_delta = (2 * math.pi) / n_sides
-        for i in range(n_sides):
-            dx = math.cos(i * angle_delta + start_angle)
-            dy = math.sin(i * angle_delta + start_angle)
-            co = self.make_3d(Vector((dx, dy)))
-            self.add(co, True)
+        """Create a regular polygon
+        :param int n_sides: number of sides on shape
+        :param float start_angle: clocking to first point
+        :return SmartPoly: n-gon"""
+        lst_pts = generate_ngon(n_sides, start_angle)
+        poly = SmartPoly(self.coord_sys, pt_list=lst_pts)
+        poly.make_verts()
+        return poly
 
-        self.calculate()
+    def generate_revolve(self, r_origin, r_axis, n_steps, vz):
+        """Revolve this polygon around an axis
+        :param Vector r_origin: world point to rotate around
+        :param Vector r_axis: rotation axis
+        :param int n_steps: number of steps around
+        :param float vz: shift polygon away from axis by this much
+        :return list(poly): first and last polys are the end caps, the rest are in column major order
+        """
 
-    def generate_revolve(self, r_origin, r_axis, n_steps, vz, mm, b_make):
-        rot_theta = 2 * math.pi / n_steps
-        mat_r = Matrix.Rotation(rot_theta, 3, r_axis)
-        pts_rel = [sv.co3 - r_origin for sv in self.coord]
-        lst_pts = [pts_rel]
-        for i in range(1, n_steps):
-            p_rot = [mat_r @ p for p in lst_pts[-1]]
-            lst_pts.append(p_rot)
+        bottom_pt = self.coord_sys.make_3d(self.bbox_min)
+        lst_pts = generate_revolve(bottom_pt, self.points, r_origin, r_axis, n_steps, vz)
 
-        minpt = self.make_3d(self.bbox[0])
-        v = minpt - r_origin
-        v_align = v.dot(r_axis) * r_axis  # shift along axis to start point
-        for lst in lst_pts:  # delayed adding origin since we rotated previous list each time
+        # replace points with BMVerts for sharing
+        lst_start = []
+        lst_end = []
+        for lst in lst_pts:
             for i in range(len(lst)):
-                lst[i] = lst[i] + r_origin - v_align + vz * r_axis
-
-
-        if b_make:  # replace with bm_verts
-            for lst in lst_pts:
-                for i in range(len(lst)):
-                    lst[i] = mm.new_vert(lst[i])
+                lst[i] = self.coord_sys.mm.new_vert(lst[i])
+            lst_start.append(lst[0])
+            lst_end.append(lst[-1])
 
         lst_poly = []
-        ncp = len(self.coord)
+        poly = SmartPoly(self.coord_sys, pt_list=lst_start, break_link=False)
+        poly.flip_normal()
+        lst_poly.append(poly)
+
+        ncp = len(lst_pts[0])
         for i in range(n_steps):
-            ii = (i+1) % n_steps
+            ii = (i + 1) % n_steps
             for j in range(ncp):
-                jj = (j+1) % ncp
+                jj = (j + 1) % ncp
                 pts = [lst_pts[i][j], lst_pts[ii][j], lst_pts[ii][jj], lst_pts[i][jj]]
-                poly = SmartPoly()
-                poly.add(pts, break_link=False)
-                poly.calculate()
-                if b_make:
-                    poly.make_face(mm)
+                poly = SmartPoly(self.coord_sys, pt_list=pts, break_link=False)
+                poly.calc_coord_sys(r_axis)  # use r_axis as "in"
                 lst_poly.append(poly)
+
+        poly = SmartPoly(self.coord_sys, pt_list=lst_end, break_link=False)
+        lst_poly.append(poly)
+
         return lst_poly
 
     def generate_super(self, x, sx, px, y, sy, py, n, resolution, start_angle):
-        def radius(theta):
-            a = math.fabs(math.cos(x*theta/4)/sx)**px
-            b = math.fabs(math.sin(y*theta/4)/sy)**py
-            return math.pow(a+b, -1/n)
+        """Create super-ellipse points
+        :param float x: x frequency factor
+        :param float sx: x scale factor
+        :param float px: x power factor
+        :param float y: y frequency factor
+        :param float sy: y scale factor
+        :param float py: y power factor
+        :param float n: power normalizer
+        :param int resolution: number of points to generate
+        :param float start_angle: rotational offset
+        :return SmartPoly: result polygon
+        """
+        lst_pts = generate_super(x, sx, px, y, sy, py, n, resolution, start_angle)
+        poly = SmartPoly(self.coord_sys, pt_list=lst_pts)
+        poly.make_verts()
+        return poly
 
-        dtheta = 2*math.pi/resolution
-        for i in range(int(resolution)):
-            theta = i*dtheta + start_angle
-            r = radius(theta)
-            #print(theta*180/math.pi, r)
-            v = Vector((r*math.cos(theta), r*math.sin(theta)))
-            co = self.make_3d(v)
-            self.add(co)
-        self.calculate()
-
-    def grid_divide(self, count_x, count_y, offset_x=0, offset_y=0):
+    def grid_divide(self, count_x, count_y, offset_x=0, offset_y=0, size_x=0, size_y=0):
         lst_poly = []
-        dx = (self.box_size.x - offset_x) / (count_x + 1)
-        dy = (self.box_size.y - offset_y) / (count_y + 1)
+        dx = self.box_size.x / (count_x + 1)
+        if size_x:
+            dx = size_x
+        dy = self.box_size.y / (count_y + 1)
+        if size_y:
+            dy = size_y
         cutter = Polygon.Shapes.Rectangle(dx, dy)
-        master = Polygon.Polygon([c.co2 for c in self.coord])
-        for i in range(count_x + 1):
-            x0 = self.bbox[0].x + i * dx + offset_x
+        master = Polygon.Polygon([c.co2 for c in self.points])
+        x0 = self.bbox_min.x
+        if offset_x:
+            x1 = x0 + offset_x
+        else:
             x1 = x0 + dx
-            if i == 0: # force start at existing edge
-                x0 = x0 - offset_x
-
-            for j in range(count_y + 1):
-                y0 = self.bbox[0].y + j * dy + offset_y
+        for i in range(count_x + 1):
+            if i==count_x:
+                x1 = self.bbox_min.x + self.box_size.x
+            y0 = self.bbox_min.y
+            if offset_y:
+                y1 = y0 + offset_y
+            else:
                 y1 = y0 + dy
-                if j==0:
-                    y0 = y0 - offset_y
+            for j in range(count_y + 1):
+                if j == count_y:
+                    y1 = self.bbox_min.y + self.box_size.y
                 cutter.warpToBox(x0, x1, y0, y1)
                 res_poly = master & cutter
-                lst = self._polygon_to_smart(res_poly)
+                lst = polygon3_to_smart(self.coord_sys, res_poly)
                 lst_poly += lst
+                y0 = y1
+                y1 = y1 + dy
+            x0 = x1
+            x1 = x1 + dx
 
         return lst_poly
 
-    def intersect_projection(self, pt1, pt2, b_count=False):
-        """Project segment pt1-pt2 onto plane and test all edges
-        return first edge hit. If a vertex is hit, return the edge that starts there
-        Returns pt, edge_index or None
-        """
-        a = self.make_2d(pt1)
-        b = self.make_2d(pt2)
-        n = len(self.coord)
-        lst_hit = []
-        for idx in range(n):
-            e0 = self.coord[idx].co2
-            e1 = self.coord[(idx + 1) % n].co2
+    def make_face(self):
+        """calculate attributes and make face"""
+        from .geom import calc_face_uv, radial_to_euler, random_origin
+        from ..object import material_best_mode
 
-            res = mathutils.geometry.intersect_line_line_2d(a, b, e0, e1)
-            if res is not None:
-                d0 = (e0-res).length
-                d1 = (e1-res).length
-                if d1 == 0:
-                    lst_hit.append( ( d1, res, idx+1 ) )
-                else:
-                    lst_hit.append( (d0, res, idx))
+        ref = self.coord_sys.reference_face
+        mm = self.coord_sys.mm
+        if ref:
+            attrs = mm.get_face_attrs(ref)
+        else:
+            attrs = {}
 
-        if b_count:  # for point inside
-            return len(lst_hit)
+        if 'material' in self.face_attr:
+            mat_idx = self.face_attr['material']
+        elif ref:
+            mat_idx = ref.material_index
+        else:
+            mat_idx = 0
+        best_mode = material_best_mode(mm.obj.data.materials[mat_idx].name)
+        attrs[mm.key_uv] = best_mode
+        if 'uv_mode' in self.face_attr:
+            attrs[mm.key_uv] = self.face_attr['uv_mode']
 
-        lst_hit.sort(key = lambda t:t[0])
-        if len(lst_hit):
-            dir_a = (b-a)
-            dir_b = (lst_hit[0][1]-a)
-            if dir_b.length > 0.001:
-                t_a = round(math.atan2(dir_a.y, dir_a.x),4)
-                t_b = round(math.atan2(dir_b.y, dir_b.x),4)
-                if  not (t_a == t_b):
-                    print("Point not on segment {} {} {} {}".format(t_a*180/math.pi, t_b*180/math.pi, dir_a, dir_b))
-            return lst_hit[0][1], lst_hit[0][2]
-        return None
+        if ref:
+            pointing = self.face_attr.get('radial', ref[mm.key_radial])
+        else:
+            pointing = self.face_attr.get('radial', self.coord_sys.ydir)
+        attrs[mm.key_radial] = pointing
+        self.calc_coord_sys(pointing)
 
-    def make_2d(self, pt_3d):
-        if isinstance(pt_3d, SmartVec):
-            pt_3d = pt_3d.co3
-        v = self.matrix @ (pt_3d - self.center)
-        return v.to_2d()
+        if attrs[mm.key_uv] in ['ORIENTED', 'ORIENTED_SPIN', 'FACE_BBOX', 'FACE_POLAR']:
+            if 'uv_rot' in self.face_attr:
+                attrs[mm.key_uv_rot] = self.face_attr['uv_rot']
+            else:
+                vrot = radial_to_euler(pointing, self.coord_sys.normal)
+                attrs[mm.key_uv_rot] = vrot
+            if 'uv_origin' in self.face_attr:
+                attrs[mm.key_uv_orig] = self.face_attr['uv_origin']
+            else:
+                attrs[mm.key_uv_orig] = self.coord_sys.make_3d(self.bbox_min)
 
-    def make_3d(self, pt_2d):
-        if isinstance(pt_2d, SmartVec):
-            pt_2d = pt_2d.co2
-        v3 = self.inverse @ pt_2d.to_3d() + self.center
-        return v3
-
-    def make_face(self, mm):
-        from .geom import calc_face_uv
         vlist = []
-        for pt in self.coord:
+        for pt in self.points:
             if pt.bm_vert is not None:
                 if pt.bm_vert not in vlist:
                     vlist.append(pt.bm_vert)
                 else:
-                    pass  # print("Dup vert {} in {}".format(pt, self.coord))
+                    pass  # print("Dup vert {} skipped".format(pt))
             else:
-                pt.bm_vert = mm.new_vert(pt.co3)
+                pt.bm_vert = self.coord_sys.mm.new_vert(pt.co3)
                 vlist.append(pt.bm_vert)
         if len(vlist) > 2:
-            uvo = self.uv_origin
-            face = mm.new_face(vlist, uv_origin=uvo, uv_mode=self.uv_mode)
-            calc_face_uv(face, mm)
+            face = self.coord_sys.mm.new_face(vlist)
+            if 'material' in self.face_attr:
+                face.material_index = self.face_attr['material']
+            elif ref:
+                face.material_index = ref.material_index
+
+            mm.set_face_attrs(face, attrs)
+            calc_face_uv(face, mm)  # these depend on the things we just set
             return face
         else:
             print("< 3 verts")
         return None
 
-    def make_verts(self, mm):
-        for pt in self.coord:
-            if pt.bm_vert is not None:
+    def make_verts(self):
+        """Create BMVerts for points that don't have them"""
+        for pt in self.points:
+            if (pt.bm_vert is not None) and pt.bm_vert.is_valid:
                 pass
             else:
-                pt.bm_vert = mm.new_vert(pt.co3)
+                pt.bm_vert = self.coord_sys.mm.new_vert(pt.co3)
 
-    def outward_ray(self, sv1, sv2, sv3):
+    def normal(self):
+        """Shorthand to get coordsys normal"""
+        return self.coord_sys.normal
+
+    def outward_ray(self, sv1, sv2, sv3, b_allow_square=False):
+        """Given 3 points, find the outward ray from the corner
+        :param SmartPoint sv1: previous vertex
+        :param SmartPoint sv2: ray shooting vertex
+        :param SmartPoint sv3: next vertex
+        :param bool b_allow_square: if true, rectangle rays are perpendicular instead of 45 degrees
+        :return Vector: direction of ray
+        """
         # work in 3d for the cross product testing
-        v1 = sv2.co3 - sv1.co3
-        v2 = sv3.co3 - sv2.co3
+        v1 = (sv2.co3 - sv1.co3).normalized()
+        v2 = (sv3.co3 - sv2.co3).normalized()
         vz = v1.cross(v2)
         if vz.length == 0:  # straight line
-            v_out = -self.normal.cross(v1.normalized())
-        elif vz.dot(self.normal) < 0:  # concave
+            v_out = -self.normal().cross(v1.normalized())
+        elif vz.dot(self.normal()) < 0:  # concave
             v_out = v2.normalized() - v1.normalized()
         else:
             v_out = v1.normalized() - v2.normalized()
         v_out.normalize()
+
+        if b_allow_square:
+            # special corner case to make squares inside nicer
+            hor1 = approx(abs(v1.dot(self.coord_sys.xdir)), 1)
+            hor2 = approx(abs(v2.dot(self.coord_sys.xdir)), 1)
+            ver1 = approx(abs(v1.dot(self.coord_sys.ydir)), 1)
+            ver2 = approx(abs(v2.dot(self.coord_sys.ydir)), 1)
+
+            if (hor1 and ver2) or (ver1 and hor2):
+                if v_out.dot(self.coord_sys.ydir) >= 0:
+                    v_out = self.coord_sys.ydir
+                else:
+                    v_out = -self.coord_sys.ydir
+
         return v_out
 
     def outward_ray_idx(self, idx):
-        """Get outward start and ray from index number"""
-        n = len(self.coord)
-        sv1 = self.coord[(idx + n - 1) % n]
-        sv2 = self.coord[idx]
-        sv3 = self.coord[(idx + 1) % n]
+        """Get outward start and ray from index number
+        :param int idx: the point to launch the ray from
+        :return Vector, Vector: the point and direction for the ray"""
+        n = len(self.points)
+        sv1 = self.points[(idx + n - 1) % n]
+        sv2 = self.points[idx]
+        sv3 = self.points[(idx + 1) % n]
         ray_out = self.outward_ray(sv1, sv2, sv3)
         return sv2.co3, ray_out
 
     def project_to(self, v):
-        """Change normal and project shape"""
+        """Change normal and project shape
+        :param Vector v: the new normal directions
+        """
         norm = v.normalized()
-        for c in self.coord:
-            dp = norm.dot((c.co3 - self.center))
+        for c in self.points:
+            dp = norm.dot((c.co3 - self.coord_sys.origin))
             c.co3 = c.co3 - dp * norm
-        self.calculate()
+        self.calc_coord_sys()
 
-    def pt_inside(self, v):
-        a = self.make_3d(v)
-        b = a + self.xdir * self.box_size.x
-        crossings = self.intersect_projection(a, b, True)
-        if crossings % 2 == 1:
-            return True
-        return False
+    def ray_intersection(self, start, direction, b_out_only):
+        """Test for ray intersection, return closest point and edge indices
+        :param Vector start: ray start
+        :param Vector direction: ray direction
+        :param bool b_out_only: only check outward direction
+        :return Vector, list(int): the point and edge indices, or None, []
+        """
+        direction = direction.normalized()
+        a = start
+        b = a + direction
 
-    def rotate(self, angle):
-        """2d rotation"""
-        mat = Matrix.Rotation(angle, 2)
-        for c in self.coord:
-            c.co2 = mat @ c.co2
-        self.update_3d()
-        self.calculate()
+        n = len(self.points)
+        lst_hit = []
+        for idx in range(n):
+            e0 = self.points[idx].co3
+            e1 = self.points[(idx + 1) % n].co3
 
-    def scale(self, sx, sy):
-        org = self.make_2d(self.center)
-        for pt in self.coord:
-            v = pt.co2-org
-            v.x *= sx
-            v.y *= sy
-            v = v + org
-            pt.co2.x = v.x
-            pt.co2.y = v.y
-        self.calc_bbox()
+            res = mathutils.geometry.intersect_line_line(a, b, e0, e1)
+            if res is not None:
+                sep = (res[0] - res[1]).length
+                if approx(sep, 0):
+                    v0 = res[0]
+                    # on segment?
+                    ve = e1-e0
+                    elen = ve.length
+                    ve = ve.normalized()
+                    vi = v0-e0
+                    ilen = vi.dot(ve)
+                    if ilen > elen:
+                        continue
+                    if ilen < 0:
+                        continue
 
-    def shift_2d(self, v):
-        # careful, doing pt += will replace pt reference instead of updating in place
-        for pt in self.coord:
-            pt.co2.x += v.x
-            pt.co2.y += v.y
-        for pt in self.bbox:
-            pt.x += v.x
-            pt.y += v.y
+                    v1 = v0-a
+                    d0 = v1.dot(direction)
 
-        cur = self.make_2d(self.uv_origin)
-        cur = cur + v
-        self.uv_origin = self.make_3d(self.uv_origin)
+                    if approx(d0, 0): # cant' get any closer
+                        return v0, (idx, idx+1)
+
+                    if (d0 < 0) and b_out_only:
+                        continue
+
+                    lst_hit.append([d0, v0, (idx, (idx+1) % n)])
+
+        if len(lst_hit):
+            lst_hit.sort(key=lambda t: t[0])
+            return lst_hit[0][1], lst_hit[0][2]
+
+        return None, []
+
+    def remove_duplicates(self, b_inline=False):
+        """Remove duplicate coordinates
+        :param b_inline: if True, remove straight line points that aren't needed
+        :type b_inline: None or bool
+        :return int: Length of remaining points
+        """
+        clean = [self.points[0]]
+        for pt in self.points[1:]:
+            if clean[-1] == pt:
+                pass
+            else:
+                clean.append(pt)
+
+        if b_inline and len(clean) > 3:
+            clean_2 = [clean[0]]
+            for i in range(1, len(clean)-1):
+                v1 = clean[i] - clean[i-1]
+                v2 = clean[i+1] - clean[i]
+                if approx(1, v1.dot(v2)):
+                    pass
+                else:
+                    clean_2.append(clean[i])
+            clean_2.append(clean[-1])  # technically, this could be in a line and not needed
+            clean = clean_2
+
+        self.points = clean
+        return len(self.points)
+
+    def roll_point_start(self):
+        """Make sure first point is closest to bbox min"""
+        first_idx = self.coord_sys.first_corner_index([p.co3 for p in self.points])
+        self.points = self.points[first_idx:] + self.points[:first_idx]
+
+    def rotate_2d(self, angle, ctr3):
+        """2d rotation of points and coordinate system
+        :param float angle: angle to ratate around normal
+        :param Vector ctr3: point in 3d to rotate around
+        """
+        mat = Matrix.Rotation(angle, 3, self.coord_sys.normal)
+        self.shift_3d(-ctr3)
+        self.apply_rotation_matrix(mat)
+        self.shift_3d(ctr3)
+
+    def scale_2d(self, v2, scale_xy):
+        """Scales relative to bbox min
+        :param Vector v2: 2D point to scale
+        :param scale_xy: tuple or Vector scale
+        :returns Vector: result position"""
+        v2 = v2 - self.bbox_min  # scale relative to corner
+        v2.x *= scale_xy[0]
+        v2.y *= scale_xy[1]
+        return v2 + self.bbox_min
+
+    def scale_around(self, ctr, sx, sy):
+        """2D scaling in polygon coordinates
+        :param Vector ctr: 3D center of scaling
+        :param float sx: scale x size
+        :param float sy: scale y size"""
+        for pt in self.points:
+            v = pt - ctr
+            vx = v.dot(self.coord_sys.xdir) * sx
+            vy = v.dot(self.coord_sys.ydir) * sy
+            vz = v.dot(self.coord_sys.normal)
+            v = (vx * self.coord_sys.xdir +
+                 vy * self.coord_sys.ydir +
+                 vz * self.coord_sys.normal)
+            pt.co3 = v + ctr
+        v = self.face_attr['uv_origin']
+        vx = v.dot(self.coord_sys.xdir) * sx
+        vy = v.dot(self.coord_sys.ydir) * sy
+        vz = v.dot(self.coord_sys.normal)
+        v = (vx * self.coord_sys.xdir +
+             vy * self.coord_sys.ydir +
+             vz * self.coord_sys.normal)
+        self.face_attr['uv_origin'] = v + ctr
+        self.calc_2d(b_no_roll=True)
 
     def shift_3d(self, v):
-        for pt in self.coord:
+        """Add offset to points and coordinate system
+        :param Vector v: the amount to shift"""
+        for pt in self.points:
             pt.co3 += v
             if pt.bm_vert:
                 pt.bm_vert.co += v
-        self.center += v
-        self.uv_origin += v
-
-    def sort_winding(self):
-        """Order vectors by clockwise angle"""
-        w = [atan(p.co2) for p in self.coord]
-        minv = 100
-        min_i = 0
-        for i, a in enumerate(w):
-            if math.fabs(a) < minv:
-                min_i = i
-
-        self.coord = self.coord[min_i:] + self.coord[:min_i]
-
+        self.face_attr['uv_origin'] += v
+        self.coord_sys.origin += v
 
     def splice(self, idx, pt):
-        sv = SmartVec(pt)
-        if sv.co3 is None:
-            sv.co3 = self.make_3d(pt)
-        else:
-            sv.co2 = self.make_2d(pt)
-        sv.winding = math.atan2(sv.co2.y, sv.co2.x)
-        self.coord.insert(idx, sv)
-        return sv
+        """Insert a point at idx
+        :param int idx: point to insert in front of
+        :param vector pt: new point"""
 
-    def split_edge(self, idx, n=1):
-        a = self.coord[idx].co3
-        b = self.coord[(idx+1) % len(self.coord)].co3
-        for i in range(n):
-            f = (i+1)/(n+1)
-            vnew = (1-f) * a + f * b
-            sv = SmartVec(vnew)
-            self.coord.insert(idx+i+1, sv)
-            sv.co2 = self.make_2d(vnew)
+        sv = SmartPoint(pt)
+        if sv.co3 is None:
+            sv.co3 = self.coord_sys.make_3d(sv.co2)
+        else:
+            sv.co2 = self.coord_sys.make_2d(sv.co3)
+        self.points.insert(idx, sv)
 
     def split_points(self, i, j):
+        """Split poly on the line joining i and j
+        :param int i: index of first point
+        :param int j: index of second point
+        :return list(SmartPoly): list of polygons generated"""
         if abs(i-j) < 2:
             return []
         if i > j:
             j, i = i, j
-        if (i == 0) and (j == len(self.coord)-1):
+        if (i == 0) and (j == len(self.points)-1):
             return []
 
         new_poly = []
-        n = len(self.coord)
+        n = len(self.points)
 
-        vlist1 = [self.coord[k % n] for k in range(i, j + 1)]
+        vlist1 = [self.points[k % n] for k in range(i, j + 1)]
         if len(vlist1):
-            poly = SmartPoly()
-            poly.add(vlist1)
-            poly.calculate()
-            if poly.normal.dot(self.normal) < 0:
-                poly.flip_z()
+            poly = SmartPoly(self.coord_sys, pt_list=vlist1)
             new_poly.append(poly)
 
-        vlist2 = [self.coord[k % n] for k in range(j, i+n + 1)]
+        vlist2 = [self.points[k % n] for k in range(j, i+n + 1)]
         if len(vlist2):
-            poly2 = SmartPoly()
-            poly2.add(vlist2)
-            poly2.calculate()
-            if poly2.normal.dot(self.normal) < 0:
-                poly2.flip_z()
+            poly2 = SmartPoly(self.coord_sys, pt_list=vlist2)
             new_poly.append(poly2)
 
         return new_poly
 
-    def split_xy(self, pt, cut_x, mm):
+    def split_xy(self, pt, cut_x):
         """Split horizontal or vertical - doing both x and y at once was complicated, so do one at a time
-        makes new bmesh points to share as it goes, assumes self points have bmesh links already
+        :param vector pt: anchor position for cut
+        :param bool cut_x: False to use a y line
+        :return list[Poly]: generated polygons
         """
         cut = []
         cut_y = not cut_x
-        n = len(self.coord)
+        n = len(self.points)
         for i in range(n):
-            a, b = self.coord[i].co2, self.coord[(i+1) % n].co2
+            a, b = self.points[i].co2, self.points[(i+1) % n].co2
             if cut_x:
                 if (a.y < pt.y < b.y) or (b.y < pt.y < a.y):
                     dxdy = (b.x - a.x) / (b.y - a.y)
@@ -1433,13 +891,14 @@ class SmartPoly:
         cut.sort(key=lambda t: t[0])
 
         # reverse because we don't want to change indices
-        new_coord = [sv for sv in self.coord]
+        self.make_verts()
+        new_coord = [sv for sv in self.points]
         cut.reverse()
         for i, dist, pos in cut:
-            sv = SmartVec(pos)
-            sv.co3 = self.make_3d(pos)
-            new_coord.insert(i+1, sv)
-            bmv = mm.new_vert(sv.co3)
+            sv = SmartPoint(pos)
+            sv.co3 = self.coord_sys.make_3d(pos)
+            sv.bm_vert = self.coord_sys.mm.new_vert(sv.co3)
+            new_coord.insert(i + 1, sv)
 
         # now link up the points
         indices = []
@@ -1460,9 +919,7 @@ class SmartPoly:
         a = new_coord[(indices[0]+n-1) % n]
         e_last = (b.co2 - a.co2).normalized().to_3d()
 
-        master_poly = SmartPoly()
-        master_poly.add(new_coord, break_link=False)
-        master_poly.calculate()
+        master_poly = SmartPoly(self.coord_sys, pt_list=new_coord, break_link=False)
 
         n = len(indices)
         new_poly = []
@@ -1477,10 +934,10 @@ class SmartPoly:
             e_next = (b.co2 - a.co2).normalized().to_3d()
             if next_idx-idx < 2:  # adjacent points, so on a horizontal edge
                 pass
-            elif (idx==0) and (next_idx==n-1): # adjacent points
+            elif (idx==0) and (next_idx==n-1):  # adjacent points
                 pass
             else:
-                if e_next.dot(e_last) < -0.999: # don't double back over edge
+                if e_next.dot(e_last) < -0.999:  # don't double back over edge
                     pass
                 elif (idx, next_idx) not in set_used:  # don't do reverse of existing cut
                     set_used.add((next_idx, idx))
@@ -1503,14 +960,11 @@ class SmartPoly:
 
     def union(self, lst_poly):
         """Create a merged polygon"""
-        self_pts = [c.co2 for c in self.coord]
-        print(["{0[0]:.3f},{0[1]:.3f}".format(p) for p in self_pts])
+        self_pts = [c.co2 for c in self.points]
         self_poly = Polygon.Polygon(self_pts)
         Polygon.setTolerance(1e-3)
         for other in lst_poly:
-            v_offset = self.make_2d(other.center)
-            other_pts = [c.co2 + v_offset for c in other.coord]
-            print(["{0[0]:.3f},{0[1]:.3f}".format(p) for p in other_pts])
+            other_pts = [self.coord_sys.make_2d(c.co3) for c in other.points]
             self_poly.addContour(other_pts)
 
         self_poly.simplify()
@@ -1519,8 +973,8 @@ class SmartPoly:
         s_pts = [Vector(v) for v in contour]
         if self_poly.orientation(0) == -1:
             s_pts.reverse()
-        print(["{0[0]:.3f},{0[1]:.3f}".format(p) for p in s_pts])
-        verts = [self.make_3d(v) for v in s_pts]
+
+        verts = [self.coord_sys.make_3d(v) for v in s_pts]
 
         # test for bad verts that sometimes appear at seams
         n = len(verts)
@@ -1536,17 +990,46 @@ class SmartPoly:
                 lst.append(verts[j])
         verts = lst
 
-        u_poly = SmartPoly()
-        u_poly.add(verts)
-        u_poly.calculate()
+        u_poly = SmartPoly(self.coord_sys, pt_list=verts)
         return u_poly
 
+
     def update_3d(self):
-        for pt in self.coord:
-            pt.co3 = self.make_3d(pt.co2)
+        """Update 3d position from 2d"""
+        for pt in self.points:
+            pt.co3 = self.coord_sys.make_3d(pt)
+
+    def update_bmvert(self):
+        """Transfer 3d position to bm_verts"""
+        for pt in self.points:
             if pt.bm_vert:
                 pt.bm_vert.co = pt.co3
 
-    def update_bmverts(self):
-        for pt in self.coord:
-            pt.bm_vert.co = pt.co3
+    def zip_quads(self, lst1, lst2, b_join_ends):
+        """Make quads of BMVert from parallel points (2d), optionally join as a loop
+        Makes the BMVerts so they can be shared
+
+        :param list(Vector) lst1: outside ring in ccw order
+        :param list(Vector) lst2: inside ring in ccw order
+        :param bool b_join_ends: flag to connect first and last pairs or not
+        returns list, list: [[face verts]] and [new verts]
+        """
+        rval = []
+        if b_join_ends:
+            n = len(lst1)
+        else:
+            n = len(lst1) - 1
+
+        if len(lst1[0]) == 2:
+            lst1 = [self.coord_sys.make_3d(v) for v in lst1]
+            lst2 = [self.coord_sys.make_3d(v) for v in lst2]
+
+        verts1 = [self.coord_sys.mm.new_vert(v) for v in lst1]
+        verts2 = [self.coord_sys.mm.new_vert(v) for v in lst2]
+
+        ncp = len(lst1)
+        for i in range(n):
+            j = (i + 1) % ncp
+            lst = [verts1[i], verts1[j], verts2[j], verts2[i]]
+            rval.append(lst)
+        return rval, verts1 + verts2

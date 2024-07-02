@@ -4,7 +4,7 @@ import mathutils
 import struct
 from contextlib import contextmanager
 from ..object import VERT_OP_ID, VERT_OP_SEQUENCE, BT_INST_PICK, BT_INST_SCALE, BT_INST_ROT
-from ..object import FACE_THICKNESS, FACE_CATEGORY, FACE_UV_MODE, FACE_UV_ORIGIN, FACE_OP_ID, FACE_OP_SEQUENCE, FACE_UV_ROTATE
+from ..object import FACE_ELEVATION, FACE_CATEGORY, FACE_UV_MODE, FACE_UV_ORIGIN, FACE_OP_ID, FACE_OP_SEQUENCE, FACE_UV_ROTATE, FACE_RADIAL
 from ..object import SelectionInfo, LOOP_UV_W
 
 from collections import defaultdict
@@ -58,7 +58,7 @@ class ManagedMesh:
             self.key_op = self.bm.verts.layers.int[VERT_OP_ID]
             self.key_seq = self.bm.verts.layers.int[VERT_OP_SEQUENCE]
             self.key_tag = self.bm.faces.layers.int[FACE_CATEGORY]
-            self.key_thick = self.bm.faces.layers.float[FACE_THICKNESS]
+            self.key_elev = self.bm.faces.layers.float[FACE_ELEVATION]
             self.key_uv = self.bm.faces.layers.int[FACE_UV_MODE]
             self.key_uv_orig = self.bm.faces.layers.float_vector[FACE_UV_ORIGIN]
             self.key_face_seq = self.bm.faces.layers.int[FACE_OP_SEQUENCE]
@@ -68,12 +68,13 @@ class ManagedMesh:
             self.key_pick = self.bm.verts.layers.int[BT_INST_PICK]
             self.key_inst_rot = self.bm.verts.layers.float_vector[BT_INST_ROT]
             self.key_inst_scale = self.bm.verts.layers.float_vector[BT_INST_SCALE]
+            self.key_radial = self.bm.faces.layers.float_vector[FACE_RADIAL]
 
         else:
             self.key_op = None
             self.key_seq = None
             self.key_tag = None
-            self.key_thick = None
+            self.key_elev = None
             self.key_uv = None
             self.key_uv_orig = None
             self.key_face_seq = None
@@ -83,6 +84,7 @@ class ManagedMesh:
             self.key_pick = None
             self.key_inst_rot = None
             self.key_inst_scale = None
+            self.key_radial = None
 
             # tracking as we add
         self.cur_seq = 0
@@ -120,29 +122,8 @@ class ManagedMesh:
         ]
         print("deleting {} faces".format(len(lst_del)))
         bmesh.ops.delete(self.bm, geom=lst_del, context="FACES_ONLY")
-        print("creating wall thickness")
-        self.create_wall_thickness()
 
-    def create_wall_thickness(self):
-        from .geom import calc_face_uv
-        lst_thick = []
-        for face in self.bm.faces:
-            t = face[self.key_thick]
-            n = -t * face.normal
-            if t != 0:
-                vlist = [n + v.co for v in face.verts]
-                luv = [l[self.key_uv_w] for l in face.loops]
-                vlist.reverse()
-                luv.reveres()
-                face_new = self.bm.faces.new(vlist)
-                for k in [self.key_face_op, self.key_uv_orig, self.key_uv_rot, self.key_uv, self.key_tag]:
-                    face_new[k] = face[k]
-                face_new.material_index = face.material_index
-                for loop, uv in zip(face_new.loops, luv):
-                    loop[self.key_uv_w] = uv
-                calc_face_uv(face_new, self)
 
-                face[self.key_thick] = 0
 
     def cube(self, x, y, z, tag=None):
         verts = [(0,0,0),(0,y,0),(x,y,0),(x,0,0),
@@ -196,6 +177,7 @@ class ManagedMesh:
         if len(vlist) < 3:
             return None
         face = None
+        b_order= False
 
         for test_face in vlist[0].link_faces:
             b_found = True
@@ -207,10 +189,9 @@ class ManagedMesh:
                 if v is not vlist[i]:
                     b_order = False
             if b_found:
-                if b_order:
-                    face = test_face
-                    break
-        return face
+                face = test_face
+                break
+        return face, b_order
 
     def find_face_by_smart_vec(self, sv_list):
         vlist = [sv.bm_vert for sv in sv_list]
@@ -286,22 +267,30 @@ class ManagedMesh:
     def get_face_attrs(self, face):
         from ..ops.properties import int_to_face_tag, int_to_uv_mode
         dct = {}
+        if face is None:
+            return {}
         dct[self.key_tag] = int_to_face_tag(face[self.key_tag])
-        dct[self.key_thick] = face[self.key_thick]
+        dct[self.key_elev] = face[self.key_elev]
         dct[self.key_uv_rot] = face[self.key_uv_rot]
         dct[self.key_uv_orig] = face[self.key_uv_orig]
         dct[self.key_uv] = int_to_uv_mode(face[self.key_uv])
+        dct[self.key_radial] = face[self.key_radial]
 
         return dct
 
     def get_faces(self, sel_info):
         """Return selected bmfaces"""
         lst_face = []
-        for face in self.bm.faces:
+        dct_order = {}
+        for face in self.bm.faces:  # order here changes all the time
             op = face[self.key_face_op]
             seq = face[self.key_face_seq]
             if seq in sel_info.face_list(op):
-                lst_face.append(face)
+                dct_order[(op, seq)] = face
+
+        for op in sel_info.op_list():  # don't care really what order, as long as it is reproducible
+            for seq in sel_info.face_list(op):
+                lst_face.append(dct_order[(op,seq)])
         return lst_face
 
     def get_face_verts(self, sel_info):
@@ -345,6 +334,7 @@ class ManagedMesh:
 
     def set_face_attrs(self, face, dct):
         from ..ops.properties import face_tag_to_int, uv_mode_to_int
+        from ..object.materials import tag_to_material
 
         for key, value in dct.items():
             if isinstance(value, str):
@@ -355,8 +345,11 @@ class ManagedMesh:
 
             face[key] = value
             if key == self.key_tag:
-                if -1 < value < len(self.obj.data.materials):
-                    face.material_index = value
+                mat_name = tag_to_material(value)
+                if mat_name != 'BT_Nothing':  # because most things are tag nothing but have a user material assigned
+                    idx = self.get_material_index(mat_name)
+                    face.material_index = idx
+        self.to_mesh()
 
     def set_facesel_attr(self, sel_info, key, value):
         faces = self.get_faces(sel_info)
@@ -413,21 +406,45 @@ class ManagedMesh:
         bmv[self.key_inst_rot] = rot
         bmv[self.key_inst_scale] = scale
 
+    def get_material_index(self, mat_name):
+        """Ensure material exists and return index"""
+        from ..object.materials import import_bt_materials
+        if mat_name in ['', '0', 'N/A']:
+            return 0
+
+        for i, m in enumerate(self.obj.data.materials):
+            if m.name == mat_name:
+                return i
+
+        if mat_name not in bpy.data.materials:
+            import_bt_materials()
+
+        self.obj.data.materials.append(bpy.data.materials[mat_name])
+        return len(self.obj.data.materials) - 1
+
     def new_vert(self, v):
         if self.cur_seq in self.existing:
             bmv = self.existing[self.cur_seq]
-            bmv.co = v
-            # print("existing vert at {} {}".format(self.cur_seq, v))
-        else:
-            bmv = self.bm.verts.new(v)
-            bmv[self.key_op] = self.op_id
-            bmv[self.key_seq] = self.cur_seq
+            if bmv.is_valid:  # update position
+                bmv.co = v
+                bmv[self.key_pick] = -1  # turn off instancing
+                self.cur_seq += 1
+                return bmv
+            else:
+                print("replace ", self.cur_seq)
+                bmv[self.key_seq] = -2
+
+        bmv = self.bm.verts.new(v)
+        bmv[self.key_op] = self.op_id
+        bmv[self.key_seq] = self.cur_seq
         bmv[self.key_pick] = -1  # turn off instancing
+        self.existing[self.cur_seq] = bmv
+
         self.cur_seq += 1
 
         return bmv
 
-    def new_face(self, vlist, uv_origin=None, uv_mode=None, thickness=None, tag="NOTHING"):
+    def new_face(self, vlist, uv_origin=None, uv_mode=None, elevation=None, tag="NOTHING"):
         from ..ops import uv_mode_to_int, face_tag_to_int
 
         face = None
@@ -438,11 +455,14 @@ class ManagedMesh:
             else:
                 # no access to change verts, delete and remake if needed
                 old_vlist = [v for v in face.verts]
-                match = True
-                for a, b in zip(old_vlist, vlist):
-                    if a is not b:
-                        match = False
-                        break
+                if len(old_vlist) != len(vlist):
+                    match = False
+                else:
+                    match = True
+                    for a, b in zip(old_vlist, vlist):
+                        if a is not b:
+                            match = False
+                            break
                 if not match:
                     del self.existing_face[self.cur_face_seq]
                     # print("true delete face {} {}".format(face[self.key_face_op], face[self.key_face_seq]))
@@ -450,8 +470,10 @@ class ManagedMesh:
                     face = None
 
         if face is None:
-            face = self.find_face_by_bmvert(vlist)
-            if face is None:
+            face, order = self.find_face_by_bmvert(vlist)
+            if (face is None) or not order:
+                if face:
+                    bmesh.ops.delete(self.bm, geom=[face], context='FACES_ONLY')
                 face = self.bm.faces.new(vlist)
                 self.existing_face[self.cur_face_seq] = face
                 face[self.key_face_op] = self.op_id
@@ -471,8 +493,8 @@ class ManagedMesh:
         if uv_mode is not None:
             uv_int = uv_mode_to_int(uv_mode)
             face[self.key_uv] = uv_int
-        if thickness is not None:
-            face[self.key_thick] = thickness
+        if elevation is not None:
+            face[self.key_elev] = elevation
 
         self.cur_face_seq += 1
         return face
@@ -491,17 +513,6 @@ class ManagedMesh:
             face[self.key_face_seq] = self.cur_face_seq
             self.cur_face_seq += 1
             # attrs
-
-    def thick_faces(self, sel_info):
-        sel_faces = self.get_faces(sel_info)
-        if len(sel_faces)==0:
-            sel_faces = self.bm.faces
-
-        lst_thick = []
-        for face in sel_faces:
-            if face[self.key_thick] != 0:
-                lst_thick.append(face)
-        return lst_thick
 
     def vert_list(self, sel_info):
         """Flat list of free verts with no repeats"""

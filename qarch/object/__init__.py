@@ -4,9 +4,10 @@ from .utils import (
     set_obj_data,
     FACE_CATEGORY,
     FACE_UV_MODE,
-    FACE_THICKNESS,
+    FACE_ELEVATION,
     FACE_UV_ORIGIN,
     FACE_UV_ROTATE,
+    FACE_RADIAL,
     FACE_OP_ID,
     FACE_OP_SEQUENCE,
     VERT_OP_ID,
@@ -42,4 +43,5 @@ from .journal import (
     get_block
 )
 
-from .materials import lst_bt_materials, enum_oriented_material, material_best_mode, enum_all_material
+from .materials import (lst_bt_materials, enum_oriented_material, material_best_mode, enum_plan_wall_material, enum_plan_floor_material,
+                        enum_all_material, enum_plan_material, enum_nonplan_material)

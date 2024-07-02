@@ -84,10 +84,10 @@ def create_door(bm, faces, prop):
                 for knob,origin,scale in zip(knobs,knob_origins,knob_scales):
                     knob[0].matrix_local.translation = origin[0]
                     align_obj(knob[0], normal)
-                    knob[0].scale = scale[0]
+                    knob[0].scale2d = scale[0]
                     knob[1].matrix_local.translation = origin[1]
                     align_obj(knob[1], normal)
-                    knob[1].scale = scale[1]
+                    knob[1].scale2d = scale[1]
 
                 # create arch
                 if prop.add_arch:

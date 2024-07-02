@@ -13,6 +13,11 @@ from ..mesh import ManagedMesh
 import struct
 from .dynamic_enums import enum_category_items, BT_CATALOG_SRC, from_path
 
+# registration and module init info
+lst_classes = [
+]
+lst_funcs = []
+
 _do_debug = True
 def debug_print(s):
     if _do_debug:
@@ -163,6 +168,7 @@ class CustomOperator(bpy.types.Operator):
         Passes draw_locked flag in context to make some fields read only
         """
         should_lock = self.draw_locked(context)
+        self.layout.popover("QARCH_PT_calculator")
         self.props.draw(context, self.layout, False)  # should_lock)
 
     def draw_locked(self, context):
@@ -478,7 +484,7 @@ class CustomOperator(bpy.types.Operator):
             old_record = self.initial_journal[cur_op_id]
         except Exception:
             return True
-        old_gen = TopologyInfo(from_dict=old_record['gen_info'])
+        old_gen = TopologyInfo(from_dict=old_record['gen_info'].to_dict())
 
         if not old_gen.is_compatible(gen_info):
             print("update topo failed because of topology mismatch")
@@ -637,6 +643,11 @@ def set_operation_consistent(obj, op_id):
 def replay_history(context, active_op, undo=False):
     """Read opid from journal and call the appropriate operator"""
     obj = context.object
+    stop_at = get_obj_data(obj, REPLAY_OP_ID)
+
+    if -1 < stop_at < active_op:
+        return {'FINISHED'}
+
     set_obj_data(obj, ACTIVE_OP_ID, active_op)
     set_operation_consistent(obj, active_op)  # prevent poll failure
 

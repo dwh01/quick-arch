@@ -3,7 +3,6 @@ import bpy
 from .custom import CustomOperator
 from .properties import *
 from ..mesh import (
-    union_polygon,
     inset_polygon,
     grid_divide,
     split_face,
@@ -21,27 +20,49 @@ from ..mesh import (
     extrude_walls,
     build_face,
     build_roof,
+    plan_feature,
+    plan_inset_walls,
+    set_plan_floor,
+    perpendicular_face,
 )
 from ..object import get_obj_data, ACTIVE_OP_ID, material_best_mode
 
-
-class QARCH_OT_union_polygon(CustomOperator):
-    """Divide a face into regular patches"""
-
-    bl_idname = "qarch.union_polygon"
-    bl_label = "Add Polygon"
-    bl_options = {"REGISTER", "UNDO"}
-
-    props: bpy.props.PointerProperty(type=UnionPolygonProperty)
-
-    function = union_polygon
-
+# registration and module init info
+lst_classes = [
+    'QARCH_OT_inset_polygon',
+    'QARCH_OT_grid_divide',
+    'QARCH_OT_split_face',
+    'QARCH_OT_extrude_fancy',
+    'QARCH_OT_extrude_sweep',
+    'QARCH_OT_solidify_edges',
+    'QARCH_OT_make_louvers',
+    'QARCH_OT_set_face_uv_orig',
+    'QARCH_OT_set_face_uv_mode',
+    'QARCH_OT_set_face_uv_rotate',
+    'QARCH_OT_set_face_elevation',
+    'QARCH_OT_set_face_radial',
+    'QARCH_OT_set_face_tag',
+    'QARCH_OT_set_face_material',
+    'QARCH_OT_calc_uvs',
+    'QARCH_OT_set_oriented_mat',
+    'QARCH_OT_flip_normal',
+    'QARCH_OT_import_mesh',
+    'QARCH_OT_project_face',
+    'QARCH_OT_extrude_walls',
+    'QARCH_OT_build_face',
+    'QARCH_OT_build_roof',
+    'QARCH_OT_plan_feature',
+    'QARCH_OT_plan_inset_walls',
+    'QARCH_OT_set_plan_floor',
+    'QARCH_OT_perpendicular_face',
+]
+lst_funcs = []
 
 class QARCH_OT_inset_polygon(CustomOperator):
     """Divide a face into regular patches"""
 
     bl_idname = "qarch.inset_polygon"
-    bl_label = "Inset Polygon"
+    bl_label = "Insert Polygon"
     bl_options = {"REGISTER", "UNDO"}
 
     props: bpy.props.PointerProperty(type=InsetPolygonProperty)
@@ -200,12 +221,12 @@ class QARCH_OT_set_face_tag(CustomOperator):
         return super().invoke(context, event)
 
 
-class QARCH_OT_set_face_thickness(CustomOperator):
-    bl_idname = "qarch.set_face_thickness"
-    bl_label = "Face Thickness"
+class QARCH_OT_set_face_material(CustomOperator):
+    bl_idname = "qarch.set_face_material"
+    bl_label = "Face Material"
     bl_options = {"REGISTER", "UNDO"}
 
-    props: PointerProperty(type=FaceThicknessProperty)
+    props: PointerProperty(type=FaceMaterialProperty)
 
     function = set_face_property
 
@@ -216,14 +237,42 @@ class QARCH_OT_set_face_thickness(CustomOperator):
     def invoke(self, context, event):
         # if this is not a replay, replace defaults with what is in the face now
         mm = ManagedMesh(context.object)
-        thick = None
+        tag = None
         for face in mm.bm.faces:
             if face.select:
-                thick = face[mm.key_thick]
+                idx = face.material_index
+                break
+        if idx is not None:
+            self.props.material = context.object.data.materials[idx].name
+        mm.free()
+
+        return super().invoke(context, event)
+
+
+class QARCH_OT_set_face_elevation(CustomOperator):
+    bl_idname = "qarch.set_face_elevation"
+    bl_label = "Face Thickness"
+    bl_options = {"REGISTER", "UNDO"}
+
+    props: PointerProperty(type=FaceElevationProperty)
+
+    function = set_face_property
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+    def invoke(self, context, event):
+        # if this is not a replay, replace defaults with what is in the face now
+        mm = ManagedMesh(context.object)
+        elevation = None
+        for face in mm.bm.faces:
+            if face.select:
+                elevation = face[mm.key_elev]
                 break
 
-        if thick is not None:
-            self.props.thickness = thick
+        if elevation is not None:
+            self.props.elevation = elevation
         mm.free()
 
         return super().invoke(context, event)
@@ -308,6 +357,34 @@ class QARCH_OT_set_face_uv_rotate(CustomOperator):
             break
         if rot is not None:
             self.props.uv_rotate = rot
+        mm.free()
+
+        return super().invoke(context, event)
+
+
+class QARCH_OT_set_face_radial(CustomOperator):
+    bl_idname = "qarch.set_face_radial"
+    bl_label = "Face Y"
+    bl_options = {"REGISTER", "UNDO"}
+
+    props: PointerProperty(type=FaceRadialProperty)
+
+    function = set_face_property
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+    def invoke(self, context, event):
+        # if this is not a replay, replace defaults with what is in the face now
+        mm = ManagedMesh(context.object)
+        org = None
+        lst_faces = mm.get_faces(mm.get_selection_info())
+        for face in lst_faces:
+            org = face[mm.key_radial]
+            break
+        if org is not None:
+            self.props.radial = org
         mm.free()
 
         return super().invoke(context, event)
@@ -414,18 +491,6 @@ class QARCH_OT_project_face(CustomOperator):
             return sel_info.count_faces() > 1
 
 
-class QARCH_OT_extrude_walls(CustomOperator):
-    """Select by tags"""
-    bl_idname = "qarch.extrude_walls"
-    bl_label = "Wall Extrude"
-    bl_description = "Make tagged walls have thickness"
-    bl_options = {"REGISTER", "UNDO"}
-
-    function = extrude_walls
-
-    props: PointerProperty(type=FlipNormalProperty)
-
-
 class QARCH_OT_build_face(CustomOperator):
     """Select by tags"""
     bl_idname = "qarch.build_face"
@@ -465,24 +530,81 @@ class QARCH_OT_build_roof(CustomOperator):
         return cls.is_face_selected(context)
 
 
-geom_classes = (
-    QARCH_OT_union_polygon,
-    QARCH_OT_inset_polygon,
-    QARCH_OT_grid_divide,
-    QARCH_OT_split_face,
-    QARCH_OT_extrude_fancy,
-    QARCH_OT_extrude_sweep,
-    QARCH_OT_solidify_edges,
-    QARCH_OT_make_louvers,
-    QARCH_OT_set_face_uv_orig,
-    QARCH_OT_set_face_uv_mode,
-    QARCH_OT_set_face_thickness,
-    QARCH_OT_set_face_tag,
-    QARCH_OT_calc_uvs,
-    QARCH_OT_set_oriented_mat,
-    QARCH_OT_flip_normal,
-    QARCH_OT_project_face,
-    QARCH_OT_extrude_walls,
-    QARCH_OT_build_face,
-    QARCH_OT_build_roof
-)
+class QARCH_OT_extrude_walls(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.extrude_walls"
+    bl_label = "Wall Extrude"
+    bl_description = "Extrude plan wall sections to make a room"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = extrude_walls
+
+    props: PointerProperty(type=FlipNormalProperty)
+
+
+class QARCH_OT_plan_feature(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.plan_feature"
+    bl_label = "Wall Feature"
+    bl_description = "Add door, window, etc. to a plan wall"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = plan_feature
+
+    props: PointerProperty(type=PlanFeatureProperty)
+
+
+class QARCH_OT_plan_inset_walls(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.plan_inset_walls"
+    bl_label = "Inset Walls"
+    bl_description = "Add walls inside a plan polygon"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = plan_inset_walls
+
+    props: PointerProperty(type=PlanInsetWallsProperty)
+
+
+class QARCH_OT_set_plan_floor(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.set_plan_floor"
+    bl_label = "Mark Floor"
+    bl_description = "Set floor orientation in plan"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = set_plan_floor
+
+    props: PointerProperty(type=PlanFloorProperty)
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)  # should also check for horizontal face
+
+    def invoke(self, context, event):
+        # if this is not a replay, replace defaults with what is in the face now
+        mm = ManagedMesh(context.object)
+        rot = None
+        lst_faces = mm.get_faces(mm.get_selection_info())
+        for face in lst_faces:
+            rot = face[mm.key_uv_rot]
+            elev = face[mm.key_elev]
+            break
+        if rot is not None:
+            self.props.rotation = rot[2]
+
+        mm.free()
+
+        return super().invoke(context, event)
+
+
+class QARCH_OT_perpendicular_face(CustomOperator):
+    """Add a rectangle at right angles to current face plane"""
+    bl_idname = "qarch.perpendicular_face"
+    bl_label = "Perpendicular Face"
+    bl_options = {"REGISTER", "UNDO"}
+
+    props: bpy.props.PointerProperty(type=PerpendicularFaceProperty)
+
+    function = perpendicular_face
+

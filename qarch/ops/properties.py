@@ -3,12 +3,64 @@ from bpy.props import IntProperty, FloatProperty, BoolProperty, PointerProperty,
 from bpy.props import FloatVectorProperty, CollectionProperty
 from bpy.types import AddonPreferences, FileAssetSelectParams, UserAssetLibrary
 import math
+import json
+import pathlib
 from .custom import CustomPropertyBase
 from collections import OrderedDict
-from ..object import enum_oriented_material, enum_all_material
+from ..object import enum_oriented_material, enum_all_material, enum_plan_material, enum_nonplan_material, enum_plan_wall_material, enum_plan_floor_material
 from .dynamic_enums import enum_catalogs, enum_categories, enum_category_items, enum_objects_or_curves
 from .dynamic_enums import face_tag_to_int, int_to_face_tag, get_face_tag_enum
 
+# order might matter for registration
+lst_classes = [
+    'FaceTagProperty',
+    'FaceMaterialProperty',
+    'FaceElevationProperty',
+    'FaceUVModeProperty',
+    'FaceUVOriginProperty',
+    'FaceRadialProperty',
+    'FaceUVRotateProperty',
+    'CalcUVProperty',
+    'ArchShapeProperty',
+    'CatalogObjectProperty',
+    'LocalObjectProperty',
+    'SuperCurveProperty',
+    'DirectionProperty',
+    'ArrayProperty',
+    'PositionProperty',
+    'SizeProperty',
+    'GridDivideProperty',
+    'SplitFaceProperty',
+    'PolygonProperty',
+    'InsetPolygonProperty',
+    'PerpendicularFaceProperty',
+    'ExtrudeProperty',
+    'SweepProperty',
+    'DashedProperty',
+    'SolidifyEdgesProperty',
+    'MakeLouversProperty',
+    'SimpleWindowProperty',
+    'MeshImportProperty',
+    'OrientedMaterialProperty',
+    'FlipNormalProperty',
+    'ProjectFaceProperty',
+    'BuildFaceProperty',
+    'BuildRoofProperty',
+    'SimpleDoorProperty',
+    'SimpleRailProperty',
+    'ExtendGableProperty',
+    'DormerProperty',
+    'PlanInsetWallsProperty',
+    'PlanFeatureProperty',
+    'PlanFloorProperty',
+    'CalculatorProperty',
+    'BTAddonPreferences',
+]
+
+lst_funcs = [
+    'uv_mode_to_int',
+    'int_to_uv_mode'
+]
 
 uv_mode_list = [
         ('GLOBAL_XY', 'Global XY', 'Use real units projected to face'),
@@ -18,6 +70,8 @@ uv_mode_list = [
         ('GLOBAL_YX', 'Global YX', 'Flip x and y, use real units projected to face'),
         ('FACE_YX', 'Face YX', 'Flip x and y, use real units'),
         ('ORIENTED', 'Oriented', 'Specify global rotation around origin for volumetrics'),
+        ('ORIENTED_PLAN', 'Plan', 'Floor plan oriented material'),
+        ('ORIENTED_SPIN', 'Rotatable', 'Rotatable in plane only (uses euler z only)'),
         ('NONE', 'None', 'Do not auto-calculate UV'),  # so we don't erase something the user did
     ]
 
@@ -40,9 +94,15 @@ class FaceTagProperty(CustomPropertyBase):
     topology_lock = []
 
 
-class FaceThicknessProperty(CustomPropertyBase):
-    thickness: FloatProperty(name="Face Thickness", default=0, min=0, description="Wall thickness after finalization")
-    field_layout = [['thickness']]
+class FaceMaterialProperty(CustomPropertyBase):
+    material: EnumProperty(name='Material', items=enum_all_material, description="Material name")
+    field_layout = [['material']]
+    topology_lock = []
+
+
+class FaceElevationProperty(CustomPropertyBase):
+    elevation: FloatProperty(name="Face Elevation", default=0, min=0, description="Floor height above plan")
+    field_layout = [['elevation']]
     topology_lock = []
 
 
@@ -58,8 +118,14 @@ class FaceUVOriginProperty(CustomPropertyBase):
     topology_lock = []
 
 
+class FaceRadialProperty(CustomPropertyBase):
+    radial: FloatVectorProperty(name="Face Y", subtype="XYZ", description="Y direction of face coordinates")
+    field_layout = [['radial']]
+    topology_lock = []
+
+
 class FaceUVRotateProperty(CustomPropertyBase):
-    uv_rotate: FloatVectorProperty(name="UV Rotation", subtype="XYZ", description="Rotation of UV coordinates")
+    uv_rotate: FloatVectorProperty(name="UV Rotation", subtype="EULER", description="Rotation of UV coordinates")
     field_layout = [['uv_rotate']]
     topology_lock = []
 
@@ -137,9 +203,12 @@ class PositionProperty(CustomPropertyBase):
     is_relative_x: BoolProperty(name="Relative", default=False, description="Relative position (0-1) for x")
     offset_y: FloatProperty(name="Offset Y", default=0.0, unit="LENGTH", description="Face Y position")
     is_relative_y: BoolProperty(name="Relative", default=False, description="Relative position (0-1) for y")
+    center_x: BoolProperty(name="Center X", default=False, description="Center position for x")
+    center_y: BoolProperty(name="Center Y", default=False, description="Center position for y")
 
     field_layout = [
-        ['offset_x', 'is_relative_x', 'offset_y', 'is_relative_y'],
+        ['offset_x', 'is_relative_x', 'center_x'],
+        ['offset_y', 'is_relative_y', 'center_y'],
     ]
 
     topology_lock = []
@@ -162,10 +231,13 @@ class GridDivideProperty(CustomPropertyBase):
     count_x: IntProperty(name="X Count", min=0, default=1, description="Number of vertical rows")
     count_y: IntProperty(name="Y Count", min=0, default=1, description="Number of horizontal cols")
     offset: PointerProperty(name="offset", type=PositionProperty)
+    define_size: BoolProperty(name="Define step size", default=False, description="Use fixed size step instead of even distribution")
+    size: PointerProperty(name="Step Size", type=SizeProperty)
 
     field_layout = [
         ['count_x', 'count_y'],
         ('Offset Grid', 'offset'),
+        ('define_size', 'size')
     ]
 
     topology_lock = ['count_x', 'count_y']
@@ -254,20 +326,6 @@ class LocalObjectProperty(CustomPropertyBase):
     topology_lock = ['object_name']
 
 
-class UnionPolygonProperty(CustomPropertyBase):
-    position: PointerProperty(name="Position", type=PositionProperty)
-    size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
-    poly: PointerProperty(name="Poly", type=PolygonProperty)
-
-    field_layout = [
-        ('', 'position'),
-        ('', 'size'),
-        ('', 'poly'),
-    ]
-
-    topology_lock = []
-
-
 shape_type_list = [
     ("SELF", "Self Similar", "Current shape resized", 0),
     ("NGON", "Regular Polygon", "N-sided polygon", 1),
@@ -292,10 +350,12 @@ class InsetPolygonProperty(CustomPropertyBase):
     join: EnumProperty(name="Join", items=lst_join_enum, default="BRIDGE")
     add_perimeter: BoolProperty(name="Add Perimeter Points", description="Add points to perimeter to match if needed", default=False)
     extrude_distance: FloatProperty(name="Extrude Distance", default=0.0, unit="LENGTH", description="Extrude distance")
-    frame_material: EnumProperty(name="Frame Material", items=enum_all_material)
-    center_material: EnumProperty(name="Center Material", items=enum_all_material)
+    frame_material: EnumProperty(name="Frame Material", items=enum_nonplan_material)
+    center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
 
     shape_type: EnumProperty(name="Shape Type", default="SELF", items=shape_type_list)
+    by_inset: BoolProperty(name="By Insert", description="Inset thickness instead of scale and position", default=False)
+    thickness: FloatProperty(name="Thickness", default=0)
     poly: PointerProperty(name="Poly", type=PolygonProperty)
     arch: PointerProperty(name="Arch", type=ArchShapeProperty)
     frame: FloatProperty(name="Frame Thickness", min=0, default=0.1, description="Polygon donut instead of solid face")
@@ -310,6 +370,8 @@ class InsetPolygonProperty(CustomPropertyBase):
         ['join'],
         ({'join': 'BRIDGE'}, 'add_perimeter'),
         ['shape_type'],
+        ({'shape_type': 'SELF'}, 'by_inset'),
+        ('by_inset', 'thickness'),
         ({'shape_type': 'NGON'}, 'poly'),
         ({'shape_type': 'ARCH'}, 'arch'),
         ({'shape_type': {'NGON', 'ARCH'}}, 'frame'),
@@ -322,6 +384,23 @@ class InsetPolygonProperty(CustomPropertyBase):
     ]
 
     topology_lock = ['shape_type', 'join', 'frame']
+
+
+class PerpendicularFaceProperty(CustomPropertyBase):
+    position: PointerProperty(name="Position", type=PositionProperty)
+    size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
+    rotation: FloatProperty(name="Z Rotation", default=0, min=-math.pi, max=math.pi, unit="ROTATION", description="Rotation around perpendicular axis")
+    offset_z: FloatProperty(name="Z Offset", default=0)
+    material: EnumProperty(name="Center Material", items=enum_nonplan_material)
+
+    field_layout = [
+        ('','position'),
+        ('','size'),
+        ['rotation', 'offset_z'],
+        ['material']
+    ]
+
+    topology_lock = []
 
 
 class DashedProperty(CustomPropertyBase):
@@ -341,9 +420,11 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
     side_list: StringProperty(name="Sides", description="Comma separated list of numbers, or empty for all")
     z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
+    by_inset: BoolProperty(name="By Insert", description="Inset thickness instead of scale and position", default=False)
+    thickness: FloatProperty(name="Thickness", default=0)
     inset: FloatProperty(name="Inset Offset", description="Distance off edge", default=0)
     face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
-    frame_material: EnumProperty(name="Frame Material", items=enum_all_material)
+    frame_material: EnumProperty(name="Frame Material", items=enum_nonplan_material)
     revolutions: IntProperty(name="Revolutions", description="If > 3, make a revolution of n steps instead of extrusion", default = 0)
     shape_type: EnumProperty(name="Shape Type", default="NGON", items=shape_type_list)
     poly: PointerProperty(name="Poly", type=PolygonProperty)
@@ -370,6 +451,8 @@ class SolidifyEdgesProperty(CustomPropertyBase):
         ['shape_type'],
         ({'shape_type': 'NGON'}, 'poly'),
         ({'shape_type': 'NGON'}, 'frame'),
+        ({'shape_type': 'SELF'}, 'by_inset'),
+        ({'shape_type': 'SELF'}, 'thickness'),
         ({'shape_type': 'ARCH'}, 'arch'),
         ({'shape_type': 'SUPER'}, 'super_curve'),
         ({'shape_type': 'CURVE'}, 'local_object'),
@@ -391,8 +474,8 @@ class ExtrudeProperty(CustomPropertyBase):
     twist: FloatProperty(name="Twist Angle", default=0.0, unit="ROTATION", description="Degrees to rotate top")
     size: PointerProperty(name='End Size', type=SizeProperty, description='Scale result face to this size')
     flip_normals: BoolProperty(name="Flip Normals", description="Flip normals on extruded faces", default=False)
-    side_material: EnumProperty(name="Side Material", items=enum_all_material)
-    center_material: EnumProperty(name="Center Material", items=enum_all_material)
+    side_material: EnumProperty(name="Side Material", items=enum_nonplan_material)
+    center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
 
     field_layout = [
         ['distance', 'steps'],
@@ -413,8 +496,8 @@ class SweepProperty(CustomPropertyBase):
     angle: FloatProperty(name="Angle", default=math.pi, min=-2*math.pi, max=2*math.pi, unit="ROTATION", description="Sweep Angle")
     steps: IntProperty(name="Steps", min=1, default=8, description="Number of steps along axis")
     size: PointerProperty(name='End Size', type=SizeProperty, description='Scale result face to this size')
-    side_material: EnumProperty(name="Side Material", items=enum_all_material)
-    center_material: EnumProperty(name="Center Material", items=enum_all_material)
+    side_material: EnumProperty(name="Side Material", items=enum_nonplan_material)
+    center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
 
     field_layout = [
         ('Rot Origin','origin'),
@@ -440,7 +523,7 @@ class MakeLouversProperty(CustomPropertyBase):
     depth_offset: FloatProperty(name="Depth Offset", default=0.03, unit="LENGTH", description="Out of plane offset (from face)")
     flip_xy: BoolProperty(name="Flip xy", default=False, description="Change orientation")
     connect_louvers: BoolProperty(name="Connected", default=False, description="Connect to make bellows")
-    face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
+    material: EnumProperty(name="Material", items=enum_nonplan_material)
 
     field_layout = [
         ['count_x', 'count_y'],
@@ -448,7 +531,7 @@ class MakeLouversProperty(CustomPropertyBase):
         ['blade_angle', 'blade_thickness'],
         ['depth_thickness', 'depth_offset'],
         ['flip_xy', 'connect_louvers'],
-        ['face_tag']
+        ['material']
     ]
 
     topology_lock = ['count_x', 'count_y', 'flip_xy']
@@ -553,52 +636,204 @@ class FlipNormalProperty(CustomPropertyBase):
     topology_lock = []
 
 
-project_face_enum = [
-    ('A2B', 'A to B', 'Outside of A to plane of B'),
-    ('B2A', 'B to A', 'Outside of B to plane of A'),
-    ('BRIDGE_AB', 'Bridge AB', 'Outside of A to outside of B'),
-    ('BRIDGE_BA', 'Bridge BA', 'Outside of B to outside of A'),
-]
-
-
 class ProjectFaceProperty(CustomPropertyBase):
     target: IntProperty(name='Target', description='Face defining projection plane', default=0)
-    tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for new faces")
+    material: EnumProperty(name="Material", items=enum_nonplan_material, description="Material for new faces")
     bridge: BoolProperty(name='Bridge', description="Bridge to target", default=False)
 
     field_layout = [['target', 'bridge'],
-                    ['tag']]
+                    ['material']]
 
     topology_lock = ['bridge']
 
 
 class BuildFaceProperty(CustomPropertyBase):
-    tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for new faces")
+    material: EnumProperty(name="Material", items=enum_nonplan_material, description="Material for new faces")
     flip_normal: BoolProperty(name="Flip normal", description="Flip normal direction")
 
     field_layout = [
-        ['tag'],
+        ['material'],
         ['flip_normal']
     ]
 
     topology_lock = []
 
-class BuildRoofProperty(CustomPropertyBase):
-    height: FloatProperty(name="Height", description="Height to peak", default=2)
 
-    field_layout = [['height']]
+class BuildRoofProperty(CustomPropertyBase):
+    slope: FloatProperty(name="Slope", description="Tangent slope", default=0.6)
+
+    field_layout = [['slope']]
     topology_lock = []
 
-class AssetLibProps(bpy.types.PropertyGroup):
-    asset: CollectionProperty(name="Asset", description="Asset Name", type=bpy.types.AssetHandle)
-    active: IntProperty(name="Index", description="Asset Index")
+
+class PlanInsetWallsProperty(CustomPropertyBase):
+    side_list: StringProperty(name="Sides", description="Comma separated list of numbers, or empty for all")
+    thickness: FloatProperty(name="Thickness", description="Wall thickness", default=0.1)
+    material: EnumProperty(items=enum_plan_wall_material, name="Wall type", description="Wall type to insert")
+
+    field_layout = [
+        ['side_list'],
+        ['thickness'],
+        ['material']
+    ]
+
+    topology_lock = []
+
+class PlanFeatureProperty(CustomPropertyBase):
+    material: EnumProperty(items=enum_plan_material, name="Feature", description="Wall feature to insert")
+    offset: FloatProperty(name="Offset", description="Offset from end of wall segment", min=0, default=0)
+    size: FloatProperty(name="Width", description="Size of feature", min=0, default=1)
+    flip_x: BoolProperty(name="Flip X", description="Flip left/right", default=False)
+    flip_y: BoolProperty(name = "Flip Y", description="Flip inside/outside", default=False)
+
+    field_layout = [
+        ['material'],
+        ['offset', 'size'],
+        ['flip_x', 'flip_y']
+    ]
+
+    topology_lock = []  # note, we will use ensure_children to delete any children rather than lock this
+
+
+class PlanFloorProperty(CustomPropertyBase):
+    material: EnumProperty(items=enum_plan_floor_material, name="Feature", description="Wall feature to insert")
+    rotation: FloatProperty(name="Rotate Floor", default = 0, unit="ROTATION", description="Rotate floor UV direction")
+    elevation: FloatProperty(name="Elevation", description="Offset from plan elevation", default=0)
+
+
+    field_layout = [
+        ['material'],
+        ['rotation', 'elevation'],
+    ]
+
+    topology_lock = []
+
+
+dimension_dict = {}
+dimension_enum = []
+
+
+def load_dimensions():
+    from .dynamic_enums import qarch_asset_dir
+    global dimension_enum, dimension_dict
+    p = qarch_asset_dir / "default/dimensions.txt"
+    txt = p.read_text()
+    lst = txt.split("\n")
+    lst = [line.split(",") for line in lst]
+    for row in lst:
+        if len(row)==4:
+            e = (row[0], row[0], '')
+            dimension_enum.append(e)
+            dimension_dict[row[0]] = {'width': float(row[1]), 'height': float(row[2]), 'gap': float(row[3])}
+
+
+load_dimensions()
+updating = 0
+
+
+def update_calculator_ref(self, context):
+    global updating
+    updating = 2  # each triggered update will decrement this to prevent loops
+    self.open_x = self.calc_open_x()
+    self.open_y = self.calc_open_y()
+
+
+def update_open_x(self, context):
+    global updating
+    if updating > 0:
+        updating -= 1
+    else:
+        updating = 1
+        self.n_x = self.calc_n_x()
+
+
+def update_open_y(self, context):
+    global updating
+    if updating > 0:
+        updating -= 1
+    else:
+        updating = 1
+        self.n_y = self.calc_n_y()
+
+
+
+def update_n_x(self, context):
+    global updating
+    if updating > 0:
+        updating -= 1
+    else:
+        updating = 1
+        self.open_x = self.calc_open_x()
+
+
+def update_n_y(self, context):
+    global updating
+    if updating > 0:
+        updating -= 1
+    else:
+        updating = 1
+        self.open_y = self.calc_open_y()
+
+
+class CalculatorProperty(bpy.types.PropertyGroup):
+    ref_dimension: EnumProperty(items=dimension_enum, name="Reference", description="Object for size calculations",
+                                default="brick", update=update_calculator_ref)
+    n_x: FloatProperty(name="Num wide", default=1, min=0, update=update_n_x)
+    n_y: FloatProperty(name="Num high", default=1, min=0, update=update_n_y)
+    open_x: FloatProperty(name="Width", description="num * (width + gap)", min=0, update=update_open_x)
+    open_y: FloatProperty(name="Height", description="num * (height + gap)", min=0, update=update_open_y)
+
+    def draw(self, context, layout):
+        row = layout.row(align=True)
+        row.prop_menu_enum(self, 'ref_dimension', text=self.ref_dimension)
+        row = layout.row(align=True)
+        dat = dimension_dict[self.ref_dimension]
+        row.label(text="width {width:.3f}, height {height:.3f}, gap {gap:.3f}".format(**dat))
+        row = layout.row(align=True)
+        row.prop(self, 'n_x')
+        row.prop(self, 'n_y')
+        row = layout.row(align=True)
+        row.prop(self, 'open_x')
+        row.prop(self, 'open_y')
+
+    def calc_open_x(self):
+        dat = dimension_dict[self.ref_dimension]
+        ref = self.ref_dimension
+        if ('door' in ref) or ('window' in ref):  # trim both sides
+            return (dat['width'] + 2*dat['gap']) * self.n_x
+        return (dat['width'] + dat['gap']) * self.n_x - dat['gap']  # remove final gap (mortar)
+
+    def calc_open_y(self):
+        dat = dimension_dict[self.ref_dimension]
+        ref = self.ref_dimension
+        if 'door' in ref:  # top trim
+            return (dat['height'] + dat['gap']) * self.n_y
+        elif 'window' in ref:  # trim both sides
+            return (dat['height'] + 2 * dat['gap']) * self.n_y
+        return (dat['height'] + dat['gap']) * self.n_y - dat['gap']  # remove final gap (mortar)
+
+    def calc_n_x(self):
+        dat = dimension_dict[self.ref_dimension]
+        ref = self.ref_dimension
+        if ('door' in ref) or ('window' in ref):  # trim both sides
+            return self.open_x / (dat['width'] + 2*dat['gap'])
+        return (self.open_x + dat['gap']) / (dat['width'] + dat['gap'])
+
+    def calc_n_y(self):
+        dat = dimension_dict[self.ref_dimension]
+        ref = self.ref_dimension
+        if 'door' in ref:  # top trim
+            return self.open_y / (dat['height'] + dat['gap'])
+        elif 'window' in ref:  # trim both sides
+            return self.open_y / (dat['height'] + 2 * dat['gap'])
+        return (self.open_y - dat['gap']) / (dat['height'] + dat['gap'])
+
 
 class BTAddonPreferences(AddonPreferences):
     # this must match the add-on name, use '__package__'
     # when defining this in a submodule of a python package.
     bl_idname = "qarch"
 
-    #user_script_path: StringProperty(name="User Script Path", subtype='FILE_PATH', description="Path to user generated scripts")
     user_tags: StringProperty(name="Face tags", description="Comma separated list of custom tags")
     select_mode: EnumProperty(
         name="Selection Mode", description="How to handle multiple face selection",
@@ -606,53 +841,15 @@ class BTAddonPreferences(AddonPreferences):
                ('GROUP','Group of Faces','Each face gets same property record'),
                ('REGION', 'Region', 'Treat as one big face')
                ], default='SINGLE',)
-    build_style: StringProperty(name="Build Styles", description="Comma separated list of styles")
+    # build_style: StringProperty(name="Build Styles", description="Comma separated list of styles")  # keep?
+    # storage for use by the calculator panel
+    calc_prop: PointerProperty(type=CalculatorProperty)
 
     def draw(self, context):
         layout = self.layout
         layout.label(text="Build Tools Preferences")
         layout.prop(self, "user_tags")
         layout.prop(self, "select_mode")
-        layout.prop(self, "build_style")
+        # layout.prop(self, "build_style")
 
 
-# order might matter
-ops_properties = [
-    FaceTagProperty,
-    FaceThicknessProperty,
-    FaceUVModeProperty,
-    FaceUVOriginProperty,
-    FaceUVRotateProperty,
-    CalcUVProperty,
-    ArchShapeProperty,
-    CatalogObjectProperty,
-    LocalObjectProperty,
-    SuperCurveProperty,
-    DirectionProperty,
-    ArrayProperty,
-    PositionProperty,
-    SizeProperty,
-    GridDivideProperty,
-    SplitFaceProperty,
-    PolygonProperty,
-    UnionPolygonProperty,
-    InsetPolygonProperty,
-    ExtrudeProperty,
-    SweepProperty,
-    DashedProperty,
-    SolidifyEdgesProperty,
-    MakeLouversProperty,
-    SimpleWindowProperty,
-    MeshImportProperty,
-    BTAddonPreferences,
-    OrientedMaterialProperty,
-    FlipNormalProperty,
-    ProjectFaceProperty,
-    BuildFaceProperty,
-    BuildRoofProperty,
-    SimpleDoorProperty,
-    SimpleRailProperty,
-    ExtendGableProperty,
-    DormerProperty,
-AssetLibProps
-]

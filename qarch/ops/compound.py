@@ -7,6 +7,16 @@ from ..mesh import ManagedMesh, SmartPoly
 from mathutils import Vector
 import math
 
+# registration and module init info
+lst_classes = [
+    'QARCH_OT_add_window',
+    'QARCH_OT_add_door',
+    'QARCH_OT_add_rail',
+    'QARCH_OT_extend_gable',
+    'QARCH_OT_add_dormer',
+]
+lst_funcs = []
+
 class QARCH_OT_add_window(CompoundOperator):
     bl_idname = "qarch.add_window"
     bl_label = "Add Window"

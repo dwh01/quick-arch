@@ -120,7 +120,7 @@ def create_window(bm, faces, prop):
                     if handle[0] is not None:
                         handle[0].matrix_local.translation = origin[0]
                         align_obj(handle[0], normal)
-                        handle[0].scale = scale[0]
+                        handle[0].scale2d = scale[0]
                         if prop.window.handle == "STRAIGHT" and prop.window.hinge == "TOP":
                             quat_b = mathutils.Quaternion(normal, math.radians(90.0))
                             handle[0].rotation_quaternion = quat_b @ handle[0].rotation_quaternion

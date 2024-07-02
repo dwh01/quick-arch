@@ -1,11 +1,26 @@
 """Operators that change selection state and layer data,
 many are not derived from CustomOperator"""
+import math
+
 import bpy
-from bpy.props import EnumProperty, StringProperty
+from bpy.props import EnumProperty, StringProperty, IntProperty
 from .custom import *
 from .properties import face_tag_to_int, get_face_tag_enum
-from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo
+from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo, REPLAY_OP_ID
 from ..mesh import ManagedMesh
+from .dynamic_enums import qarch_asset_dir
+
+lst_classes = [
+    'QARCH_OT_create_object',
+    'QARCH_OT_set_active_op',
+    'QARCH_OT_redo_op',
+    'QARCH_OT_rebuild_object',
+    'QARCH_OT_remove_operation',
+    'QARCH_OT_add_face_tags',
+    'QARCH_OT_clean_object',
+]
+lst_funcs = []
+
 
 class QARCH_OT_create_object(bpy.types.Operator):
     """For operations without an object existing"""
@@ -51,8 +66,8 @@ class QARCH_OT_create_object(bpy.types.Operator):
         bpy.context.view_layer.objects.active = obj
         # enter edit mode to start making things
         bpy.ops.object.mode_set(mode='EDIT')
-        #bpy.ops.mesh.select_mode(type="FACE", action='ENABLE')
-        #bpy.ops.mesh.select_mode(type="VERT", action='DISABLE')
+
+        # bpy.ops.mesh.select_mode(type="FACE", action='ENABLE')  # for some reason this must be done by hand?
 
         get_face_tag_enum(self, context)  # fill enum list
         return {'FINISHED'}
@@ -96,8 +111,8 @@ def fill_enum_list(self, context):
         if lst_sel_info.count_faces():
             journal = Journal(obj)
             dct_op_tree = journal.make_op_tree(lst_sel_info.op_list())
-
-            lst_enum = build_op_enums(dct_op_tree, 0, journal, 0)
+            op1 = next(iter(dct_op_tree.keys()))
+            lst_enum = build_op_enums(dct_op_tree, op1, journal, 0)
 
     lst_enum.append(dct_Enums[-1])
     return lst_enum
@@ -181,6 +196,8 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
     bl_description = "Rebuild object from script"
     bl_options = {"REGISTER"}
 
+    stop_at: IntProperty(name="Stop at", default=-1, min=-1, description="-1 for full rebuild, otherwise stop after operation number")
+
     @classmethod
     def poll(cls, context):
         if (context.object is not None) and (context.mode == "EDIT_MESH"):
@@ -188,6 +205,10 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
             if op_id is not None:
                 return True
         return False
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        return wm.invoke_props_dialog(self)
 
     def execute(self, context):
         active_op = get_obj_data(context.object, ACTIVE_OP_ID)
@@ -208,17 +229,30 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
         mm.to_mesh()
         mm.free()
 
-        if active_op == -1:
-            lst_tops = journal.controlled_list(-1)
-            for op in lst_tops:
-                replay_history(context, op)
+        if active_op==-1:
+            start = 0
         else:
-            replay_history(context, active_op)
+            start = active_op
+        if self.stop_at == -1:
+            end = journal['max_id']+1
+        else:
+            end = min(self.stop_at, journal['max_id']+1)
+
+        for i_op in range(start, end):
+            # it's possible for the user to select faces from two operations as the input for one operation
+            # during replay, the early operation will try to trigger the children it controls
+            # and when the child tries to select the second, later source operation the poll method will fail
+            # because the necessary faces aren't made yet
+            # so we replay in order instead of by following the tree structure
+            if wrap_id(i_op) in journal.jj:  # check for deleted operations
+                set_obj_data(mm.obj, REPLAY_OP_ID, i_op)  # prevents child recursion
+                replay_history(context, i_op)
 
         journal = Journal(context.object)
         journal['adjusting'] = []
         journal.flush()
 
+        set_obj_data(mm.obj, REPLAY_OP_ID, -1)
         return {'FINISHED'}
 
 class QARCH_OT_remove_operation(bpy.types.Operator):
@@ -339,6 +373,7 @@ class QARCH_OT_select_tags(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
 class QARCH_OT_clean_object(bpy.types.Operator):
     """For cleanup when old faces are left behind"""
     bl_idname = "qarch.clean_object"
@@ -363,3 +398,95 @@ class QARCH_OT_clean_object(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
+class QARCH_PT_faceinfo(bpy.types.Panel):
+    bl_label = "Face Info"
+    bl_parent_id = "QARCH_PT_mesh_tools"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+
+    def draw(self, context):
+        from ..object import is_bt_object
+        from .dynamic_enums import int_to_face_tag
+        from .properties import int_to_uv_mode
+        layout = self.layout
+
+        if context.object:
+            if is_bt_object(context.object):
+                mm = ManagedMesh(context.object)
+                sel_info = mm.get_selection_info()
+                faces = mm.get_faces(sel_info)
+
+                if len(faces) == 0:
+                    row = layout.row()
+                    row.label(text="No faces selected")
+
+                elif len(faces) > 1:
+                    row = layout.row()
+                    row.label(text="{} faces selected".format(len(faces)))
+
+                    row = layout.row()
+                    lst_op = sel_info.op_list()
+                    row.label(text="From operations: {}".format(lst_op))
+                    row = layout.row()
+                    row.operator("qarch.set_face_tag")
+                    row = layout.row()
+                    row.operator("qarch.set_face_radial")
+                    row = layout.row()
+                    row.operator("qarch.set_face_uv_mode")
+                    row = layout.row()
+                    row.operator("qarch.set_face_uv_rotate")
+                    row = layout.row()
+                    row.operator("qarch.set_face_uv_orig")
+                    row = layout.row()
+                    row.operator("qarch.set_face_elevation")
+                    row = layout.row()
+                    row.operator("qarch.set_face_material")
+
+
+                else:
+                    face = faces[0]
+                    row = layout.row()
+                    row.label(text="Op {} Face {}".format(face[mm.key_face_op], face[mm.key_face_seq]))
+                    row = layout.row()
+                    row.operator("qarch.set_face_tag", text="Tag {}".format(int_to_face_tag(face[mm.key_tag])))
+                    row = layout.row()
+                    v = face[mm.key_radial]
+                    row.operator("qarch.set_face_radial", text="Radial [{:.3f}, {:.3f}, {:.3f}]".format(v.x, v.y, v.z))
+                    row = layout.row()
+                    row.operator("qarch.set_face_uv_mode", text="UV Mode {}".format(int_to_uv_mode(face[mm.key_uv])))
+                    row = layout.row()
+                    v = face[mm.key_uv_rot]
+                    row.operator("qarch.set_face_uv_rotate", text="UV Rotation [{:.1f}, {:.1f}, {:.1f}]".format(math.degrees(v.x), math.degrees(v.y), math.degrees(v.z)))
+                    row = layout.row()
+                    v = face[mm.key_uv_orig]
+                    row.operator("qarch.set_face_uv_orig", text="UV Origin [{:.3f}, {:.3f}, {:.3f}]".format(v.x, v.y, v.z))
+                    row = layout.row()
+                    row.operator("qarch.set_face_elevation", text="Elevation {:.2f}".format(face[mm.key_elev]))
+                    row = layout.row()
+                    mat_name = context.object.data.materials[face.material_index].name
+                    row.operator("qarch.set_face_material", text=mat_name)
+
+
+                mm.free()
+
+            else:
+                row = layout.row()
+                row.label(text="Not a bt object")
+        else:
+            row = layout.row()
+            row.label(text="No object selected")
+
+
+class QARCH_PT_calculator(bpy.types.Panel):
+    bl_idname = "QARCH_PT_calculator"
+    bl_label = "Reference Sizes"
+    bl_options = {'INSTANCED'}
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "WINDOW"
+
+    def draw(self, context):
+        addon_prefs = context.preferences.addons['qarch'].preferences
+        layout = self.layout
+        addon_prefs.calc_prop.draw(context, layout)

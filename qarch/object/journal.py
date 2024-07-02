@@ -165,12 +165,10 @@ class Journal:
     def make_op_tree(self, start_ops):
         """Tree of common ancestors to start_ops"""
         dct_ops = defaultdict(list)
-
         for op_start in start_ops:
             lst_ancestor = self.ancestors(op_start)
             # force roots to appear even if this is the only op in the list
             dct_ops[lst_ancestor[0]] = []
-
             for i in range(1, len(lst_ancestor)):
                 p_id = lst_ancestor[i - 1]
                 c_id = lst_ancestor[i]
@@ -182,7 +180,6 @@ class Journal:
                     dct_ops[op_start].append(c_id)
                     # have to include children with no faces
                     # you can never click on set_tag operation, for instance
-
         return dct_ops
 
     def new_record(self, sel_info, op_name):
