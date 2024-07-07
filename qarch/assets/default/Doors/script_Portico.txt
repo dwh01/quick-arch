@@ -1,0 +1,722 @@
+{
+    "max_id": 12,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1,
+            2
+        ],
+        "op1": [
+            2
+        ],
+        "op2": [
+            3,
+            4,
+            5,
+            7,
+            8
+        ],
+        "op3": [],
+        "op4": [],
+        "op5": [
+            6
+        ],
+        "op6": [],
+        "op7": [
+            9
+        ],
+        "op8": [
+            10
+        ],
+        "op9": [
+            11
+        ],
+        "op10": [
+            12
+        ],
+        "op11": [],
+        "op12": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Simple Portico",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 2.0,
+                "is_relative_x": false,
+                "size_y": 0.20000000298023224,
+                "is_relative_y": false
+            },
+            "join": "FREE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "by_inset": false,
+            "thickness": 0.0,
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 1.0,
+                "is_relative_y": true,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 0.5,
+                "is_relative_y": false
+            },
+            "join": "FREE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "by_inset": false,
+            "thickness": 0.0,
+            "poly": {
+                "num_sides": 3,
+                "start_angle": -0.5235987901687622
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op0": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.5,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ],
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op0": 3,
+                "op1": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 7]], "Tops": [[4, 4], [8, 8]]}, "moduli": {"Sides": 0, "Tops": 0}}
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_set_face_radial",
+        "properties": {
+            "radial": [
+                0.0,
+                0.0,
+                1.0
+            ]
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    6,
+                    7
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 0}}
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_set_face_material",
+        "properties": {
+            "material": "BT_Roof"
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    6,
+                    7
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 0}}
+    },
+    "op5": {
+        "op_id": 5,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.10000000149011612,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": -0.20000000298023224,
+                "is_relative_x": false,
+                "size_y": -0.07599999755620956,
+                "is_relative_y": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": true,
+            "shape_type": "SELF",
+            "by_inset": false,
+            "thickness": 0.10000000149011612,
+            "poly": {
+                "num_sides": 3,
+                "start_angle": -0.5235987901687622
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    8
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 3]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op6": {
+        "op_id": 6,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "join": "BRIDGE",
+            "add_perimeter": true,
+            "shape_type": "SELF",
+            "by_inset": false,
+            "thickness": 0.10000000149011612,
+            "poly": {
+                "num_sides": 3,
+                "start_angle": -0.5235987901687622
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": -0.07599999755620956
+        },
+        "control_points": {
+            "faces": {
+                "op5": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 3]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op7": {
+        "op_id": 7,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.3479999899864197,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 0.15199999511241913,
+                "is_relative_x": false,
+                "size_y": 0.15199999511241913,
+                "is_relative_y": false
+            },
+            "join": "FREE",
+            "add_perimeter": true,
+            "shape_type": "NGON",
+            "by_inset": false,
+            "thickness": 0.10000000149011612,
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 2.115999937057495
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op8": {
+        "op_id": 8,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 1.8480000495910645,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.3479999899864197,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 0.15199999511241913,
+                "is_relative_x": false,
+                "size_y": 0.15199999511241913,
+                "is_relative_y": false
+            },
+            "join": "FREE",
+            "add_perimeter": true,
+            "shape_type": "NGON",
+            "by_inset": false,
+            "thickness": 0.10000000149011612,
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "arch": {
+                "num_sides": 12,
+                "arch_type": "ROMAN"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "super_curve": {
+                "x": 1.0,
+                "y": 1.0,
+                "sx": 1.0,
+                "sy": 1.0,
+                "px": 1.0,
+                "py": 1.0,
+                "pn": 1.0,
+                "start_angle": 0.0
+            },
+            "local_object": {
+                "search_text": "",
+                "object_name": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "catalog_object": {
+                "style_name": "default",
+                "category_name": "Columns",
+                "search_text": "",
+                "category_item": "0",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "resolution": 4,
+            "center_material": "BT_Trim",
+            "extrude_distance": 2.115999937057495
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op9": {
+        "op_id": 9,
+        "op_name": "QARCH_OT_flip_normal",
+        "properties": {
+            "toggle": true
+        },
+        "control_points": {
+            "faces": {
+                "op7": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op7": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
+    },
+    "op10": {
+        "op_id": 10,
+        "op_name": "QARCH_OT_flip_normal",
+        "properties": {
+            "toggle": true
+        },
+        "control_points": {
+            "faces": {
+                "op8": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op8": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
+    },
+    "op11": {
+        "op_id": 11,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 2.115999937057495,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op9": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op9": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3]], "Tops": [[4, 4]]}, "moduli": {"Sides": 4, "Tops": 0}}
+    },
+    "op12": {
+        "op_id": 12,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 2.115999937057495,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op10": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op10": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3]], "Tops": [[4, 4]]}, "moduli": {"Sides": 4, "Tops": 0}}
+    }
+}

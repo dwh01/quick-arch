@@ -680,7 +680,6 @@ class SmartPoly:
         for c in self.points:
             dp = norm.dot((c.co3 - self.coord_sys.origin))
             c.co3 = c.co3 - dp * norm
-        self.calc_coord_sys()
 
     def ray_intersection(self, start, direction, b_out_only):
         """Test for ray intersection, return closest point and edge indices
@@ -986,8 +985,9 @@ class SmartPoly:
             e2 = verts[k] - verts[j]
             e1.normalize()
             e2.normalize()
-            if e1.dot(e2) > -.99:
+            if -0.99 < e1.dot(e2) < 0.99:
                 lst.append(verts[j])
+
         verts = lst
 
         u_poly = SmartPoly(self.coord_sys, pt_list=verts)

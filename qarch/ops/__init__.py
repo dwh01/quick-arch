@@ -40,6 +40,64 @@ def post_redo_handler(*args):
     print("post deps", args)
     bpy.context.window_manager.print_undo_steps()
 
+# --- progress bar
+# https://blog.michelanders.nl/2021/05/progress-indicator-updated.html
+# update function to tag all info areas for redraw
+def update(self, context):
+    areas = context.window.screen.areas
+    for area in areas:
+        if area.type == 'VIEW3d':
+            area.tag_redraw()
+
+
+# a variable where we can store the original draw funtion
+info_header_draw = lambda s, c: None
+
+
+def register_progress():
+    # a value between [0,100] will show the slider
+    bpy.types.Scene.progress_indicator = bpy.props.FloatProperty(
+        default=-1,
+        subtype='PERCENTAGE',
+        precision=1,
+        min=-1,
+        soft_min=0,
+        soft_max=100,
+        max=101,
+        update=update)
+
+    # the label in front of the slider can be configured
+    bpy.types.Scene.progress_indicator_text = bpy.props.StringProperty(
+        default="Progress",
+        update=update)
+
+    # save the original draw method of the Info header
+    global info_header_draw
+    info_header_draw = bpy.types.VIEW3D_HT_tool_header.draw
+
+    # create a new draw function
+    def newdraw(self, context):
+        global info_header_draw
+        # first call the original stuff
+        info_header_draw(self, context)
+        # then add the prop that acts as a progress indicator
+        if (context.scene.progress_indicator >= 0) and (context.scene.progress_indicator <= 100):
+            self.layout.separator()
+            text = context.scene.progress_indicator_text
+            self.layout.prop(context.scene,
+                             "progress_indicator",
+                             text=text,
+                             slider=True)
+
+            # replace it
+
+    bpy.types.VIEW3D_HT_tool_header.draw = newdraw
+
+
+def unregister_progress():
+    bpy.types.VIEW3D_HT_tool_header.draw = info_header_draw
+
+
 def register_ops():
     for cls in lst_cls:
         bpy.utils.register_class(cls)
@@ -49,7 +107,10 @@ def register_ops():
         bpy.app.handlers.undo_post.append(post_undo_handler)
         bpy.app.handlers.depsgraph_update_post.append(post_redo_handler)
 
+    register_progress()
 
 def unregister_ops():
     for cls in lst_cls:
         bpy.utils.unregister_class(cls)
+
+    unregister_progress()

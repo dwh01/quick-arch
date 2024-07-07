@@ -9,7 +9,7 @@ import pathlib
 import rna_info
 from ..object import get_obj_data, set_obj_data, ACTIVE_OP_ID, REPLAY_OP_ID
 from ..object import Journal, merge_record, SelectionInfo, TopologyInfo, wrap_id, delete_record
-from ..mesh import ManagedMesh
+from ..mesh import ManagedMesh, copy_faces
 import struct
 from .dynamic_enums import enum_category_items, BT_CATALOG_SRC, from_path
 
@@ -18,7 +18,7 @@ lst_classes = [
 ]
 lst_funcs = []
 
-_do_debug = True
+_do_debug = False
 def debug_print(s):
     if _do_debug:
         print(s)
@@ -98,6 +98,10 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
     def from_dict(self, d):
         """Helper for loading persistent data"""
         for k, v in d.items():
+            if not hasattr(self, k):  # if version change removed this property
+                print("skipped missing property {}".format(k))
+                continue
+
             if isinstance(v, dict):
                 getattr(self, k).from_dict(v)
             else:
@@ -270,6 +274,7 @@ class CustomOperator(bpy.types.Operator):
                 self.journal[cur_op_id]['gen_info'] = ret  # .to_dict()  # topology info kept as object for compact json output
 
             # this first so compound operations can add children, which might need to be updated by the write_props call
+            self.journal.flush()
             lst_controlled = self.ensure_children(cur_op_id)
 
             self.write_props_to_journal(cur_op_id)  # includes a journal flush
@@ -396,7 +401,6 @@ class CustomOperator(bpy.types.Operator):
         # adjusting used within the execute loop undo call back cycle, if we hit invoke, clear it
         # because it was left over from a parent execution loop
         if len(self.adjusting_ids):
-            print("inv clear adjusting")
             self.adjusting_ids.clear()
             self.set_adjusting(context, self.adjusting_ids)
 
@@ -498,7 +502,6 @@ class CustomOperator(bpy.types.Operator):
         for child in lst_controlled:
             rec = self.journal[child]
             sel_info = SelectionInfo(rec['control_points'])
-            flist = sel_info.face_list(cur_op_id)
             old_gen.warp_to(gen_info, cur_op_id, sel_info)
             rec['control_points'] = sel_info.to_dict()
 
@@ -509,38 +512,6 @@ class CustomOperator(bpy.types.Operator):
         # override this function in Compound Operator to alter child properties too
         self.journal[op_id]['properties'] = self.props.to_dict()
         self.journal.flush()
-
-
-def copy_faces(self, obj, sel_info, op_id, prop_dict):
-    """Used by compound operator to make points the children can build from"""
-    mm = ManagedMesh(obj)
-
-    mm.set_op(op_id)
-    mm.delete_current_verts()
-
-    sel_bmv = mm.get_face_verts(sel_info)
-    dct_done = {}
-    gen_info = TopologyInfo(from_keys=["all"])
-    for lst in sel_bmv:
-        vlist = []
-        for v in lst:
-            key = (v[mm.key_op], v[mm.key_seq])
-            if key in dct_done:
-                vnew = dct_done[key]
-            else:
-                vnew = mm.new_vert(v.co)
-                dct_done[key] = vnew
-            vlist.append(vnew)
-        face = mm.new_face(vlist)
-        gen_info.add("all")
-
-    for face in mm.get_faces(sel_info):
-        mm.delete_face(face)
-
-    mm.to_mesh()
-    mm.free()
-
-    return gen_info
 
 
 class CompoundOperator(CustomOperator):
@@ -581,13 +552,15 @@ class CompoundOperator(CustomOperator):
             mm.select_operation(op_id)
             child_sel_info = mm.get_selection_info()
             mm.free()
+            if child_sel_info.count_faces() == 0:  # compound or set ops may not create a face
+                print("Backup sel info")
+                child_sel_info = SelectionInfo(from_dict=self.journal[op_id]['control_points'])
 
             # add the script
             first_op_id = merge_record(self.obj, subset, child_sel_info)
-            print("new id", first_op_id)
             self.journal = Journal(self.obj)  # update our copy
             lst_controlled = self.journal.controlled_list(op_id)
-            print("lst", lst_controlled)
+
         return lst_controlled
 
     def get_descent_id(self, op_id, levels):
@@ -597,24 +570,32 @@ class CompoundOperator(CustomOperator):
             op_id = lst[0]
         return op_id
 
-    def get_catalog_script(self, context, style, category, script_name):
+    def get_catalog_script(self, context, style, category, s_name):
         """In case you want to load rather than hard copy a script"""
+        from .dynamic_enums import script_name, file_type
         self.style_name = style
         self.category_name = category
+        self.show_scripts = True
         items = enum_category_items(self, context)
         filepath = ''
         for e in items:
-            if e[1] == script_name:
+            if s_name in e[0]:
+                name = e[1]
+                filepath = e[0]
+            elif e[1] == s_name:
+                name = e[1]
                 filepath = e[0]
         if filepath == '':
+            print("no filepath", style, category, name, s_name)
+            print(items)
             return ''
 
-        if script_name not in bpy.data.texts:  # not already loaded
+        if s_name not in bpy.data.texts:  # not already loaded
             ob_txt = bpy.data.texts.load(filepath, internal=True)
-            ob_txt.name = script_name
+            ob_txt.name = s_name
             style, cat, name = from_path(pathlib.Path(filepath))
             ob_txt[BT_CATALOG_SRC] = style  # metadate for replacement if we reorder styles
-        return bpy.data.texts[script_name].as_string()
+        return bpy.data.texts[s_name].as_string()
 
     def get_script(self):
         """Returns the same kind of script you get by exporting something"""
@@ -625,6 +606,7 @@ class CompoundOperator(CustomOperator):
     # override test_topology if there is something to lock, see SimpleWindow for example
     def test_topology(self, op_id):
         return False
+
 
 def set_operation_consistent(obj, op_id):
     """Make selection state correct for this operation to execute"""

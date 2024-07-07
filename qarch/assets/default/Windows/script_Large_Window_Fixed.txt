@@ -100,7 +100,7 @@
             "flags": {
                 "op-1": 3
             },
-            "mode": "SINGLE"
+            "mode": "GROUP"
         },
         "gen_info": {"ranges": {"Bridge": [], "Center": [[4, 4]], "Frame": [[0, 3]]}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
     },

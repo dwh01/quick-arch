@@ -47,7 +47,9 @@ lst_classes = [
     'BuildFaceProperty',
     'BuildRoofProperty',
     'SimpleDoorProperty',
+    'SimplePorticoProperty',
     'SimpleRailProperty',
+    'DeckProperty',
     'ExtendGableProperty',
     'DormerProperty',
     'PlanInsetWallsProperty',
@@ -537,51 +539,99 @@ class MakeLouversProperty(CustomPropertyBase):
     topology_lock = ['count_x', 'count_y', 'flip_xy']
 
 
+window_size_enum = [
+    ('SMALL', 'small', 'Window 63 x 90 cm'),
+    ('STANDARD', 'standard', 'Window 81 x 120 cm'),
+    ('LARGE', 'large', 'Window 126 x 198 cm')
+]
+
+
 class SimpleWindowProperty(CustomPropertyBase):  # demo case
-    rel_x: FloatProperty(name="Relative X position", default = 0.5, description="X offset of window")
-    width: FloatProperty(name="Absolute width", default = 1, description="Width of window")
+    offset_x: FloatProperty(name="Offset X", default=0, description="Offset from center of face")
+    window_size: EnumProperty(name="Window Size", items=window_size_enum, default='STANDARD')
     x_panes: IntProperty(name="X panes", min=1, default=2, description="Number of window panes across")
     y_panes: IntProperty(name="y panes", min=1, default=2, description="Number of window panes vertical")
-    arch_height: FloatProperty(name="Arch", description="Arch height/width or 0 for flat top", default=0, min=0, max=1)
+    sash: BoolProperty(name="Movable Sashes", default=False, description="Two sliding sections of window")
+    shutter: BoolProperty(name="Shutters", default=False, description="Add shutters on sides")
+    arch_height: FloatProperty(name="Arch", description="Arch height/width or 0 for flat top", default=0, min=0)
+    wall_thickness: FloatProperty(name="Wall Thickness", default=0.2,
+                                  description="Framed ext=0.2, Brick ext=0.35, Interior=0.13")
 
     field_layout = [
-        ['rel_x','width'],
-        ["x_panes","y_panes"],
-        ["arch_height"]
+        ['offset_x'],
+        ['window_size'],
+        ["x_panes", "y_panes"],
+        ['sash', 'shutter'],
+        ({'sash': False}, "arch_height"),
+        ['wall_thickness']
     ]
 
     topology_lock = ['arch_height']
 
 
-handle_side_enum = [
-    ('LEFT', 'left', 'handle on left'),
-    ('RIGHT', 'right', 'handle on right'),
+door_width_enum = [
+    ('NARROW', 'narrow', 'Door 52.6 cm wide'),
+    ('STANDARD', 'standard', 'Door 72.6 cm wide'),
+    ('WIDE', 'wide', 'Door 92.6 cm wide')
 ]
 
 
 class SimpleDoorProperty(CustomPropertyBase):
-    rel_x: FloatProperty(name="Relative X position", default=0.5, description="X offset of door")
-    handle_side: EnumProperty(items=handle_side_enum, name='Handle Side', default='LEFT')
-    panel_depth: FloatProperty(name="Panel Depth", description='Raised panel bevel amount', default=0.025)
+    offset_x: FloatProperty(name="Offset X", default=0, description="Offset from center of face")
+    width: EnumProperty(name="Width", items=door_width_enum, default='STANDARD')
+    open_in: BoolProperty(name="Open In", default=True, description="Open in or out")
+    left_hinge: BoolProperty(name="Left Hinge", default=True, description="Hinge on left or right")
+    wall_thickness: FloatProperty(name="Wall Thickness", default=0.2, description="Framed ext=0.2, Brick ext=0.35, Interior=0.13")
+    # hidden properties to set up the enum list
+    search_text: StringProperty(name="Search", description="Press enter to filter by substring", default="_Finish")
+    style_name: StringProperty(name="Style", description="Style", default="default")
+    category_name: StringProperty(name="Category", default="Doors")
+    show_scripts: BoolProperty(name="Show Scripts", default=True)
+    show_curves: BoolProperty(name="Show Scripts", default=False)
+    # the enum we care about
+    finish: EnumProperty(items=enum_category_items, name="Finish")
 
     field_layout = [
-        ['rel_x', 'panel_depth'],
-        ['handle_side']
+        ['offset_x'],
+        ['width'],
+        ['open_in', 'left_hinge'],
+        ['wall_thickness'],
+        ['finish']
+    ]
+    topology_lock = ['open_in', 'finish']
+
+
+class SimplePorticoProperty(CustomPropertyBase):
+    width: FloatProperty(name="Width", min=0.5, default=2, description="Width of portico")
+    height: FloatProperty(name="Height", default=0.5, min=0, description="Height of roof peak above soffit")
+    soffit: FloatProperty(name="Soffit", default=0.2, min=0, description="Height of soffit")
+    depth: FloatProperty(name="Depth", default=0.5, min=0.152, description="Overhang depth of portico")
+
+    field_layout = [
+        ['width'],
+        ['height', 'soffit'],
+        ['depth']
     ]
     topology_lock = []
 
 
 class SimpleRailProperty(CustomPropertyBase):
-    rail_spacing: FloatProperty(name="Rail Spacing", default=0.2, description="Distance between vertical bars")
+    rail_spacing: FloatProperty(name="Rail Spacing", default=0.15, description="Distance between vertical bars")
+    post_size: FloatProperty(name="Post Width", default=0.152, description="Width of corner posts")
+    vert_size: FloatProperty(name="Vertical Rail Width", default=0.03, description="Width of vertical rails")
+    turned: BoolProperty(name="Fancy verticals", description="Use curve revolution instead of square", default=False)
 
     field_layout = [
-        ['rail_spacing']
+        ['rail_spacing'],
+        ['vert_size'],
+        ['turned'],
+        ['post_size']
     ]
     topology_lock = []
 
 
 class ExtendGableProperty(CustomPropertyBase):
-    soffit_width: FloatProperty(name="Soffit Width", default=0.1, description="Thickness of soffit")
+    soffit_width: FloatProperty(name="Soffit Width", default=0.2, description="Thickness of soffit")
     overhang: FloatProperty(name="Overhang", default=0.1, description="Extension past wall")
 
     field_layout = [
@@ -591,18 +641,30 @@ class ExtendGableProperty(CustomPropertyBase):
 
 
 class DormerProperty(CustomPropertyBase):
-    position: PointerProperty(name="Position", type=PositionProperty)
-    rounded: BoolProperty(name="Rounded Top", default = False, description="Toggle rounded or pointy roof")
-    soffit_width: FloatProperty(name="Soffit Width", default=0.1, description="Thickness of soffit")
-    overhang: FloatProperty(name="Overhang", default=0.1, description="Extension past wall")
-    octagon_window: BoolProperty(name="Octagon Window", default = False, description="Toggle rounded or square window")
+    offset_x: FloatProperty(name="Offset X", default=0, description="Offset from center of face")
+    octagon_window: BoolProperty(name="Octagon Window", default=False, description="Toggle octagor or square window")
 
     field_layout = [
-        ('','position'),
-        ['rounded', 'octagon_window'],
-        ['soffit_width', 'overhang']
+        ['offset_x'],
+        ['octagon_window'],
     ]
     topology_lock = []
+
+
+class DeckProperty(CustomPropertyBase):
+    size: PointerProperty(type=SizeProperty)
+    position: PointerProperty(type=PositionProperty)
+    elevation: FloatProperty(name="Elevation", description="Height above base", default=0)
+    sides: IntProperty(name="Sides", description="Polygon sides", default=4)
+    roof: BoolProperty(name="Add Roof", description="Add roof, edit extrude direction to attach to wall", default=False)
+
+    field_layout = [
+        ('', 'position'),
+        ('', 'size'),
+        ['sides', 'elevation'],
+        ['roof']
+    ]
+    topology_lock = ['roof']
 
 
 class MeshImportProperty(CustomPropertyBase):

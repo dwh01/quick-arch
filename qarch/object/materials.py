@@ -99,7 +99,7 @@ def enum_plan_material(self, context):
     lst_e = enum_all_material(self, context)
     lst = []
     for e in lst_e:
-        if e[1].startswith("BT_Plan"):
+        if e[1].startswith("BT_Plan_"):
             lst.append(e)
     return empty_enum + lst
 
@@ -121,7 +121,7 @@ def enum_nonplan_material(self, context):
     lst_e = enum_all_material(self, context)
     lst = []
     for e in lst_e:
-        if not e[1].startswith("BT_Plan"):
+        if not e[1].startswith("BT_Plan_"):
             lst.append(e)
     return lst
 

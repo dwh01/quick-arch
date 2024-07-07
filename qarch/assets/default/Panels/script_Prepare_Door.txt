@@ -1,34 +1,70 @@
 {
-    "max_id": 1,
+    "max_id": 2,
     "controlled": {
         "op-1": [
             0
         ],
         "op0": [
-            1
+            1,
+            2
         ],
-        "op1": []
+        "op1": [],
+        "op2": []
     },
     "adjusting": [],
     "face_tags": [],
     "version": "0.1",
-    "description": "Beveled",
+    "description": "Divide door at handle",
     "op0": {
         "op_id": 0,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 0,
+            "count_y": 2,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.8500000238418579,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "define_size": true,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 0.11999999731779099,
+                "is_relative_y": false
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 2]]}, "moduli": {"All": 2}}
+    },
+    "op1": {
+        "op_id": 1,
         "op_name": "QARCH_OT_inset_polygon",
         "properties": {
             "position": {
-                "offset_x": 0.009999999776482582,
+                "offset_x": 0.11999999731779099,
                 "is_relative_x": false,
                 "center_x": false,
-                "offset_y": 0.009999999776482582,
+                "offset_y": 0.0,
                 "is_relative_y": false,
                 "center_y": false
             },
             "size": {
-                "size_x": -0.019999999552965164,
+                "size_x": -0.23999999463558197,
                 "is_relative_x": false,
-                "size_y": -0.019999999552965164,
+                "size_y": -0.11999999731779099,
                 "is_relative_y": false
             },
             "join": "BRIDGE",
@@ -78,12 +114,12 @@
             },
             "resolution": 4,
             "center_material": "BT_Wood",
-            "extrude_distance": -0.019999999552965164
+            "extrude_distance": 0.0
         },
         "control_points": {
             "faces": {
-                "op-1": [
-                    0
+                "op0": [
+                    2
                 ]
             },
             "verts": {},
@@ -92,22 +128,22 @@
         },
         "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
     },
-    "op1": {
-        "op_id": 1,
+    "op2": {
+        "op_id": 2,
         "op_name": "QARCH_OT_inset_polygon",
         "properties": {
             "position": {
-                "offset_x": 0.019999999552965164,
+                "offset_x": 0.11999999731779099,
                 "is_relative_x": false,
                 "center_x": false,
-                "offset_y": 0.019999999552965164,
+                "offset_y": 0.11999999731779099,
                 "is_relative_y": false,
                 "center_y": false
             },
             "size": {
-                "size_x": -0.03999999910593033,
+                "size_x": -0.23999999463558197,
                 "is_relative_x": false,
-                "size_y": -0.03999999910593033,
+                "size_y": -0.11999999731779099,
                 "is_relative_y": false
             },
             "join": "BRIDGE",
@@ -157,7 +193,7 @@
             },
             "resolution": 4,
             "center_material": "BT_Wood",
-            "extrude_distance": 0.019999999552965164
+            "extrude_distance": 0.0
         },
         "control_points": {
             "faces": {

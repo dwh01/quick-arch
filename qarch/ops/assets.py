@@ -15,7 +15,8 @@ from ..object import (
     ACTIVE_OP_ID,
     import_record,
     merge_record,
-    Journal
+    Journal,
+    REPLAY_OP_ID,
     )
 
 from ..mesh import ManagedMesh
@@ -52,6 +53,7 @@ def load_local_script(obj, sel_info, script_name):
     if isinstance(first_op_id, str):
         return first_op_id
 
+    set_obj_data(obj, REPLAY_OP_ID, -1)
     replay_history(bpy.context, first_op_id)
 
 

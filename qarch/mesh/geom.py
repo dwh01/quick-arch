@@ -130,7 +130,7 @@ def calc_face_uv(face, mm, mode=None, orig=None):
     rot = face[mm.key_uv_rot]
 
     mode = uv_mode_list[mode][0]
-    poly = SmartPoly(CoordSys(face=face, mm=mm), pt_list=face)
+    poly = SmartPoly(CoordSys(face=face, mm=mm), pt_list=face, b_no_roll=True)
 
     r = 1
     if mode in ['GLOBAL_XY', 'GLOBAL_YX']:
@@ -284,9 +284,8 @@ def _make_arch(control_poly, prop_dict, mm, b_make=True):
 
     v1 = control_poly.coord_sys.make_3d(bpoly.bbox_min)
     v2 = v0 - v1
-
     _move_verts(lst_arch, v2)
-    _move_verts([bpoly], v2)
+    # _move_verts([bpoly], v2) not needed because we have break_link = False
 
     return lst_arch, bpoly
 
@@ -437,7 +436,7 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
     mm.set_op(op_id)
 
     if len(lst_orig_poly) == 0:  # ok to add to none
-        print("no original poly")
+        print("no original poly for inset operation")
         lst_orig_poly.append(SmartPoly(CoordSys(mm=mm)))
         prop_dict['join'] = 'FREE'
         prop_dict['size']['is_relative_x'] = False
@@ -495,19 +494,24 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
             if p.normal().dot(control_poly.normal()) < .999:  # flipped normal
                 p.flip_normal()
 
-        # shift all together, don't double shift shared verts
-        v_extruding = None
-        if prop_dict['extrude_distance'] != 0:
-            v_extruding = lst_new[0].normal() * prop_dict['extrude_distance']
-            lst_tmp = lst_new + [outer]  # in case boundary is not one of the polys (arch, for example)
-            _move_verts(lst_tmp, v_extruding)
-
         # single poly can be clipped
         if (len(lst_new) == 1) and (len(control_poly.points) >= 3):
             if join_type in ['INSIDE', 'OUTSIDE']:
                 lst_new = lst_new[0].clip_with(control_poly, join_type)
                 if len(lst_new):
                     outer = lst_new[0]
+        if len(lst_new) == 0:
+            continue
+
+        # shift all together, don't double shift shared verts
+        v_extruding = None
+        if prop_dict['extrude_distance'] != 0:
+            v_extruding = lst_new[0].normal() * prop_dict['extrude_distance']
+            if outer not in lst_new:
+                lst_tmp = lst_new + [outer]  # in case boundary is not one of the polys (arch, for example)
+                _move_verts(lst_tmp, v_extruding)
+            else:
+                _move_verts(lst_new, v_extruding)
 
         for i_new, p in enumerate(lst_new):
             if i_new == len(lst_new) - 1:
@@ -527,7 +531,7 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
             topo.add('Bridge', len(lst_result))
             for p in lst_result:
                 if control_poly.coord_sys.reference_face:
-                    p.face_attr['material_index'] = control_poly.coord_sys.reference_face.material_index
+                    p.face_attr['material'] = control_poly.coord_sys.reference_face.material_index
                     if 'uv_mode' in p.face_attr:
                         del p.face_attr['uv_mode']  # let material decide
                 face = p.make_face()
@@ -547,12 +551,11 @@ def grid_divide(self, obj, sel_info, op_id, prop_dict):
 
     topo = TopologyInfo(from_keys=["All"])
     topo.set_modulus("All", prop_dict['count_y'])
+    # lsize = None
 
     for control_poly in lst_orig_poly:
         count_x = prop_dict['count_x']
         count_y = prop_dict['count_y']
-        for i in range((count_x + 1) * (count_y + 1)):
-            topo.add("All")
 
         if prop_dict['define_size']:
             sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
@@ -564,6 +567,12 @@ def grid_divide(self, obj, sel_info, op_id, prop_dict):
         ox, oy = _extract_offset(prop_dict['offset'], control_poly.box_size, vsize)
 
         lst_poly = control_poly.grid_divide(count_x, count_y, ox, oy, sx, sy)
+        topo.add("All", len(lst_poly))
+        # if lsize is None:
+        #     lsize = len(lst_poly)
+        # else:
+        #     if len(lst_poly) != lsize:
+        #         lsize = None
 
         # the cells don't share vertices unless we make it so
         dct_new = {}
@@ -580,6 +589,12 @@ def grid_divide(self, obj, sel_info, op_id, prop_dict):
 
         if len(lst_poly) and control_poly.coord_sys.reference_face:
             mm.delete_face(control_poly.coord_sys.reference_face)
+
+    # don't have a working warp for "every middle" type selections
+    # if (lsize is None) or (lsize < 0):
+    #     topo.set_modulus("All", prop_dict['count_y'])
+    # else:
+    #     topo.set_modulus("All", lsize)
 
     mm.to_mesh()
     mm.free()
@@ -661,7 +676,6 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
         for i in range(steps):
             csys = bottom_poly.coord_sys.copy()  # if not on axis, don't want to overwrite bottom origin during shift
             top_poly = SmartPoly(csys, pt_list=bottom_poly.points, break_link=True, b_no_roll=True)
-
             if (i == 0) and prop_dict['on_axis']:
                 # project not rotate
                 v = Vector((prop_dict['axis']['x'], prop_dict['axis']['y'], prop_dict['axis']['z']))
@@ -843,13 +857,13 @@ def solidify_by_bridge(control_poly, side_list, i_edge, edge_dir, vz, inset, mm,
 
     if b_bevel_start:
         pt_out, ray_out = control_poly.outward_ray_idx(i_edge)
-        mat = Matrix.Rotation(-math.pi/2, 3, control_poly.normal())
+        mat = Matrix.Rotation(math.pi/2, 3, control_poly.normal())
         normal = mat @ ray_out
         e = edge_dir.normalized()
         scale = abs(ray_out.cross(e).length)
         scale = 1 / max(scale, 0.01)
     else:
-        normal = -edge_dir.normalized()
+        normal = edge_dir.normalized()
         scale = 1
     csys = CoordSys(mm, None, radial=control_poly.normal(), normal=normal, origin=control_poly.points[i_edge].co3)
     for i_new in range(len(lst_new)):
@@ -857,12 +871,10 @@ def solidify_by_bridge(control_poly, side_list, i_edge, edge_dir, vz, inset, mm,
 
         pt2 = [group_csys.make_2d(p.co3) for p in p_example.points]
         pt3 = [csys.make_3d(p) for p in pt2]
-        if p_example.coord_sys.normal.dot(normal) < 0:
-            pt3.reverse()
         start_poly = SmartPoly(coord_sys=csys, pt_list=pt3, b_no_roll=True)
         start_poly.scale_around(start_poly.coord_sys.origin, scale, 1)
 
-        align = vz - inset * start_poly.coord_sys.xdir * scale
+        align = vz + inset * start_poly.coord_sys.xdir * scale
         start_poly.shift_3d(align)
         lst_start.append(start_poly)
 
@@ -870,13 +882,13 @@ def solidify_by_bridge(control_poly, side_list, i_edge, edge_dir, vz, inset, mm,
     j = (i_edge + 1) % len(control_poly.points)
     if b_bevel_end:
         pt_out, ray_out = control_poly.outward_ray_idx(j)
-        mat = Matrix.Rotation(-math.pi / 2, 3, control_poly.normal())
+        mat = Matrix.Rotation(math.pi / 2, 3, control_poly.normal())
         normal = mat @ ray_out
         e = (control_poly.points[j].co3 - control_poly.points[i_edge].co3).normalized()
         scale = abs(ray_out.cross(e).length)
         scale = 1 / max(scale, 0.01)
     else:
-        normal = -edge_dir.normalized()
+        normal = edge_dir.normalized()
         scale = 1
     csys = CoordSys(mm, None, radial=control_poly.normal(), normal=normal, origin=control_poly.points[j].co3)
     for i_end in range(len(lst_new)):
@@ -887,7 +899,7 @@ def solidify_by_bridge(control_poly, side_list, i_edge, edge_dir, vz, inset, mm,
         end_poly = SmartPoly(coord_sys=csys, pt_list=pt3, b_no_roll=True)
         end_poly.scale_around(end_poly.coord_sys.origin, scale, 1)
 
-        align = vz - inset * end_poly.coord_sys.xdir * scale
+        align = vz + inset * end_poly.coord_sys.xdir * scale
         end_poly.shift_3d(align)
         lst_end.append(end_poly)
 
@@ -910,12 +922,21 @@ def solidify_by_bridge(control_poly, side_list, i_edge, edge_dir, vz, inset, mm,
         for p1, p2 in zip(lst_start, lst_end):
             p1.make_verts()
             p2.make_verts()
-            lst_sides = p1.bridge_by_number(p2)
+            if p1.normal().dot(p2.normal()) < -0.001:
+                b_reversed = True
+                idx_offset = len(p1.points)-2
+            else:
+                b_reversed = False
+                idx_offset = 0
+            lst_sides = p1.bridge_by_number(p2, idx_offset=idx_offset, b_reversed=b_reversed)
+            origin = random_origin(i_edge, p1.box_size.x)
             for p in lst_sides:
                 p.face_attr['material'] = frame_idx
                 if 'uv_mode' in p.face_attr:
                     del p.face_attr['uv_mode']  # let material decide (didn't do this for ends because might be arch)
-                p.face_attr['radial'] = p.normal().cross(edge_dir.normalized()).normalized()
+                p.face_attr['radial'] = edge_dir.normalized()  # p.normal().cross(edge_dir.normalized()).normalized()
+                p.face_attr['uv_rot'] = pointing_to_euler(edge_dir.normalized())
+                p.face_attr['uv_origin'] = origin
                 p.calc_coord_sys(radial=p.face_attr['radial'])
                 face = p.make_face()
 
@@ -925,7 +946,7 @@ def solidify_by_bridge(control_poly, side_list, i_edge, edge_dir, vz, inset, mm,
 def solidify_by_revolution(control_poly, side_list, i_edge, edge_dir, vz, n_steps, inset, mm, frame_idx, topo, lst_new):
     # extracted from solidify to allow swap between revolution and extrude modes
     rot_origin = control_poly.points[i_edge].co3
-    print(rot_origin, edge_dir)
+
     b_make = i_edge in side_list
     if not b_make:
         return
@@ -1244,10 +1265,17 @@ def set_face_property(self, obj, sel_info, op_id, prop_dict):
         idx = mm.get_material_index(prop_dict['material'])
         for face in mm.get_faces(sel_info):
             face.material_index = idx
+    elif "radial" in self.bl_idname:
+        mm.set_facesel_attr(sel_info, mm.key_radial, prop_dict['radial'])
+        # reset uv coordinates
+        for face in mm.get_faces(sel_info):
+            face.normal_update()
+            vrot = radial_to_euler(Vector(prop_dict['radial']), face.normal)
+            face[mm.key_uv_rot] = vrot
     mm.to_mesh()
     mm.free()
 
-    if ("uv" in self.bl_idname) or ("material" in self.bl_idname):
+    if ("uv" in self.bl_idname) or ("material" in self.bl_idname) or ('radial' in self.bl_idname):
         pd = {'override_origin': False, 'origin': Vector((0, 0, 0)),
               'override_mode': False, 'mode': 'GLOBAL_XY'}
         calc_uvs(self, obj, sel_info, op_id, pd)
@@ -1501,21 +1529,21 @@ def flip_normals(self, obj, sel_info, op_id, prop_dict):
     mm.set_op(op_id)
     topo = TopologyInfo(from_keys=['All'])
 
-    if prop_dict['toggle']:
-        for control_poly in lst_orig_poly:
-            new_poly = SmartPoly(control_poly.coord_sys, pt_list=control_poly.points, break_link=True)
+    for control_poly in lst_orig_poly:
+        new_poly = SmartPoly(control_poly.coord_sys, pt_list=control_poly.points, break_link=True)
+        if prop_dict['toggle']:  # if false, this can be used to insert a "null" operation to root a script
             new_poly.flip_normal()
-            face = new_poly.make_face()
-            face.normal_update()
+        face = new_poly.make_face()
+        face.normal_update()
 
-            if control_poly.coord_sys.reference_face:
-                attrs = mm.get_face_attrs(control_poly.coord_sys.reference_face)
-                attrs[mm.key_radial] = new_poly.coord_sys.ydir
-                mm.set_face_attrs(face, attrs)
-                mm.delete_face(control_poly.coord_sys.reference_face)
-            else:
-                mm.set_face_attrs(face, {mm.key_radial: new_poly.coord_sys.ydir})
-            calc_face_uv(face, mm)
+        if control_poly.coord_sys.reference_face:
+            attrs = mm.get_face_attrs(control_poly.coord_sys.reference_face)
+            attrs[mm.key_radial] = new_poly.coord_sys.ydir
+            mm.set_face_attrs(face, attrs)
+            mm.delete_face(control_poly.coord_sys.reference_face)
+        else:
+            mm.set_face_attrs(face, {mm.key_radial: new_poly.coord_sys.ydir})
+        calc_face_uv(face, mm)
 
         mm.to_mesh()
         mm.free()
@@ -1542,6 +1570,7 @@ def project_face(self, obj, sel_info, op_id, prop_dict):
 
         poly_c = SmartPoly(poly_a.coord_sys, pt_list=poly_a.points, break_link=True)
         poly_c.project_to(poly_b.normal())  # shape of a when projected
+        poly_c.calc_coord_sys(b_no_roll=True)
 
         line_a = poly_a.calc_center_box()
         line_b = line_a + poly_a.normal()
@@ -1575,6 +1604,28 @@ def project_face(self, obj, sel_info, op_id, prop_dict):
             face = p.make_face()
 
         topo.add('All', len(lst_poly))
+    return topo
+
+
+def copy_faces(self, obj, sel_info, op_id, prop_dict):
+    """Used by compound operator to make points the children can build from"""
+    mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
+    mm.set_op(op_id)
+    mm.deselect_all()
+
+    topo = TopologyInfo(from_keys=['All'])
+    topo.add('All', len(lst_orig_poly))
+
+    for control_poly in lst_orig_poly:
+        face = control_poly.make_face()
+        face.hide = False
+        face.select_set(True)
+        mm.delete_face(control_poly.coord_sys.reference_face)
+
+    mm.to_mesh()
+    mm.free()
+
+    print("copied", topo.to_dict())
     return topo
 
 

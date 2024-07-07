@@ -40,7 +40,9 @@ from .journal import (
     set_journal,
     wrap_id,
     JOURNAL_PROP_NAME,
-    get_block
+    get_block,
+    merge_record_dct,
+    MyEncoder
 )
 
 from .materials import (lst_bt_materials, enum_oriented_material, material_best_mode, enum_plan_wall_material, enum_plan_floor_material,

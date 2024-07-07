@@ -184,7 +184,7 @@ class Journal:
 
     def new_record(self, sel_info, op_name):
         rec = blank_record()
-        print("new rec", self.jj['max_id'], list(self.jj.keys()))
+
         new_id = self.jj['max_id'] + 1
         rec['op_id'] = new_id
         rec['op_name'] = op_name
@@ -378,12 +378,21 @@ def delete_record(obj, operation_id):
 
     lst_children.reverse()  # doesn't matter, but remove lowest level first
     for op_id in lst_children:
-        del journal.jj['controlled'][wrap_id(op_id)]
-        del journal.jj[wrap_id(op_id)]
+        # test for existence because ops with multiple parents can lead to double attempt to delete
+        if wrap_id(op_id) in journal.jj['controlled']:
+            del journal.jj['controlled'][wrap_id(op_id)]
+        if wrap_id(op_id) in journal.jj:
+            del journal.jj[wrap_id(op_id)]
 
     for parent_id in parents:
         lst = journal['controlled'][wrap_id(parent_id)]
         lst.remove(operation_id)
+
+    # remove trailing count if we deleted the last operations
+    op_max = journal.jj['max_id']
+    while wrap_id(op_max) not in journal.jj:
+        op_max = op_max-1
+    journal.jj['max_id'] = op_max
 
     journal.flush()
     return lst_children
@@ -398,14 +407,10 @@ def import_record(filename):
     return json.loads(text, object_hook=object_hook)
 
 
-def merge_record(obj, dct_operation, sel_info):
-    """Add dictionary steps, but replace control points and control operations as indicated
-    return operation id
-    """
-    journal = get_journal(obj)
-    first_op_id = journal['max_id'] + 1  # we will return this so the system can build from here down
+def merge_record_dct(dct_master, dct_operation, sel_info):
+    first_op_id = dct_master['max_id'] + 1  # we will return this so the system can build from here down
     top_op = sel_info.op_list()[0]
-    dct_new_id = {-1:top_op}  # map id changes
+    dct_new_id = {-1: top_op}  # map id changes
 
     for old_id in range(0, dct_operation['max_id']+1):
         op_str = wrap_id(old_id)
@@ -414,8 +419,8 @@ def merge_record(obj, dct_operation, sel_info):
         if old_id in dct_new_id:  # have we seen this before?
             op_id = dct_new_id[old_id]
         else:
-            op_id = journal['max_id'] + 1
-            journal['max_id'] = op_id
+            op_id = dct_master['max_id'] + 1
+            dct_master['max_id'] = op_id
             dct_new_id[old_id] = op_id
 
         # this record can be overwritten and inserted into journal
@@ -426,32 +431,43 @@ def merge_record(obj, dct_operation, sel_info):
             # similar faces
             if old_inf.mode in ['SINGLE', 'REGION']:
                 if sel_info.mode not in ['SINGLE', 'REGION']:
+                    print("Mismatch {} {}".format(old_inf.mode, sel_info.mode))
                     return "Topology mismatch with selection mode, expect single or region"
             else:
                 vtest1 = old_inf.face_list(old_inf.op_list()[0])
                 vtest2 = sel_info.face_list(sel_info.op_list()[0])
-                if len(vtest1) != len(vtest2):
+                if (len(vtest1) != len(vtest2)) and (len(vtest1) > 1):
+                    print("Mismatch face count {} {}".format(len(vtest1), len(vtest2)))
                     return "Topology mismatch with selection face count, expected {}".format(len(vtest1))
 
             inf = sel_info
         else:
             inf = SelectionInfo(record['control_points'])
-            inf.renumber_ops(dct_new_id)
+            if inf.op_list()[0] == -1:
+                inf = sel_info
+            else:
+                inf.renumber_ops(dct_new_id)
         record['control_points'] = inf.to_dict()
-
-        print("merged = ")
-        print(record)
 
         for control_op in inf.op_list():
             new_control = control_op  # inf already renumbered
-            if wrap_id(new_control) not in journal['controlled']:
-                journal['controlled'][wrap_id(new_control)] = []
-            journal['controlled'][wrap_id(new_control)].append(op_id)
+            if wrap_id(new_control) not in dct_master['controlled']:
+                dct_master['controlled'][wrap_id(new_control)] = []
+            dct_master['controlled'][wrap_id(new_control)].append(op_id)
 
-        journal['controlled'][wrap_id(op_id)] = []  # prepare for children
+        if wrap_id(op_id) not in dct_master['controlled']:
+            dct_master['controlled'][wrap_id(op_id)] = []  # prepare for children
+        dct_master[wrap_id(op_id)] = record
 
-        journal[wrap_id(op_id)] = record
+    return first_op_id
 
+
+def merge_record(obj, dct_operation, sel_info):
+    """Add dictionary steps, but replace control points and control operations as indicated
+    return operation id
+    """
+    journal = get_journal(obj)
+    first_op_id = merge_record_dct(journal, dct_operation, sel_info)
     set_journal(obj, journal)
 
     return first_op_id

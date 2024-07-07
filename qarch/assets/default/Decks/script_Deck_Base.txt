@@ -1,39 +1,44 @@
 {
-    "max_id": 1,
+    "max_id": 3,
     "controlled": {
         "op-1": [
             0
         ],
         "op0": [
-            1
+            1,
+            3
         ],
-        "op1": []
+        "op1": [
+            2
+        ],
+        "op2": [],
+        "op3": [0]
     },
     "adjusting": [],
     "face_tags": [],
     "version": "0.1",
-    "description": "Beveled",
+    "description": "Basic deck begining",
     "op0": {
         "op_id": 0,
         "op_name": "QARCH_OT_inset_polygon",
         "properties": {
             "position": {
-                "offset_x": 0.009999999776482582,
+                "offset_x": 1.0,
                 "is_relative_x": false,
                 "center_x": false,
-                "offset_y": 0.009999999776482582,
+                "offset_y": 2.0,
                 "is_relative_y": false,
                 "center_y": false
             },
             "size": {
-                "size_x": -0.019999999552965164,
-                "is_relative_x": false,
-                "size_y": -0.019999999552965164,
-                "is_relative_y": false
+                "size_x": 1.25,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
             },
-            "join": "BRIDGE",
+            "join": "OUTSIDE",
             "add_perimeter": false,
-            "shape_type": "SELF",
+            "shape_type": "NGON",
             "by_inset": false,
             "thickness": 0.0,
             "poly": {
@@ -44,7 +49,7 @@
                 "num_sides": 12,
                 "arch_type": "ROMAN"
             },
-            "frame": 0.10000000149011612,
+            "frame": 0,
             "frame_material": "BT_Nothing",
             "super_curve": {
                 "x": 1.0,
@@ -77,40 +82,40 @@
                 ]
             },
             "resolution": 4,
-            "center_material": "BT_Wood",
-            "extrude_distance": -0.019999999552965164
+            "center_material": "BT_Planks",
+            "extrude_distance": 0.0
         },
         "control_points": {
             "faces": {
                 "op-1": [
-                    0
+                    4
                 ]
             },
             "verts": {},
             "flags": {},
             "mode": "GROUP"
         },
-        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
     },
     "op1": {
         "op_id": 1,
         "op_name": "QARCH_OT_inset_polygon",
         "properties": {
             "position": {
-                "offset_x": 0.019999999552965164,
+                "offset_x": 0.10000000149011612,
                 "is_relative_x": false,
                 "center_x": false,
-                "offset_y": 0.019999999552965164,
+                "offset_y": 0.10000000149011612,
                 "is_relative_y": false,
                 "center_y": false
             },
             "size": {
-                "size_x": -0.03999999910593033,
+                "size_x": -0.20000000298023224,
                 "is_relative_x": false,
-                "size_y": -0.03999999910593033,
+                "size_y": -0.20000000298023224,
                 "is_relative_y": false
             },
-            "join": "BRIDGE",
+            "join": "FREE",
             "add_perimeter": false,
             "shape_type": "SELF",
             "by_inset": false,
@@ -156,8 +161,8 @@
                 ]
             },
             "resolution": 4,
-            "center_material": "BT_Wood",
-            "extrude_distance": 0.019999999552965164
+            "center_material": "BT_Nothing",
+            "extrude_distance": 0.10000000149011612
         },
         "control_points": {
             "faces": {
@@ -166,9 +171,69 @@
                 ]
             },
             "verts": {},
-            "flags": {},
+            "flags": {
+                "op0": 1
+            },
             "mode": "GROUP"
         },
-        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "DELETE"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op1": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.8999999761581421,
+            "steps": 1,
+            "on_axis": false,
+            "axis": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "twist": 0.0,
+            "align_end": false,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "flip_normals": false,
+            "side_material": "BT_Nothing",
+            "center_material": "BT_Nothing"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op1": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 5]], "Tops": [[6, 6]]}, "moduli": {"Sides": 6, "Tops": 0}}
     }
 }

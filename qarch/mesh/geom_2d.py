@@ -209,9 +209,9 @@ def generate_arch(w, h, n_sides, arch_type, thickness):
         ctr = Vector((c, d))
         step = (theta-theta_start) / n_arc
         lst_pts, lst_pts2 = generate_arc_points(ctr, r_arc, theta_start, step, n_arc+1, thickness)
-        # correct last point
-        ipt = mathutils.geometry.intersect_line_line_2d(lst_pts[-1], Vector((0, 0)), lst_pts2[-1], lst_pts2[-2])
-        lst_pts2[-1] = ipt
+        if thickness > 0: # correct last point
+            ipt = mathutils.geometry.intersect_line_line_2d(lst_pts[-1], Vector((0, 0)), lst_pts2[-1], lst_pts2[-2])
+            lst_pts2[-1] = ipt
         lst_ctr = [ctr] * n_arc
 
         theta_1 = math.pi - theta  # for downward stroke
@@ -328,11 +328,11 @@ def generate_arch(w, h, n_sides, arch_type, thickness):
             ctr = Vector((res.x, res.y))
             n_step = n_center - c_start
             lst1, lst2 = generate_arc_points(ctr, r_center, theta_0 + c_start*step, step, n_step + 1, thickness)
-            # correct last point
-            if len(lst2) > 1:
-                ipt = mathutils.geometry.intersect_line_line_2d(lst1[-1], Vector((0, 0)), lst2[-1], lst2[-2])
-            else:
-                ipt = mathutils.geometry.intersect_line_line_2d(lst1[-1], Vector((0, 0)), lst2[-1], lst_pts2[-1])
+            if thickness > 0: # correct last point
+                if len(lst2) > 1:
+                    ipt = mathutils.geometry.intersect_line_line_2d(lst1[-1], Vector((0, 0)), lst2[-1], lst2[-2])
+                else:
+                    ipt = mathutils.geometry.intersect_line_line_2d(lst1[-1], Vector((0, 0)), lst2[-1], lst_pts2[-1])
             lst2[-1] = ipt
             lst_pts.extend(lst1)
             lst_pts2.extend(lst2)

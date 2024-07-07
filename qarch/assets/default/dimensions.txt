@@ -1,0 +1,19 @@
+brick, 0.17, 0.05, 0.01
+block, 0.29, 0.17, 0.01
+shingle, 0.12, 0.12, 0.0
+siding, 0.12, 1.5, 0.0
+planks, 0.05, 1.5, 0.0
+narrow door, 0.526, 2.04, 0.076
+standard door, 0.726, 2.04, 0.076
+wide door, 0.926, 2.04, 0.1
+garage door, 2.134, 2.134, 0.1
+small window, 0.63, 0.90, 0.076
+standard window, 0.81, 1.20, 0.076
+large window, 1.26, 1.98, 0.076
+standard ceiling, 0, 2.46, 0.24
+modern high ceiling, 0, 2.76, 0.36
+classic high ceiling, 0, 336, 0.36
+step, 0.24, 0.18, 0
+exterior brick wall, 0.35, 0, 0
+exterior frame wall, 0.20, 0, 0
+interior frame wall, 0.13, 0, 0

@@ -3,7 +3,7 @@ many are not derived from CustomOperator"""
 import math
 
 import bpy
-from bpy.props import EnumProperty, StringProperty, IntProperty
+from bpy.props import EnumProperty, StringProperty, IntProperty, FloatProperty, BoolProperty
 from .custom import *
 from .properties import face_tag_to_int, get_face_tag_enum
 from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo, REPLAY_OP_ID
@@ -197,6 +197,8 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     stop_at: IntProperty(name="Stop at", default=-1, min=-1, description="-1 for full rebuild, otherwise stop after operation number")
+    # someday maybe we can insert this into the header being drawn
+    # user_cancel: BoolProperty(name="Cancel", default=False)
 
     @classmethod
     def poll(cls, context):
@@ -229,7 +231,7 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
         mm.to_mesh()
         mm.free()
 
-        if active_op==-1:
+        if active_op == -1:
             start = 0
         else:
             start = active_op
@@ -239,21 +241,23 @@ class QARCH_OT_rebuild_object(bpy.types.Operator):
             end = min(self.stop_at, journal['max_id']+1)
 
         for i_op in range(start, end):
-            # it's possible for the user to select faces from two operations as the input for one operation
-            # during replay, the early operation will try to trigger the children it controls
-            # and when the child tries to select the second, later source operation the poll method will fail
-            # because the necessary faces aren't made yet
-            # so we replay in order instead of by following the tree structure
+            factor = int(100 * i_op / end)
+            txt = "Rebuild {} of {}".format(i_op, end)
+            context.scene.progress_indicator = factor
+            context.scene.progress_indicator_text = txt
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+
             if wrap_id(i_op) in journal.jj:  # check for deleted operations
-                set_obj_data(mm.obj, REPLAY_OP_ID, i_op)  # prevents child recursion
+                set_obj_data(context.object, REPLAY_OP_ID, i_op)  # prevents child recursion
                 replay_history(context, i_op)
+        context.scene.progress_indicator = -1
 
         journal = Journal(context.object)
         journal['adjusting'] = []
         journal.flush()
-
-        set_obj_data(mm.obj, REPLAY_OP_ID, -1)
+        set_obj_data(context.object, REPLAY_OP_ID, -1)
         return {'FINISHED'}
+
 
 class QARCH_OT_remove_operation(bpy.types.Operator):
     """For cleanup when old faces are left behind"""

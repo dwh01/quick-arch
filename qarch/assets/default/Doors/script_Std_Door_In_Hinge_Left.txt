@@ -547,7 +547,7 @@
             "flags": {
                 "op6": 3
             },
-            "mode": "GROUP"
+            "mode": "SINGLE"
         },
         "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
     },
@@ -616,7 +616,7 @@
             },
             "verts": {},
             "flags": {},
-            "mode": "GROUP"
+            "mode": "SINGLE"
         },
         "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
     },
