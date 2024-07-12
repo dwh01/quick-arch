@@ -650,6 +650,7 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
     center_mat = prop_dict['center_material']
     side_idx = mm.get_material_index(side_mat)
     center_idx = mm.get_material_index(center_mat)
+    keep_y = prop_dict.get('keep_y', False)
 
     for control_poly in lst_orig_poly:
         if len(control_poly.points) != len(lst_orig_poly[0].points):
@@ -723,6 +724,8 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
                     r_poly.face_attr['material'] = side_idx
                     if 'uv_mode' in r_poly.face_attr:
                         del r_poly.face_attr['uv_mode']  # let material decide
+                if keep_y and control_poly.coord_sys.reference_face:
+                    r_poly.face_attr['radial'] = control_poly.coord_sys.reference_face[mm.key_radial]
                 # make new face
                 face = r_poly.make_face()
 
@@ -1559,48 +1562,91 @@ def project_face(self, obj, sel_info, op_id, prop_dict):
     topo = TopologyInfo(from_keys=['All'])
 
     material_index = mm.get_material_index(prop_dict['material'])
-
+    hip = prop_dict.get('hip', False)
     target = prop_dict['target'] % len(lst_orig_poly)
     poly_b = lst_orig_poly[target]
 
     for i_y, poly_a in enumerate(lst_orig_poly):
         if poly_b is poly_a:
             continue
-        v_dir = poly_b.calc_center_box() - poly_a.calc_center_box()
 
-        poly_c = SmartPoly(poly_a.coord_sys, pt_list=poly_a.points, break_link=True)
-        poly_c.project_to(poly_b.normal())  # shape of a when projected
-        poly_c.calc_coord_sys(b_no_roll=True)
+        if hip:
+            p0 = poly_a.calc_center_box()
+            p1 = p0 + poly_a.normal()
+            p2 = poly_b.calc_center_box()
+            p3 = p0 + poly_b.normal()
+            res = mathutils.geometry.intersect_line_line(p0, p1, p2, p3)
+            ipt = (res[0]+res[1])/2  # assume an intersection!
+            ivec = Vector((0, 0, 1))  # force z, keep point
+            # working in xy plane
+            a_norm = Vector((poly_a.normal().x, poly_a.normal().y, 0)).normalized()
+            b_norm = Vector((poly_b.normal().x, poly_b.normal().y, 0)).normalized()
+            if a_norm.dot(b_norm) > 0:
+                b_norm = -b_norm
+            avg = (a_norm + b_norm) / 2
+            avg.normalize()
+            midplane_norm = ivec.cross(avg)
+            lst_a = []
+            for p in poly_a.points:
+                v = mathutils.geometry.intersect_line_plane(p.co3, p.co3 + a_norm, ipt, midplane_norm)
+                lst_a.append(v)
+            lst_b = []
+            for p in poly_b.points:
+                v = mathutils.geometry.intersect_line_plane(p.co3, p.co3 + b_norm, ipt, midplane_norm)
+                lst_b.append(v)
+            if a_norm.dot(midplane_norm) > 0:
+                n = midplane_norm
+            else:  # face same direction for bridge
+                n = -midplane_norm
+            poly_a1 = SmartPoly(CoordSys(mm, radial=Vector((0,0,1)), normal=n), pt_list=lst_a, b_no_roll=True)
+            lst_bridge_a = poly_a1.bridge_by_number(poly_a)
+            if b_norm.dot(midplane_norm) > 0:
+                n = midplane_norm
+            else:
+                n = -midplane_norm
+            poly_b1 = SmartPoly(CoordSys(mm, radial=Vector((0,0,1)), normal=n), pt_list=lst_b, b_no_roll=True)
+            lst_bridge_b = poly_b1.bridge_by_number(poly_b)
+            lst_poly = lst_bridge_a + lst_bridge_b
 
-        line_a = poly_a.calc_center_box()
-        line_b = line_a + poly_a.normal()
-        v = mathutils.geometry.intersect_line_plane(line_a, line_b, poly_b.calc_center_box(), poly_b.normal())
-        if v is not None:
-            poly_c.shift_3d(v - poly_c.calc_center_box())
-
-        lst_poly = []
-        if not prop_dict['bridge']:
-            v_dir = poly_a.normal()
-            # use c as target
-            poly_a.make_verts()
-            poly_c.make_verts()
-            lst_poly = poly_c.bridge(poly_a, v_extruding=v_dir)
         else:
-            # use c for bridge calculation
-            poly_c.make_verts()
-            poly_b.make_verts()
-            lst_poly = poly_b.bridge(poly_c, False, v_extruding=v_dir)
+            v_dir = poly_b.calc_center_box() - poly_a.calc_center_box()
 
-            # transfer positions of a to c, ie, unproject c
-            for i in range(len(poly_a.points)):
-                poly_c.points[i].co3 = poly_a.points[i].co3
-                poly_c.points[i].bm_vert.co = poly_a.points[i].co3
+            poly_c = SmartPoly(poly_a.coord_sys, pt_list=poly_a.points, break_link=True)
+            poly_c.project_to(poly_b.normal())  # shape of a when projected
+            poly_c.calc_coord_sys(b_no_roll=True)
+
+            line_a = poly_a.calc_center_box()
+            line_b = line_a + poly_a.normal()
+            v = mathutils.geometry.intersect_line_plane(line_a, line_b, poly_b.calc_center_box(), poly_b.normal())
+            if v is not None:
+                poly_c.shift_3d(v - poly_c.calc_center_box())
+
+            lst_poly = []
+            if not prop_dict['bridge']:
+                v_dir = poly_a.normal()
+                # use c as target
+                poly_a.make_verts()
+                poly_c.make_verts()
+                lst_poly = poly_c.bridge(poly_a, v_extruding=v_dir)
+            else:
+                # use c for bridge calculation
+                poly_c.make_verts()
+                poly_b.make_verts()
+                lst_poly = poly_b.bridge(poly_c, False, v_extruding=v_dir)
+
+                # transfer positions of a to c, ie, unproject c
+                for i in range(len(poly_a.points)):
+                    poly_c.points[i].co3 = poly_a.points[i].co3
+                    poly_c.points[i].bm_vert.co = poly_a.points[i].co3
 
         # materials and attributes
         for p in lst_poly:
-            p.face_attr['radial'] = v_dir
             p.face_attr['material'] = material_index
-            p.calc_coord_sys(v_dir)
+            if hip:
+                p.face_attr['radial'] = Vector((0,0,1))
+            else:
+                p.face_attr['radial'] = v_dir
+            p.calc_coord_sys(p.face_attr['radial'])
             face = p.make_face()
 
         topo.add('All', len(lst_poly))
@@ -1933,6 +1979,385 @@ def perpendicular_face(self, obj, sel_info, op_id, prop_dict):
         topo.add('All')
     mm.to_mesh()
     mm.free()
+    return topo
+
+
+def straight_rail(mm, pt_o, radial, norm, shape, v_end, material_index, topo):
+    csys = CoordSys(mm, radial=radial, normal=norm, origin=pt_o)
+    start = SmartPoly(csys.copy())
+    for pt in shape.points:
+        start.add(csys.make_3d(pt.co2))
+    start.calc_2d()
+
+    end = SmartPoly(csys.copy())
+    end.coord_sys.shift_origin3d(v_end)
+    for pt in shape.points:
+        end.add(end.coord_sys.make_3d(pt.co2))
+    end.calc_2d()
+
+    start.make_verts()
+    end.make_verts()
+
+    lst_br = end.bridge_by_number(start)
+    lst_br = [start, end] + lst_br
+
+    for poly in lst_br:
+        poly.face_attr['material'] = material_index
+        poly.face_attr['uv_rot'] = pointing_to_euler(v_end.normalized())
+        face = poly.make_face()
+
+    topo.add('Starts')
+    topo.add('Ends')
+    topo.add('Sides', len(lst_br) - 2)
+
+
+def curved_rail(mm, rail_pts, rail_inset, rail_ht, shape, material_index, topo):
+    rail_control_poly = SmartPoly(CoordSys(mm))
+    for p in rail_pts:
+        rail_control_poly.add(p)
+    rail_control_poly.shift_3d(Vector((0, 0, rail_ht)))
+    side_list = list(range(len(rail_control_poly.points)-1))
+    for i_edge in range(len(rail_control_poly.points)-1):
+        edge_dir = rail_control_poly.points[i_edge + 1].co3 - rail_control_poly.points[i_edge].co3
+        edge_dir.normalize()
+        if i_edge > 0:
+            elast = rail_control_poly.points[i_edge].co3 - rail_control_poly.points[i_edge - 1].co3
+            elast.normalize()
+            rail_control_poly.coord_sys.normal = elast.cross(edge_dir).normalized()
+            # x and y dir not used by solidify
+        else:
+            enext = rail_control_poly.points[i_edge+2].co3 - rail_control_poly.points[i_edge + 1].co3
+            enext.normalize()
+            rail_control_poly.coord_sys.normal = edge_dir.cross(enext).normalized()
+
+        vz = Vector((0, 0, 0))
+        solidify_by_bridge(rail_control_poly, side_list, i_edge,
+                           edge_dir, vz, rail_inset, mm, material_index, topo,[shape])
+
+
+def straight_balusters(mm, n_step, rail_in, rail_out, h_tread, b_rail_ht, rail_ht, bottom_rail):
+    for i in range(n_step):
+        r = rail_in[2 * i]
+        s = rail_in[2 * i + 1]
+        zz = Vector((0, 0, h_tread))
+        zzb = Vector((0, 0, b_rail_ht))
+        zzt = Vector((0, 0, rail_ht))
+        norm = (rail_in[i] - rail_out[i]).normalized()
+        if bottom_rail:
+            plist = [r, r + zzb, s + zz + zzb, s]
+            plist1 = [r + zzb, r + zzt, s + zz + zzt, s + zz + zzb]
+            sidepanel = SmartPoly(CoordSys(mm, radial=zz.normalized(), normal=norm), pt_list=plist)
+            sidepanel.make_face()
+        else:
+            plist1 = [r, r + zzt, s + zz + zzt, s]
+        sidepanel = SmartPoly(CoordSys(mm, radial=zz.normalized(), normal=norm), pt_list=plist1)
+        sidepanel.make_face()
+
+
+def curved_balusters(mm, n_step, rail_in, rail_out, h_tread, b_rail_ht, rail_ht, bottom_rail):
+    for i in range(n_step):
+        r = rail_in[i]
+        s = rail_in[i + 1]
+        zz = Vector((0, 0, h_tread))
+        zzb = Vector((0, 0, b_rail_ht))
+        zzt = Vector((0, 0, rail_ht))
+        norm = (rail_in[i] - rail_out[i]).normalized()
+        if bottom_rail:
+            plist = [r, r + zzb, s + zzb, s - zz]
+            plist1 = [r + zzb, r + zzt, s + zzt, s + zzb]
+            sidepanel = SmartPoly(CoordSys(mm, radial=zz.normalized(), normal=norm), pt_list=plist)
+            sidepanel.make_face()
+        else:
+            plist1 = [r, r + zzt, s + zzt, s - zz]
+        sidepanel = SmartPoly(CoordSys(mm, radial=zz.normalized(), normal=norm), pt_list=plist1)
+        sidepanel.make_face()
+
+
+def build_stairs(self, obj, sel_info, op_id, prop_dict):
+    curved = prop_dict['curved']
+    curve_left = prop_dict['curve_left']
+    open_riser = prop_dict['open_riser']
+    radius = prop_dict['radius']
+    w_tread = prop_dict['w_tread']
+    d_tread = prop_dict['d_tread']
+    thickness = prop_dict['thickness']
+    overhang = prop_dict['overhang']
+    height = prop_dict['height']
+    h_tread = prop_dict['h_tread']
+    rotation = prop_dict['rotation']
+    min_support = prop_dict['min_support']
+    tread_mat = prop_dict['tread_material']
+    riser_mat = prop_dict['riser_material']
+    support_mat = prop_dict['support_material']
+    rails = prop_dict['rails']
+    balusters = prop_dict['balusters']
+    b_rail_ht = prop_dict['bot_rail_ht']
+    b_rail_w = prop_dict['bot_rail_w']
+    b_rail_d = prop_dict['bot_rail_d']
+
+    mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
+    mm.set_op(op_id)
+
+    tread_index = mm.get_material_index(tread_mat)
+    riser_index = mm.get_material_index(riser_mat)
+    support_index = mm.get_material_index(support_mat)
+
+    n_step = int(math.ceil(height / h_tread))
+    h_tread = height / n_step
+
+    rotation_matrix = Matrix.Rotation(rotation, 3, Vector((0,0,1)))
+
+    topo = TopologyInfo(from_keys=['Risers', 'Treads', 'Supports', 'Balusters', 'Starts', 'Ends', 'Sides'])
+    pts_in = []
+    pts_out = []
+    if not curved:
+        for i in range(n_step):
+            x = 0
+            y = i * d_tread
+            z = i * h_tread
+            pt = Vector((x,y,z))
+            pts_in.append(pt)
+            y = y + d_tread
+            pt = Vector((x, y, z))
+            pts_in.append(pt)
+
+            x = w_tread
+            y = i * d_tread
+            pt = Vector((x,y,z))
+            pts_out.append(pt)
+            y = y + d_tread
+            pt = Vector((x, y, z))
+            pts_out.append(pt)
+    else:
+        if curve_left:
+            ox = -radius
+        else:
+            ox = radius
+
+        for i in range(n_step):
+            circ = i*d_tread
+            theta = circ/radius
+            theta_1 = (circ + d_tread)/radius
+            if not curve_left:
+                theta = math.pi - theta
+                theta_1 = math.pi - theta_1
+
+            x = ox + radius * math.cos(theta)
+            y = radius * math.sin(theta)
+            z = i * h_tread
+            pt = Vector((x, y, z))
+            pts_in.append(pt)
+            x = ox + radius * math.cos(theta_1)
+            y = radius * math.sin(theta_1)
+            pt = Vector((x, y, z))
+            pts_in.append(pt)
+
+            x = ox + (w_tread + radius) * math.cos(theta)
+            y = (w_tread + radius) * math.sin(theta)
+            pt = Vector((x, y, z))
+            pts_out.append(pt)
+            x = ox + (w_tread + radius) * math.cos(theta_1)
+            y = (w_tread + radius) * math.sin(theta_1)
+            pt = Vector((x, y, z))
+            pts_out.append(pt)
+
+    vz_step = Vector((0,0,1)) * h_tread
+    vz_tread = Vector((0,0,1)) * thickness
+    vz_support_min = Vector((0,0,-1)) * min_support
+    vz_support_max = Vector((0, 0, -1)) * (min_support + h_tread)
+
+    for i_cont, control_poly in enumerate(lst_orig_poly):
+        support_origin = (pts_in[0] + pts_out[0] + vz_step) / 2 + random_origin(i_cont, 0.1)
+        reference = control_poly.coord_sys.make_3d(control_poly.bbox_min)
+        ox, oy = _extract_offset(prop_dict['position'], control_poly.box_size, Vector((w_tread, d_tread * n_step)))
+        oz = prop_dict['z_offset']
+        v_offset = ox * control_poly.coord_sys.xdir + oy * control_poly.coord_sys.ydir + oz * control_poly.coord_sys.normal
+        reference = reference + v_offset
+
+        for i in range(n_step):
+            # make tread, riser, and support sides
+            i0 = pts_in[i*2]
+            i1 = pts_in[i*2 + 1]
+            o0 = pts_out[i*2]
+            o1 = pts_out[i*2 + 1]
+
+            vi_over = (i0 - i1).normalized() * overhang
+            vo_over = (o0 - o1).normalized() * overhang
+            inside = [i0+vi_over, i0+vi_over+vz_tread, i1 + vz_tread, i1]
+            outside = [o0+vo_over, o0+vo_over+vz_tread, o1 + vz_tread, o1]
+
+            vr = (o0 - i0).normalized() * thickness
+            vr1 = (o1 - i1).normalized() * thickness
+            if i==0:
+                in_sup = [i0, i1, i1 + vz_support_min, i0 + vz_support_min]
+                out_sup = [o0, o1, o1 + vz_support_min, o0 + vz_support_min]
+                in_sup_1 = [i0 + vr, i1 + vr1, i1 + vz_support_min + vr1, i0 + vz_support_min + vr]
+                out_sup_1 = [o0 - vr, o1 - vr1, o1 + vz_support_min - vr1, o0 + vz_support_min - vr1]
+            else:
+                in_sup = [i0, i1, i1 + vz_support_min, i0 + vz_support_max]
+                out_sup = [o0, o1, o1 + vz_support_min, o0 + vz_support_max]
+                in_sup_1 = [i0 + vr, i1 + vr1, i1+vz_support_min+vr1, i0 + vz_support_max + vr]
+                out_sup_1 = [o0 - vr, o1 - vr1, o1 + vz_support_min - vr1, o0 + vz_support_max - vr1]
+
+            riser = [i1+vr1, o1-vr1, o1-vr1+vz_step, i1+vr1+vz_step]
+            vxi = (i1 - i0).normalized() * thickness
+            vxo = (o1 - o0).normalized() * thickness
+            riser_1 = [i1+vr1+vxi, o1-vr1+vxo, o1-vr1+vxo+vz_step, i1+vr1+vxi+vz_step]
+
+            if not curve_left:  # we will want to flip normals on these
+                for lst in [inside, outside, in_sup, out_sup, in_sup_1, out_sup_1, riser, riser_1]:
+                    lst.reverse()
+
+            # apply transformation
+            for lst in [inside, outside, in_sup, out_sup, in_sup_1, out_sup_1, riser, riser_1]:
+                for j in range(4):
+                    lst[j] = rotation_matrix @ lst[j] + reference
+            # update vectors needed for orientation of polys
+            vr = (outside[0] - inside[0]).normalized() * thickness
+            vr1 = (outside[3] - inside[3]).normalized() * thickness
+            vr_avg = (vr+vr1).normalized()
+            vxi = (inside[3] - inside[0]).normalized() * thickness
+            vxo = (outside[3] - outside[0]).normalized() * thickness
+            vx_avg = (vxi+vxo).normalized()
+
+            # make step
+            inside = SmartPoly(CoordSys(mm, radial=Vector((0,0,1)), normal=vr_avg), pt_list=inside)
+            outside = SmartPoly(CoordSys(mm, radial=Vector((0, 0, 1)), normal=vr_avg), pt_list=outside)
+            # make supports
+            in_sup = SmartPoly(CoordSys(mm, radial=(in_sup[2] - in_sup[3]).normalized(), normal=vr_avg), pt_list=in_sup)
+            out_sup = SmartPoly(CoordSys(mm, radial=(out_sup[2] - out_sup[3]).normalized(), normal=vr_avg), pt_list=out_sup)
+            in_sup_1 = SmartPoly(CoordSys(mm, radial=(in_sup_1[2] - in_sup_1[3]).normalized(), normal=vr_avg), pt_list=in_sup_1)
+            out_sup_1 = SmartPoly(CoordSys(mm, radial=(out_sup_1[2] - out_sup_1[3]).normalized(), normal=vr_avg), pt_list=out_sup_1)
+            riser = SmartPoly(CoordSys(mm, radial=Vector((0, 0, 1)), normal=vx_avg), pt_list=riser)
+            riser_1 = SmartPoly(CoordSys(mm, radial=Vector((0, 0, 1)), normal=vx_avg), pt_list=riser_1)
+
+            for info in [(inside, outside, tread_index), (in_sup, in_sup_1, support_index),
+                         (out_sup_1, out_sup, support_index), (riser, riser_1, riser_index)]:
+                poly_a, poly_b, mat = info
+                if poly_a is riser:  # do riser check
+                    if open_riser or (i == (n_step - 1)):
+                        continue
+
+                lst_br = poly_b.bridge_by_number(poly_a)
+                lst = [poly_a, poly_b] + lst_br
+                for poly in lst:
+                    poly.face_attr['material'] = mat
+                    if poly_a in [in_sup, out_sup_1]:  # align wood grain with axis of stairs
+                        v_diag = (poly_a.points[2].co3 - poly_a.points[3].co3).normalized()
+                        poly.face_attr['uv_rot'] = pointing_to_euler(v_diag)
+                        if not curved:  # common origin
+                            poly.face_attr['origin'] = support_origin
+
+                    poly.make_face()
+
+                if poly_a is inside:
+                    topo.add('Treads', len(lst))
+                elif poly_a is riser:
+                    topo.add('Risers', len(lst))
+                elif poly_a in [in_sup, out_sup_1]:
+                    topo.add('Supports', len(lst))
+
+        if rails:
+            rail_index = mm.get_material_index(prop_dict['rail_material'])
+            shape_type = prop_dict['rail_type']
+            rail_ht = prop_dict['rail_ht']
+            rail_inset = prop_dict['rail_inset']
+            rail_in = [rotation_matrix @ p + reference for p in pts_in]
+            rail_out = [rotation_matrix @ p + reference for p in pts_out]
+
+            # recommend absolute sizing for rails and balusters
+            pos = {
+                "offset_x": 0.0,
+                "is_relative_x": False,
+                "offset_y": 0.0,
+                "is_relative_y": False
+            }
+            if shape_type == 'NGON':
+                pd = {'poly': prop_dict['rail_poly'], 'frame':0, 'size':prop_dict['rail_size'], 'position':pos}
+                lst_new, outer = _make_ngon(control_poly, pd, mm, False)
+            elif shape_type == 'CURVE':
+                pd = {'local_object': prop_dict['rail_local_object'], 'size':prop_dict['rail_size'], 'position':pos}
+                lst_new, outer = _make_curve_poly(control_poly, pd, mm, False)
+            elif shape_type == 'CATALOG':
+                pd = {'catalog_object': prop_dict['rail_catalog_object'], 'size':prop_dict['rail_size'], 'position':pos}
+                lst_new, outer = _make_catalog_poly(control_poly, pd, mm, self.context, False)
+            outer.coord_sys.origin = outer.calc_center_box()
+            outer.calc_2d()
+
+            if not curved:  # one long rail
+                norm = (rail_in[2]-rail_in[0]).normalized()
+                radial = Vector((0,0,1))
+                if prop_dict['left_rail']:
+                    v_inset = rail_inset * (rail_out[0] - rail_in[0]).normalized()
+                    pt_o = rail_in[0] + Vector((0, 0, rail_ht)) + v_inset
+                    v_end = rail_in[-1] + Vector((0,0,h_tread)) - rail_in[0]
+                    straight_rail(mm, pt_o, radial, norm, outer, v_end, rail_index, topo)
+                    if balusters:
+                        if prop_dict['bottom_rail']:
+                            pt_o = rail_in[0] + Vector((0, 0, b_rail_ht)) + v_inset
+                            shape = SmartPoly(CoordSys(mm, radial=radial, normal=norm, origin=pt_o))
+                            for pt in [[0,0], [b_rail_w,0], [b_rail_w,b_rail_d], [0,b_rail_d]]:
+                                p = Vector(pt)
+                                shape.add(shape.coord_sys.make_3d(p))
+                            shape.calc_2d(b_no_roll=True)
+                            straight_rail(mm, pt_o, radial, norm, shape, v_end, rail_index, topo)
+
+                        # make faces for balusters  # TODO would be nicer if we shared bm_verts for selection
+                        straight_balusters(mm, n_step, rail_in, rail_out, h_tread, b_rail_ht, rail_ht, prop_dict['bottom_rail'])
+
+                if prop_dict['right_rail']:
+                    v_inset = rail_inset * (rail_in[0] - rail_out[0]).normalized()
+                    pt_o = rail_out[0] + Vector((0, 0, rail_ht)) + v_inset
+                    v_end = rail_out[-1] + Vector((0,0,h_tread)) - rail_out[0]
+                    straight_rail(mm, pt_o, radial, norm, outer, v_end, rail_index, topo)
+                    if balusters:
+                        if prop_dict['bottom_rail']:
+                            pt_o = rail_out[0] + Vector((0, 0, b_rail_ht)) + v_inset
+                            shape = SmartPoly(CoordSys(mm, radial=radial, normal=norm, origin=pt_o))
+                            for pt in [[0,0], [b_rail_w,0], [b_rail_w,b_rail_d], [0,b_rail_d]]:
+                                p = Vector(pt)
+                                shape.add(shape.coord_sys.make_3d(p))
+                            shape.calc_2d(b_no_roll=True)
+                            straight_rail(mm, pt_o, radial, norm, shape, v_end, rail_index, topo)
+
+                        straight_balusters(mm, n_step, rail_out, rail_in, h_tread, b_rail_ht, rail_ht, prop_dict['bottom_rail'])
+            else:
+                # Use solidify, even though we don't have a flat polygon
+                # just update normal at each step
+                p_last = rail_in[-1] + Vector((0,0,h_tread))
+                rail_in = rail_in[::2]
+                rail_in.append(p_last)
+                p_last = rail_out[-1] + Vector((0, 0, h_tread))
+                rail_out = rail_out[::2]
+                rail_out.append(p_last)
+                if prop_dict['left_rail']:
+                    curved_rail(mm, rail_in, -rail_inset, rail_ht, outer, rail_index, topo)
+                    if balusters:
+                        if prop_dict['bottom_rail']:
+                            shape = SmartPoly(CoordSys(mm))
+                            for pt in [[0,0], [b_rail_w,0], [b_rail_w,b_rail_d], [0,b_rail_d]]:
+                                p = Vector(pt)
+                                shape.add(shape.coord_sys.make_3d(p))
+                            shape.calc_2d(b_no_roll=True)
+                            curved_rail(mm, rail_in, -rail_inset, b_rail_ht, shape, rail_index, topo)
+
+                        # make faces for balusters
+                        curved_balusters(mm, n_step, rail_in, rail_out, h_tread, b_rail_ht, rail_ht, prop_dict['bottom_rail'])
+
+                if prop_dict['right_rail']:
+                    curved_rail(mm, rail_out, rail_inset, rail_ht, outer, rail_index, topo)
+                    if balusters:
+                        if prop_dict['bottom_rail']:
+                            shape = SmartPoly(CoordSys(mm))
+                            for pt in [[0,0], [b_rail_w,0], [b_rail_w,b_rail_d], [0,b_rail_d]]:
+                                p = Vector(pt)
+                                shape.add(shape.coord_sys.make_3d(p))
+                            shape.calc_2d(b_no_roll=True)
+                            curved_rail(mm, rail_out, rail_inset, b_rail_ht, shape, rail_index, topo)
+
+                            # make faces for balusters
+                            curved_balusters(mm, n_step, rail_out, rail_in, h_tread, b_rail_ht, rail_ht, prop_dict['bottom_rail'])
+
     return topo
 
 

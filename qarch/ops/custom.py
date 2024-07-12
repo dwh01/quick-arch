@@ -33,114 +33,111 @@ class CustomPropertyBase(bpy.types.PropertyGroup):
     2) topology_lock which is a list of fields that could be read only once child operations exist
     because we can't change the number of vertices safely. Changing position is ok.
     """
+    previews = []
+    topology_lock = []
 
     def draw(self, context, layout, lock=False):
         """Requires a field_layout list to be defined"""
-        col = layout.column(align=True)
-        for row_list in self.field_layout:
-            if isinstance(row_list, str):
-                if row_list == "---":
-                    layout.separator()
-                    col = layout.column(align=True)
-                else:
-                    col.label(text=row_list)
+        for row_list in self.iter_field_layout(compact=True):
+            row = layout.row(align=True)
+            if not hasattr(self, row_list[0]):
+                row.label(text=row_list[0])
+                row_list = row_list[1:]
+            self.draw_row_list(context, layout, row, row_list, lock)
+
+    def draw_row_list(self, context, layout, row, row_list, lock):
+        for pname in row_list:
+            if lock and (pname in self.topology_lock):
+                col = row.column()
+                col.enabled = False
             else:
-                self.draw_row_list(context, col, row_list, lock)
+                col = row
 
-    def draw_row_list(self, context, col, row_list, lock):
-        if isinstance(row_list, tuple):  # boolean toggle for pointer
-            pname, pointer = row_list
-            row = col
-            if isinstance(pname, dict):  # reference previously drawn attribute
-                toggle_param, value = next(iter(pname.items()))
-                if isinstance(value, set):
-                    if getattr(self, toggle_param) not in value:
-                        return
-                elif getattr(self, toggle_param) != value:
-                    return
-            elif (pname != "") and hasattr(self, pname):  # boolean to draw here
-                row = col.row(align=True)
-                row.prop(self, pname)
-                if not getattr(self, pname):
-                    return
-            else:  # draw label for next section
-                row = col.row(align=True)
-                row.label(text=pname)
+            t = self.typeof(pname)
+            if t == "Pointer":
+                str_name = self.__annotations__[pname].keywords['name']
+                if len(str_name):
+                    row.label(text=str_name)
+                prop = getattr(self, pname)
+                prop.draw(context, layout, lock)
 
-            prop = getattr(self, pointer)
-            if hasattr(prop, 'to_dict'):
-                prop.draw(context, col, lock)
-            else:
-                row.prop(self, pointer)
-
-        else:
-            row = col.row(align=True)
-            pop_row = row  # used so we can push a locked layout for some fields
-            for pname in row_list:
-                row = pop_row
-
-                if lock and (pname in self.topology_lock):
-                    row = row.column(align=True)
-                    row.enabled = False
-
-                rna = self.bl_rna.properties[pname]
-                if isinstance(rna, bpy.types.EnumProperty):
-                    if pname == "category_item":  # preview
-                        col = row.column(align=True)
-                        col.template_icon_view(self, pname, show_labels=True, scale_popup=10)
-                        col.label(text=getattr(self, pname))
-                    else:
-                        row.prop_menu_enum(self, pname)
-                        row.label(text=getattr(self, pname))
+            elif t == "Enum":
+                if pname in self.previews:
+                    col.template_icon_view(self, pname, show_labels=True, scale_popup=10)
+                    col.label(text=getattr(self, pname))
                 else:
-                    row.prop(self, pname)
+                    col.prop_menu_enum(self, pname)
+                    col.label(text=getattr(self, pname))
+            else:
+                col.prop(self, pname)
 
     def from_dict(self, d):
         """Helper for loading persistent data"""
-        for k, v in d.items():
-            if not hasattr(self, k):  # if version change removed this property
-                print("skipped missing property {}".format(k))
-                continue
+        for row_list in self.iter_field_layout(compact=False):
+            for pname in row_list:
+                if pname not in d:
+                    continue
 
-            if isinstance(v, dict):
-                getattr(self, k).from_dict(v)
-            else:
-                rna = self.bl_rna.properties[k]
-                if isinstance(rna, bpy.types.EnumProperty): # handle dynamic enums
-                    if v not in ['', 'N\A', '0']:
+                t = self.typeof(pname)
+                if t == "Pointer":
+                    prop = getattr(self, pname)
+                    prop.from_dict(d[pname])
+                elif t == "Vector":
+                    setattr(self, pname, Vector(d[pname]))
+                elif t == "Euler":
+                    setattr(self, pname, Euler(d[pname]))
+                elif t == "Enum":
+                    if d[pname] not in ['', 'N\\A', '0']:
                         try:
-                            setattr(self, k, v)
+                            setattr(self, pname, d[pname])
                         except Exception:  # no longer available?
                             pass
                 else:
-                    if isinstance(v, tuple):
-                        if isinstance(getattr(self, k), Euler):
-                            v = Euler(v)
-                        else:
-                            v = Vector(v)
-                    setattr(self, k, v)
+                    setattr(self, pname, d[pname])
 
-    def to_dict(self):
+    def iter_field_layout(self, compact):
+        for row in self.field_layout:
+            toggle = True
+            if len(row)==1:
+                plist= row
+            elif isinstance(row[0], dict):
+                for toggle_param, value in row[0].items():
+                    if isinstance(value, set):
+                        if getattr(self, toggle_param) not in value:
+                            toggle = False
+                    elif getattr(self, toggle_param) != value:
+                        toggle = False
+                plist = row[1:]
+            else:
+                plist = row
+            if toggle or not compact:
+                yield plist
+
+    def typeof(self, pname):
+        rna = self.bl_rna.properties[pname]
+        if isinstance(rna, bpy.types.PointerProperty):
+            return "Pointer"
+        if isinstance(rna, bpy.types.EnumProperty):
+            return "Enum"
+        if isinstance(rna, bpy.types.FloatProperty) and rna.is_array:
+            if isinstance(getattr(self, pname), Euler):
+                return "Euler"
+            return "Vector"
+        return "Scalar"
+
+    def to_dict(self, compact=False):
         """Helper for saving persistent data"""
         d = {}
-        for row_list in self.field_layout:
-            if isinstance(row_list, tuple):
-                pname, pointer = row_list
-                if (type(pname) is not dict) and (pname != ""):
-                    if hasattr(self, pname):
-                        d[pname] = getattr(self, pname)  # boolean toggle, else a label
-                prop = getattr(self, pointer)
-                if hasattr(prop, 'to_dict'):
-                    d[pointer] = prop.to_dict()
-                else:  # simple property toggled by boolean
-                    d[pointer] = prop
-            else:
-                for pname in row_list:
-                    d[pname] = getattr(self, pname)
-                    if isinstance(d[pname], Vector):
-                        d[pname] = tuple(d[pname])
-                    elif isinstance(d[pname], Euler):
-                        d[pname] = tuple(d[pname])
+        for row_list in self.iter_field_layout(compact):
+            for pname in row_list:
+                prop = getattr(self, pname)
+                t = self.typeof(pname)
+                if t == "Pointer":
+                    d[pname] = prop.to_dict()
+                elif t in ["Vector", "Euler"]:
+                    d[pname] = tuple(prop)
+                else:
+                    d[pname] = prop
 
         return d
 
@@ -220,7 +217,7 @@ class CustomOperator(bpy.types.Operator):
         self.addon_prefs = preferences.addons['qarch'].preferences  # note: self is passed to functions
 
         prop_dict = self.props.to_dict()
-        debug_print("Execute {} {} props {}".format(self.bl_idname, op_id, self.props.to_dict()))
+        debug_print("Execute {} {} props {}".format(self.bl_idname, op_id, self.props.to_dict(compact=True)))
 
         if len(self.adjusting_ids):  # in a redo loop with the user
             n_region = len(self.adjusting_ids)
@@ -271,7 +268,7 @@ class CustomOperator(bpy.types.Operator):
                 self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
                 return {'CANCELLED'}
             else:
-                self.journal[cur_op_id]['gen_info'] = ret  # .to_dict()  # topology info kept as object for compact json output
+                self.journal[cur_op_id]['gen_info'] = ret  # topology info kept as object for compact json output
 
             # this first so compound operations can add children, which might need to be updated by the write_props call
             self.journal.flush()
@@ -473,6 +470,8 @@ class CustomOperator(bpy.types.Operator):
     @staticmethod
     def topology_check_recursive(props, prop_dict):
         for pname, val in prop_dict.items():
+            if pname not in props.bl_rna.properties:  # due to change in property definition
+                continue
             rna = props.bl_rna.properties[pname]
             if isinstance(rna, bpy.types.PropertyGroup):
                 if CustomOperator.topology_check_recursive(getattr(props, pname), val):
@@ -510,7 +509,7 @@ class CustomOperator(bpy.types.Operator):
     def write_props_to_journal(self, op_id):
         """Update properties in record and flush journal"""
         # override this function in Compound Operator to alter child properties too
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal.flush()
 
 

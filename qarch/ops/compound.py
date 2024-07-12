@@ -200,7 +200,7 @@ class QARCH_OT_add_window(CompoundOperator):
         dct_records = self.recordset(op_id)
 
         # normal operator properties
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Simple/Arched Window"
 
         window_w = {'SMALL': 0.63, 'STANDARD': 0.81, 'LARGE': 1.26}[self.props.window_size]
@@ -471,7 +471,7 @@ class QARCH_OT_add_door(CompoundOperator):
         dct_records = self.recordset(op_id)
 
         # normal operator properties
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Door Macro"
 
         trim_width = 0.076
@@ -567,7 +567,7 @@ class QARCH_OT_add_portico(CompoundOperator):
         by updating the journal text
         """
         # normal operator properties
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Simple Railing"
 
         dct_records = self.recordset(op_id)
@@ -645,7 +645,7 @@ class QARCH_OT_add_rail(CompoundOperator):
         by updating the journal text
         """
         # normal operator properties
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Simple Railing"
 
         dct_records = self.recordset(op_id)
@@ -786,7 +786,7 @@ class QARCH_OT_add_deck(CompoundOperator):
         by updating the journal text
         """
         # normal operator properties
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Simple Railing"
 
         dct_records = self.recordset(op_id)
@@ -1190,7 +1190,7 @@ class QARCH_OT_extend_gable(CompoundOperator):
         dct_records = self.recordset(op_id)
 
         # normal operator properties
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Simple Gable"
 
         sel_info = self.journal.get_sel_info(op_id)
@@ -1295,7 +1295,7 @@ class QARCH_OT_add_dormer(CompoundOperator):
         dct_records = self.recordset(op_id)
 
         # normal operator properties
-        self.journal[op_id]['properties'] = self.props.to_dict()
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Simple Dormer"
 
         child_rec = dct_records['position']

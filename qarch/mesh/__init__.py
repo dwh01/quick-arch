@@ -16,6 +16,7 @@ from .geom import (
     project_face,
     build_face,
     build_roof,
+    build_stairs,
     SmartPoly,
     curve_to_text,
     plan_feature,

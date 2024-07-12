@@ -46,6 +46,7 @@ lst_classes = [
     'ProjectFaceProperty',
     'BuildFaceProperty',
     'BuildRoofProperty',
+    'BuildStairsProperty',
     'SimpleDoorProperty',
     'SimplePorticoProperty',
     'SimpleRailProperty',
@@ -89,7 +90,7 @@ def int_to_uv_mode(i):
     return uv_mode_list[i][0]
 
 
-
+# FYI, to access defaults, you can do ExtendGableProperty.__annotations__['soffit_width'].keywords['default']
 class FaceTagProperty(CustomPropertyBase):
     tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
     field_layout = [['tag']]
@@ -193,8 +194,9 @@ class ArrayProperty(CustomPropertyBase):
 
     field_layout = [
         ['count', 'spacing'],
-        ('', 'direction'),
-        ('do_orbit', 'origin')
+        ['direction'],
+        ['do_orbit'],
+        [{'do_orbit': True}, 'origin']
     ]
 
     topology_lock = ['count']
@@ -232,14 +234,15 @@ class SizeProperty(CustomPropertyBase):
 class GridDivideProperty(CustomPropertyBase):
     count_x: IntProperty(name="X Count", min=0, default=1, description="Number of vertical rows")
     count_y: IntProperty(name="Y Count", min=0, default=1, description="Number of horizontal cols")
-    offset: PointerProperty(name="offset", type=PositionProperty)
+    offset: PointerProperty(name="Offset Grid", type=PositionProperty)
     define_size: BoolProperty(name="Define step size", default=False, description="Use fixed size step instead of even distribution")
     size: PointerProperty(name="Step Size", type=SizeProperty)
 
     field_layout = [
         ['count_x', 'count_y'],
-        ('Offset Grid', 'offset'),
-        ('define_size', 'size')
+        ['offset'],
+        ['define_size'],
+        [{'define_size': True}, 'size']
     ]
 
     topology_lock = ['count_x', 'count_y']
@@ -312,6 +315,7 @@ class CatalogObjectProperty(CustomPropertyBase):
     ]
 
     topology_lock = ['category_item']
+    previews = ['category_item']
 
 
 class LocalObjectProperty(CustomPropertyBase):
@@ -347,8 +351,8 @@ lst_join_enum = [
 
 
 class InsetPolygonProperty(CustomPropertyBase):
-    position: PointerProperty(name="Position", type=PositionProperty)
-    size: PointerProperty(name="Size", type=SizeProperty, description="Bounding box size")
+    position: PointerProperty(name="Position on Face", type=PositionProperty)
+    size: PointerProperty(name="Size of bounding box", type=SizeProperty, description="Bounding box size")
     join: EnumProperty(name="Join", items=lst_join_enum, default="BRIDGE")
     add_perimeter: BoolProperty(name="Add Perimeter Points", description="Add points to perimeter to match if needed", default=False)
     extrude_distance: FloatProperty(name="Extrude Distance", default=0.0, unit="LENGTH", description="Extrude distance")
@@ -360,20 +364,20 @@ class InsetPolygonProperty(CustomPropertyBase):
     thickness: FloatProperty(name="Thickness", default=0)
     poly: PointerProperty(name="Poly", type=PolygonProperty)
     arch: PointerProperty(name="Arch", type=ArchShapeProperty)
-    frame: FloatProperty(name="Frame Thickness", min=0, default=0.1, description="Polygon donut instead of solid face")
+    frame: FloatProperty(name="Frame Thickness", min=0, default=0, description="Polygon donut instead of solid face")
     local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
     catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
     super_curve: PointerProperty(name="Super", type=SuperCurveProperty)
     resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
 
     field_layout = [
-        ('Position on Face', 'position'),
-        ('Size of bounding box', 'size'),
+        ['position'],
+        ['size'],
         ['join'],
         ({'join': 'BRIDGE'}, 'add_perimeter'),
         ['shape_type'],
         ({'shape_type': 'SELF'}, 'by_inset'),
-        ('by_inset', 'thickness'),
+        ({'shape_type': 'SELF', 'by_inset': True}, 'thickness'),
         ({'shape_type': 'NGON'}, 'poly'),
         ({'shape_type': 'ARCH'}, 'arch'),
         ({'shape_type': {'NGON', 'ARCH'}}, 'frame'),
@@ -396,8 +400,8 @@ class PerpendicularFaceProperty(CustomPropertyBase):
     material: EnumProperty(name="Center Material", items=enum_nonplan_material)
 
     field_layout = [
-        ('','position'),
-        ('','size'),
+        ['position'],
+        ['size'],
         ['rotation', 'offset_z'],
         ['material']
     ]
@@ -445,7 +449,7 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     # advantage over mesh instances is the auto sizing if the edge changes length. FUTURE
 
     field_layout = [
-        ('', 'size'),
+        ['size'],
         ['side_list'],
         ['z_offset', 'inset'],
         ['face_tag'],
@@ -454,14 +458,14 @@ class SolidifyEdgesProperty(CustomPropertyBase):
         ({'shape_type': 'NGON'}, 'poly'),
         ({'shape_type': 'NGON'}, 'frame'),
         ({'shape_type': 'SELF'}, 'by_inset'),
-        ({'shape_type': 'SELF'}, 'thickness'),
+        ({'shape_type': 'SELF', 'by_inset': True}, 'thickness'),
         ({'shape_type': 'ARCH'}, 'arch'),
         ({'shape_type': 'SUPER'}, 'super_curve'),
         ({'shape_type': 'CURVE'}, 'local_object'),
         ({'shape_type': 'CATALOG'}, 'catalog_object'),
         ({'shape_type': {'CURVE', 'CATALOG', 'SUPER'}}, 'resolution'),
         ['revolutions'],
-        ('dashed','dash_info'),
+        ('dashed', 'dash_info'),
     ]
 
     topology_lock = ['shape_type', 'revolutions', 'dashed']
@@ -478,13 +482,16 @@ class ExtrudeProperty(CustomPropertyBase):
     flip_normals: BoolProperty(name="Flip Normals", description="Flip normals on extruded faces", default=False)
     side_material: EnumProperty(name="Side Material", items=enum_nonplan_material)
     center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
+    keep_y: BoolProperty(name="Keep Y", description="Keep face y orientation instead of using extrude direction", default=False)
 
     field_layout = [
         ['distance', 'steps'],
-        ('on_axis','axis'),
-        ['twist', 'align_end'],
-        ('','size'),
-        ['flip_normals'],
+        ['on_axis'],
+        [{'on_axis': True}, 'axis'],
+        [{'on_axis': True}, 'align_end'],
+        ['twist'],
+        ['size'],
+        ['flip_normals', 'keep_y'],
         ['side_material'],
         ['center_material']
     ]
@@ -502,10 +509,10 @@ class SweepProperty(CustomPropertyBase):
     center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
 
     field_layout = [
-        ('Rot Origin','origin'),
-        ('Rot Axis','axis'),
+        ['origin'],
+        ['axis'],
         ['angle', 'steps'],
-        ('','size'),
+        ['size'],
         ['side_material'],
         ['center_material']
     ]
@@ -652,15 +659,15 @@ class DormerProperty(CustomPropertyBase):
 
 
 class DeckProperty(CustomPropertyBase):
-    size: PointerProperty(type=SizeProperty)
-    position: PointerProperty(type=PositionProperty)
+    size: PointerProperty(name="Size", type=SizeProperty)
+    position: PointerProperty(name="Position", type=PositionProperty)
     elevation: FloatProperty(name="Elevation", description="Height above base", default=0)
     sides: IntProperty(name="Sides", description="Polygon sides", default=4)
     roof: BoolProperty(name="Add Roof", description="Add roof, edit extrude direction to attach to wall", default=False)
 
     field_layout = [
-        ('', 'position'),
-        ('', 'size'),
+        ['position'],
+        ['size'],
         ['sides', 'elevation'],
         ['roof']
     ]
@@ -671,7 +678,7 @@ class MeshImportProperty(CustomPropertyBase):
     use_catalog: BoolProperty(name="From Catalog", default=False)
     catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
     local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
-    position: PointerProperty(name="Position", type=PositionProperty)
+    position: PointerProperty(name="First Offset", type=PositionProperty)
     z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
     scale: FloatProperty(name="Scale Instance", description="Resize instance", default=1)
     rotation: FloatVectorProperty(name="Euler Rotation", subtype="EULER", description="Rotation of object")
@@ -679,11 +686,11 @@ class MeshImportProperty(CustomPropertyBase):
     as_instance: BoolProperty(name="As Instance", default=True, description="Use instancing instead of merging mesh")
 
     field_layout = [
-        ('First Offset', 'position'),
+        ['position'],
         ['rotation'],
         ['z_offset', 'scale'],
-        ('as_instance', 'array'),
-        ['use_catalog'],
+        ['as_instance', 'use_catalog'],
+        [{'as_instance': True}, 'array'],
         ({'use_catalog': True}, 'catalog_object'),
         ({'use_catalog': False}, 'local_object'),
     ]
@@ -702,8 +709,10 @@ class ProjectFaceProperty(CustomPropertyBase):
     target: IntProperty(name='Target', description='Face defining projection plane', default=0)
     material: EnumProperty(name="Material", items=enum_nonplan_material, description="Material for new faces")
     bridge: BoolProperty(name='Bridge', description="Bridge to target", default=False)
+    hip: BoolProperty(name='Hip', description="Hip join around bend", default=False)
 
-    field_layout = [['target', 'bridge'],
+    field_layout = [['target'],
+                    ['bridge', 'hip'],
                     ['material']]
 
     topology_lock = ['bridge']
@@ -728,6 +737,84 @@ class BuildRoofProperty(CustomPropertyBase):
     topology_lock = []
 
 
+stair_shape_type_list = [
+    ("NGON", "Regular Polygon", "N-sided polygon", 0),
+    ("CURVE", "Local Curve", "Curve from this blend file", 1),
+    ("CATALOG", "Catalog Curve", "Curve from catalog file", 2),
+    ]
+
+
+class BuildStairsProperty(CustomPropertyBase):
+    position: PointerProperty(name="Position on Face", type=PositionProperty)
+    z_offset: FloatProperty(name="Z Offset", description="Out of plane offset", default=0)
+    rotation: FloatVectorProperty(name="Euler Rotation", subtype="EULER", description="Rotation of object")
+    curved: BoolProperty(name="Curved", default=False, description="Curved or straight")
+    curve_left: BoolProperty(name="Curve Left", default=True, description="Curve to left or right on the way up")
+    open_riser: BoolProperty(name="Open Risers", default=False, description="Open or closed between steps")
+    radius: FloatProperty(name="Radius", default=1, description="Inside radius for curved stairs")
+    w_tread: FloatProperty(name="Step Width", default=0.9, description="Width of steps")
+    d_tread: FloatProperty(name="Tread Depth", default=0.2, description="Size of step front to back")
+    thickness: FloatProperty(name="Tread Thickness", default=0.03, description="Thickness of step material")
+    overhang: FloatProperty(name="Tread Overhang", default=0, description="Step overhang past riser")
+    height: FloatProperty(name="Height", default = 2.9, description="Overall height of stairs")
+    h_tread: FloatProperty(name="Riser Height", default = 0.15, description="Height of each step")
+    rotation: FloatProperty(name="Rotation", default=0, description="Rotation of stairs", unit="ROTATION")
+    min_support: FloatProperty(name="Support", default=0.1, description="Thickness of support under steps")
+
+    rails: BoolProperty(name="Add railings", default=False, description="Add handrails")
+    right_rail: BoolProperty(name="Right Rail", default=False, description="Add Right handrail")
+    left_rail: BoolProperty(name="Left Rail", default=False, description="Add Left handrail")
+    revolutions: IntProperty(name="Revolutions", description="If > 3, make a revolution of n steps for balusters", default=0)
+    rail_type: EnumProperty(name="Shape Type", default="NGON", items=stair_shape_type_list)
+    rail_poly: PointerProperty(name="Poly", type=PolygonProperty)
+    rail_local_object: PointerProperty(name="Curve", type=LocalObjectProperty)
+    rail_catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
+    rail_resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
+    rail_ht: FloatProperty(name="Rail Height", default=1, description="Handrail height")
+    rail_inset: FloatProperty(name="Rail Inset", default=0, description="Handrail inset from edge")
+    rail_size: PointerProperty(name="Rail Size", type=SizeProperty)
+
+    balusters: BoolProperty(name="Balusters", default=False, description="Add faces for balusters under handrail")
+
+    bottom_rail: BoolProperty(name="Bottom Rail", default=False, description="Add bottom rail under balusters")
+    bot_rail_ht: FloatProperty(name="Bottom Rail Height", default=.1, description="Bottom rail height")
+    bot_rail_w: FloatProperty(name="Bottom Rail Width", default=.05, description="Bottom rail width")
+    bot_rail_d: FloatProperty(name="Bottom Rail Depth", default=.05, description="Bottom rail depth")
+
+    tread_material: EnumProperty(items=enum_nonplan_material, name="Tread material", description="Material for steps")
+    riser_material: EnumProperty(items=enum_nonplan_material, name="Riser material", description="Material for risers")
+    support_material: EnumProperty(items=enum_nonplan_material, name="Support material", description="Material for supports")
+    rail_material: EnumProperty(items=enum_nonplan_material, name="Rail material", description="Material for handrail")
+
+    field_layout = [
+        ['position'],
+        ['z_offset', 'rotation'],
+        ['height', 'h_tread'],
+        ['w_tread', 'd_tread'],
+        ['thickness', 'open_riser'],
+        ['overhang'],
+        ['curved', 'curve_left'],
+        ['radius', 'min_support'],
+        ['rails', 'balusters', 'bottom_rail'],
+        ({'rails': True}, 'left_rail', 'right_rail'),
+        ({'rails': True}, 'rail_ht', 'rail_inset'),
+        ({'rails': True}, 'rail_type'),
+        ({'rails': True}, 'rail_size'),
+        ({'rail_type': 'NGON', 'rails': True}, 'rail_poly'),
+        ({'rail_type': 'CURVE', 'rails': True}, 'rail_local_object'),
+        ({'rail_type': 'CATALOG', 'rails': True}, 'rail_catalog_object'),
+        ({'rails': True, 'rail_type': {'CATALOG', 'CURVE'}}, 'rail_resolution'),
+        ({'bottom_rail': True}, 'bot_rail_ht'),
+        ({'bottom_rail': True}, 'bot_rail_w', 'bot_rail_d'),
+        ['tread_material'],
+        ['riser_material'],
+        ['support_material'],
+        ['rail_material']
+    ]
+
+    topology_lock = ['height', 'h_tread']
+
+
 class PlanInsetWallsProperty(CustomPropertyBase):
     side_list: StringProperty(name="Sides", description="Comma separated list of numbers, or empty for all")
     thickness: FloatProperty(name="Thickness", description="Wall thickness", default=0.1)
@@ -740,6 +827,7 @@ class PlanInsetWallsProperty(CustomPropertyBase):
     ]
 
     topology_lock = []
+
 
 class PlanFeatureProperty(CustomPropertyBase):
     material: EnumProperty(items=enum_plan_material, name="Feature", description="Wall feature to insert")

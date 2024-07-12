@@ -20,6 +20,7 @@ from ..mesh import (
     extrude_walls,
     build_face,
     build_roof,
+    build_stairs,
     plan_feature,
     plan_inset_walls,
     set_plan_floor,
@@ -51,6 +52,7 @@ lst_classes = [
     'QARCH_OT_extrude_walls',
     'QARCH_OT_build_face',
     'QARCH_OT_build_roof',
+    'QARCH_OT_build_stairs',
     'QARCH_OT_plan_feature',
     'QARCH_OT_plan_inset_walls',
     'QARCH_OT_set_plan_floor',
@@ -528,6 +530,29 @@ class QARCH_OT_build_roof(CustomOperator):
     @classmethod
     def poll(cls, context):
         return cls.is_face_selected(context)
+
+
+class QARCH_OT_build_stairs(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.build_stairs"
+    bl_label = "Build Stairs"
+    bl_description = "Construct stairs"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = build_stairs
+
+    props: PointerProperty(type=BuildStairsProperty)
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+    def invoke(self, context, event):
+        self.props.rail_size.is_relative_x = False
+        self.props.rail_size.is_relative_y = False
+        self.props.rail_size.size_x = 0.05
+        self.props.rail_size.size_y = 0.05
+        return super().invoke(context, event)
 
 
 class QARCH_OT_extrude_walls(CustomOperator):

@@ -126,6 +126,7 @@ class QARCH_PT_hi_level(bpy.types.Panel):
         row.operator("qarch.extend_gable")
         row = layout.row(align=True)
         row.operator("qarch.add_dormer")
+        row.operator("qarch.build_stairs")
 
 
 class QARCH_PT_low_level(bpy.types.Panel):
