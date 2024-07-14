@@ -1,0 +1,295 @@
+{
+    "max_id": 7,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1,
+            7
+        ],
+        "op1": [
+            2,
+            3,
+            4
+        ],
+        "op2": [],
+        "op3": [
+            5
+        ],
+        "op4": [],
+        "op5": [
+            6
+        ],
+        "op6": [],
+        "op7": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Fit window to space",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": true
+            },
+            "size": {
+                "size_x": 0.6000000238418579,
+                "is_relative_x": true,
+                "size_y": 0.6000000238418579,
+                "is_relative_y": true
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "SELF",
+            "by_inset": false,
+            "center_material": "BT_Nothing",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "join": "FREE",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.029999999329447746,
+            "frame_material": "BT_Trim",
+            "center_material": "BT_Nothing",
+            "extrude_distance": -0.019999999552965164
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "SINGLE"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[4, 4]], "Frame": [[0, 3]]}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.019999999552965164,
+            "steps": 1,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0,
+                    1,
+                    2,
+                    3
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op1": 2
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 8], [10, 13], [15, 18]], "Tops": [[4, 4], [9, 9], [14, 14], [19, 19]]}, "moduli": {"Sides": 4, "Tops": 0}}
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true
+            },
+            "join": "FREE",
+            "shape_type": "SELF",
+            "by_inset": false,
+            "center_material": "BT_Glass",
+            "extrude_distance": 0.009999999776482582
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}}
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "DELETE"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
+    },
+    "op5": {
+        "op_id": 5,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 1,
+            "count_y": 1,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "define_size": false
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op3": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 3]]}, "moduli": {"All": 1}}
+    },
+    "op6": {
+        "op_id": 6,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.009999999776482582,
+                "is_relative_x": false,
+                "size_y": 0.009999999776482582,
+                "is_relative_y": false
+            },
+            "side_list": "",
+            "z_offset": 0.0,
+            "inset": 0.004999999888241291,
+            "face_tag": "NOTHING",
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "revolutions": 0,
+            "dashed": false,
+            "dash_info": {
+                "dash_length": 0.10000000149011612,
+                "dash_offset": 0.0,
+                "dash_spacing": 0.0
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op5": [
+                    0,
+                    1,
+                    2,
+                    3
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op5": 3
+            },
+            "mode": "SINGLE"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 63]], "Starts": [], "Ends": []}, "moduli": {"Sides": 0, "Starts": 0, "Ends": 0}},
+        "description": "mullion"
+    },
+    "op7": {
+        "op_id": 7,
+        "op_name": "QARCH_OT_set_face_tag",
+        "properties": {
+            "tag": "DELETE"
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
+    }
+}

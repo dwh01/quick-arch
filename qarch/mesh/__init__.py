@@ -25,6 +25,7 @@ from .geom import (
     perpendicular_face,
     extrude_walls,
     copy_faces,
+    niche,
 )
 
 from .coordsys import CoordSys

@@ -53,6 +53,7 @@ lst_classes = [
     'DeckProperty',
     'ExtendGableProperty',
     'DormerProperty',
+    'NicheProperty',
     'PlanInsetWallsProperty',
     'PlanFeatureProperty',
     'PlanFloorProperty',
@@ -164,9 +165,10 @@ class ArchShapeProperty(CustomPropertyBase):
     # has_keystone: BoolProperty(name="Keystone", default=False)
     arch_type: EnumProperty(name="Arch Type", items=arch_type_list, description="Type of arch", default="ROMAN")
     num_sides: IntProperty(name="Num Sides", min=2, default=12, description="Number of sides")
+    drop_length: FloatProperty(name="Drop Length", min=0, default=0, description="Vertical side length below arch")
 
     field_layout = [
-        ["num_sides"],
+        ["num_sides", "drop_length"],
         ["arch_type"],
     ]
 
@@ -483,15 +485,16 @@ class ExtrudeProperty(CustomPropertyBase):
     side_material: EnumProperty(name="Side Material", items=enum_nonplan_material)
     center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
     keep_y: BoolProperty(name="Keep Y", description="Keep face y orientation instead of using extrude direction", default=False)
+    del_source: BoolProperty(name="Delete Source", description="Remove starting faces", default=False)
 
     field_layout = [
         ['distance', 'steps'],
-        ['on_axis'],
+        ['flip_normals', 'on_axis'],
         [{'on_axis': True}, 'axis'],
         [{'on_axis': True}, 'align_end'],
         ['twist'],
         ['size'],
-        ['flip_normals', 'keep_y'],
+        ['del_source', 'keep_y'],
         ['side_material'],
         ['center_material']
     ]
@@ -813,6 +816,24 @@ class BuildStairsProperty(CustomPropertyBase):
     ]
 
     topology_lock = ['height', 'h_tread']
+
+
+class NicheProperty(CustomPropertyBase):
+    position: PointerProperty(name="Position on Face", type=PositionProperty)
+    size: PointerProperty(name="Size of bounding box", type=SizeProperty, description="Bounding box size")
+    add_perimeter: BoolProperty(name="Add Perimeter Points", description="Add points to perimeter to match if needed",
+                                default=False)
+    frame_bricks: FloatProperty(name="Frame Bricks", default=1, description="Thickness of frame in bricks")
+    recess: FloatProperty(name="Recess", default=0.2, unit="LENGTH", description="Recess back distance")
+
+    field_layout = [
+        ['position'],
+        ['size'],
+        ['frame_bricks', 'recess'],
+        ['add_perimeter']
+    ]
+
+    topology_lock = []
 
 
 class PlanInsetWallsProperty(CustomPropertyBase):

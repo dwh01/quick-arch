@@ -130,20 +130,30 @@ def calc_face_uv(face, mm, mode=None, orig=None):
     rot = face[mm.key_uv_rot]
 
     mode = uv_mode_list[mode][0]
-    poly = SmartPoly(CoordSys(face=face, mm=mm), pt_list=face, b_no_roll=True)
-
+    if abs(face.normal[2]) < 0.99:
+        poly = SmartPoly(CoordSys(face=face, mm=mm, radial=Vector((0,0,1))), pt_list=face, b_no_roll=True)
+    else:
+        poly = SmartPoly(CoordSys(face=face, mm=mm), pt_list=face, b_no_roll=True)
     r = 1
     if mode in ['GLOBAL_XY', 'GLOBAL_YX']:
-        v = Vector((0, 0, 0))
-        v = poly.coord_sys.make_2d(v)
+        # project origin to plane
+        d = poly.normal().dot(poly.points[0].co3)
+        v = d * poly.normal()
+        poly.coord_sys.origin = v
+        poly.calc_2d(b_no_roll=True)
+        v = Vector((0,0))
+
     elif mode in ['FACE_XY', 'FACE_YX']:
         v = Vector((0, 0))
     elif mode in ['FACE_BBOX']:
         v = poly.bbox_min
     elif mode == 'FACE_POLAR':
+        #rel = [pc.co3 - orig for pc in poly.points]
+        #csys = CoordSys(mm, normal=poly.normal(), radial=Vector((0,0,1)), origin=orig)
+        #gxy = [csys.make_2d(p) for p in rel]
         v = poly.coord_sys.make_2d(orig)
-        xy = [(pc.co2 - v) for pc in poly.points]
-        r = [a.length for a in xy]
+        gxy = [(pc.co2 - v) for pc in poly.points]
+        r = [a.length for a in gxy]
         r = functools.reduce(max, r, 0)
     elif mode == 'ORIENTED':
         v = orig.to_2d()  # unused
@@ -171,6 +181,8 @@ def calc_face_uv(face, mm, mode=None, orig=None):
                 xy.y -= 1
             if rot[1] != 0:  # flipping x
                 xy.x -= 1
+        elif mode == 'FACE_POLAR':
+            xy = gxy[i]
         else:
             xy = poly.points[i].co2 - v
 
@@ -270,12 +282,14 @@ def _make_self_poly(control_poly, prop_dict, mm, b_make=True):
 
 
 def _make_arch(control_poly, prop_dict, mm, b_make=True):
+    from .coordsys import approx_vector
     arch_type = prop_dict['arch']['arch_type']
     n = prop_dict['arch']['num_sides']
     thickness = prop_dict['frame']
     sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+    drop_sides = prop_dict['arch'].get('drop_length', 0)
 
-    lst_arch, boundary = control_poly.generate_arch(sx, sy, n, arch_type, thickness)
+    lst_arch, boundary = control_poly.generate_arch(sx, sy, n, arch_type, thickness, drop_sides)
     bpoly = SmartPoly(control_poly.coord_sys, pt_list=boundary, break_link=False)
 
     # arch is built to size, but may need shifting
@@ -284,8 +298,7 @@ def _make_arch(control_poly, prop_dict, mm, b_make=True):
 
     v1 = control_poly.coord_sys.make_3d(bpoly.bbox_min)
     v2 = v0 - v1
-    _move_verts(lst_arch, v2)
-    # _move_verts([bpoly], v2) not needed because we have break_link = False
+    _move_verts(lst_arch + [bpoly], v2)
 
     return lst_arch, bpoly
 
@@ -452,7 +465,7 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
         shape_type = 'SELF'
     if (shape_type == 'CURVE') and (prop_dict['local_object']['object_name'] in ['', 'N/A', '0']):
         shape_type = 'SELF'
-
+    arch_info = None  # special for arch
     frame_idx = mm.get_material_index(frame_mat)
     center_idx = mm.get_material_index(center_mat)
 
@@ -469,6 +482,7 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
             lst_new, outer = _make_self_poly(control_poly, prop_dict, mm)
             topo.add('Center')
         elif shape_type == 'ARCH':
+            arch_info = prop_dict['arch']['arch_type'], (prop_dict['arch']['drop_length'] != 0)
             b_close = False
             lst_new, outer = _make_arch(control_poly, prop_dict, mm)
             if len(lst_new) > 1:
@@ -527,7 +541,8 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
             # make bmesh verts so bridge faces share them
             control_poly.make_verts()
             # ARCH has fake outer, but it used the same bm verts so was updated in position
-            lst_result = outer.bridge(control_poly, add_perimeter, v_extruding, b_close=b_close, b_allow_square=add_perimeter)
+            lst_result = outer.bridge(control_poly, add_perimeter, v_extruding, b_close=b_close,
+                                      b_allow_square=add_perimeter, arch_type=arch_info)
             topo.add('Bridge', len(lst_result))
             for p in lst_result:
                 if control_poly.coord_sys.reference_face:
@@ -641,6 +656,7 @@ def split_face(self, obj, sel_info, op_id, prop_dict):
 
 
 def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
+    from ..ops.properties import uv_mode_to_int, int_to_uv_mode
     mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
     mm.set_op(op_id)
     topo = TopologyInfo(from_keys=['Sides', 'Tops'])
@@ -726,8 +742,15 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
                         del r_poly.face_attr['uv_mode']  # let material decide
                 if keep_y and control_poly.coord_sys.reference_face:
                     r_poly.face_attr['radial'] = control_poly.coord_sys.reference_face[mm.key_radial]
+                    mode = int_to_uv_mode(control_poly.coord_sys.reference_face[mm.key_uv])
+                    if (mode=="FACE_POLAR") and (ilayer == len(lst_layers)-1):  # keep arch mode
+                        r_poly.face_attr['uv_mode'] = control_poly.coord_sys.reference_face[mm.key_uv]
                 # make new face
                 face = r_poly.make_face()
+
+        if prop_dict.get('del_source', False):
+            if control_poly.coord_sys.reference_face:
+                mm.delete_face(control_poly.coord_sys.reference_face)
 
     if ncoord is not None:
         topo.set_modulus('Sides', ncoord)
@@ -941,6 +964,9 @@ def solidify_by_bridge(control_poly, side_list, i_edge, edge_dir, vz, inset, mm,
                 p.face_attr['uv_rot'] = pointing_to_euler(edge_dir.normalized())
                 p.face_attr['uv_origin'] = origin
                 p.calc_coord_sys(radial=p.face_attr['radial'])
+                check = p1.calc_center_box() - p.calc_center_box()
+                if p.normal().dot(check) > 0:
+                    p.flip_normal()
                 face = p.make_face()
 
             topo.add('Sides', len(lst_sides))
@@ -1536,6 +1562,7 @@ def flip_normals(self, obj, sel_info, op_id, prop_dict):
         new_poly = SmartPoly(control_poly.coord_sys, pt_list=control_poly.points, break_link=True)
         if prop_dict['toggle']:  # if false, this can be used to insert a "null" operation to root a script
             new_poly.flip_normal()
+
         face = new_poly.make_face()
         face.normal_update()
 
@@ -2377,3 +2404,93 @@ def extrude_walls(self, obj, sel_info, op_id, prop_dict):
     #  extrude over doors
     #  create fireplaces
     #  extrude over fireplaces
+
+
+def niche(self, obj, sel_info, op_id, prop_dict):
+    """Sized for bricks"""
+    brick_w = 0.17
+    brick_h = 0.05
+    gap = 0.01
+
+    mm, lst_orig_poly = _common_start(obj, sel_info, break_link=True)
+    mm.set_op(op_id)
+    topo = TopologyInfo(from_keys=['Frame', 'Bridge', 'Center'])
+
+    frame_idx = mm.get_material_index("BT_Brick")
+    add_perimeter =  prop_dict['add_perimeter']
+
+    for control_poly in lst_orig_poly:  # note, if a region, the first face provides the info
+        sx, sy = _extract_size(prop_dict['size'], control_poly.box_size)
+
+        # if diam of arch is sx, then circumference is pi sx/2, which needs to be a multiple of brick rows
+        n_brick = math.floor(math.pi/2 * sx / brick_h+gap) # approx
+        c = n_brick * brick_h + (n_brick-1) * gap
+        w = c / (math.pi/2)
+
+        # subtract radius for drop ht
+        dh = sy - w/2
+
+        # size prop dict
+        spd = {'size_x': w, 'size_y': w/2, 'is_relative_x': False, 'is_relative_y': False}
+
+        # arch prop dict
+        apd = {'arch_type': 'ROMAN', 'num_sides': n_brick, 'drop_length': dh}
+
+        # frame
+        n_fb = prop_dict['frame_bricks']
+        frame = n_fb * brick_w + (n_fb-1) * gap
+
+        pd = {'frame': frame, 'size': spd, 'arch': apd, 'position': prop_dict['position']}
+
+        lst_new, outer = _make_arch(control_poly, pd, mm)
+        if dh != 0:
+            poly_front = lst_new[-2]
+            poly_legs = [lst_new[-3], lst_new[-1]]
+        else:
+            poly_front = lst_new[-1]
+            poly_legs = []
+
+        for i_new, p in enumerate(lst_new): # not the center
+            if p is poly_front:
+                continue
+            p.face_attr['material'] = frame_idx
+            if p in poly_legs:  # uv mode set by arch for others
+                p.face_attr['uv_mode'] = 'GLOBAL_XY'
+            face = p.make_face()
+
+        topo.add('Frame', len(lst_new) - 1)
+
+        # make bmesh verts so bridge faces share them
+        control_poly.make_verts()
+        # ARCH has fake outer, but it used the same bm verts so was updated in position
+        lst_result = outer.bridge(control_poly, add_perimeter, v_extruding=Vector((0, 0, 1)), arch_type=('ROMAN', True))
+        topo.add('Bridge', len(lst_result))
+        for p in lst_result:
+            if control_poly.coord_sys.reference_face:
+                p.face_attr['material'] = control_poly.coord_sys.reference_face.material_index
+                if 'uv_mode' in p.face_attr:
+                    del p.face_attr['uv_mode']  # let material decide
+            face = p.make_face()
+
+        poly_back = SmartPoly(poly_front.coord_sys, poly_front.points, break_link=True)
+        v_back = -prop_dict['recess'] * poly_back.normal()
+        poly_back.shift_3d(v_back)
+        poly_back.face_attr['material'] = frame_idx
+        face = poly_back.make_face()
+        topo.add('Center')
+        lst_result2 = poly_front.bridge_by_number(poly_back, v_extruding=Vector((0, 0, 1)))
+        topo.add('Center', len(lst_result2))
+        for p in lst_result2:
+            if control_poly.coord_sys.reference_face:
+                p.face_attr['material'] = frame_idx
+                if 'uv_mode' in p.face_attr:
+                    del p.face_attr['uv_mode']  # let material decide
+            face = p.make_face()
+
+        if len(lst_result) and (control_poly.coord_sys.reference_face is not None):
+            mm.delete_face(control_poly.coord_sys.reference_face)
+
+    # finalize and save
+    mm.to_mesh()
+    mm.free()
+    return topo

@@ -26,7 +26,7 @@ def ppstr(v):
     """Pretty string for vector"""
     fmt = '{:.3f}'
     s = [fmt.format(a) for a in v]
-    return "<{}>".format(s)
+    return "<{}>".format(",".join(s))
 
 
 class SmartPoint:
@@ -219,6 +219,10 @@ class CoordSys:
                 raise TypeError('SmartPoint has invalid 3d coordinates')
         elif not (isinstance(v3, Vector) and (len(v3) == 3)):
             raise TypeError('Expected a Vector(3)')
+
+        d = self.normal.dot(self.origin)
+        d1 = self.normal.dot(v3) - d
+        v3 = v3 + d1*self.normal
 
         r3 = self.matrix @ (v3 - self.origin)
         r2 = r3.to_2d() - self.origin2d

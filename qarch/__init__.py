@@ -115,6 +115,7 @@ class QARCH_PT_hi_level(bpy.types.Panel):
         row.operator("qarch.import_mesh")
         row = layout.row(align=True)
         row.operator("qarch.add_window")
+        row.operator("qarch.niche")
         row = layout.row(align=True)
         row.operator("qarch.add_door")
         row.operator("qarch.add_portico")

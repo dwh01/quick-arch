@@ -1,0 +1,128 @@
+{
+    "max_id": 2,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1,
+            2
+        ],
+        "op1": [],
+        "op2": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Midwall corbel detail",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 0,
+            "count_y": 1,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 1.0800000429153442,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "define_size": false
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    56
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 1}}
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.05000000074505806,
+                "is_relative_x": false,
+                "size_y": 0.10999999940395355,
+                "is_relative_y": false
+            },
+            "side_list": "2",
+            "z_offset": 0.0,
+            "inset": 0.029999999329447746,
+            "face_tag": "NOTHING",
+            "frame_material": "BT_Brick",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "revolutions": 0,
+            "dashed": false,
+            "dash_info": {
+                "dash_length": 0.10000000149011612,
+                "dash_offset": 0.0,
+                "dash_spacing": 0.0
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[2, 5]], "Starts": [[0, 0]], "Ends": [[1, 1]]}, "moduli": {"Sides": 0, "Starts": 0, "Ends": 0}}
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.05000000074505806,
+                "is_relative_x": false,
+                "size_y": 0.10999999940395355,
+                "is_relative_y": false
+            },
+            "side_list": "2",
+            "z_offset": 0.0,
+            "inset": 0.09000000357627869,
+            "face_tag": "NOTHING",
+            "frame_material": "BT_Brick",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433
+            },
+            "frame": 0.0,
+            "revolutions": 0,
+            "dashed": true,
+            "dash_info": {
+                "dash_length": 0.08500000089406967,
+                "dash_offset": 0.1899999976158142,
+                "dash_spacing": 0.18799999356269836
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[2, 5], [8, 11], [14, 17], [20, 23], [26, 29], [32, 35], [38, 41], [44, 47], [50, 53]], "Starts": [[0, 0], [6, 6], [12, 12], [18, 18], [24, 24], [30, 30], [36, 36], [42, 42], [48, 48]], "Ends": [[1, 1], [7, 7], [13, 13], [19, 19], [25, 25], [31, 31], [37, 37], [43, 43], [49, 49]]}, "moduli": {"Sides": 0, "Starts": 0, "Ends": 0}}
+    }
+}

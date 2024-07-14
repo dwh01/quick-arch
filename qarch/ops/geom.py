@@ -25,6 +25,7 @@ from ..mesh import (
     plan_inset_walls,
     set_plan_floor,
     perpendicular_face,
+    niche,
 )
 from ..object import get_obj_data, ACTIVE_OP_ID, material_best_mode
 
@@ -57,6 +58,7 @@ lst_classes = [
     'QARCH_OT_plan_inset_walls',
     'QARCH_OT_set_plan_floor',
     'QARCH_OT_perpendicular_face',
+    'QARCH_OT_niche',
 ]
 lst_funcs = []
 
@@ -553,6 +555,22 @@ class QARCH_OT_build_stairs(CustomOperator):
         self.props.rail_size.size_x = 0.05
         self.props.rail_size.size_y = 0.05
         return super().invoke(context, event)
+
+
+class QARCH_OT_niche(CustomOperator):
+    """Add brick inset"""
+    bl_idname = "qarch.niche"
+    bl_label = "Build Niche"
+    bl_description = "Construct niche in brick wall"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = niche
+
+    props: PointerProperty(type=NicheProperty)
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
 
 
 class QARCH_OT_extrude_walls(CustomOperator):

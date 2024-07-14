@@ -108,7 +108,7 @@ class SmartPoly:
 
         self.calc_2d(b_no_roll=True)  # fix 2d coordinates
 
-    def bridge(self, other, insert_perimeter=False, v_extruding=None, b_close=True, b_allow_square=False):
+    def bridge(self, other, insert_perimeter=False, v_extruding=None, b_close=True, b_allow_square=False, arch_type=None):
         lst1 = [p.co3 for p in self.points]
         lst2 = [p.co3 for p in other.points]
 
@@ -119,7 +119,33 @@ class SmartPoly:
         else:
             b_reverse = False
 
-        lst_links = bridge_points_by_circumfrence(lst1, lst2, self.coord_sys)
+        if arch_type and len(lst1) != len(lst2):  # pick only nice points on arch to use
+            arch_name, dropped = arch_type
+            mid = len(self.points)//2
+            reindex = []
+            n = len(self.points)
+            if len(lst2)==3:
+                if dropped:
+                    reindex = [0, 1, mid-1]
+                else:
+                    reindex = [n-1, 0, mid]
+            elif (len(lst2) == 4) or (len(lst2) % 2):
+                if dropped:
+                    reindex = [0, 1, 2, n-1]
+                else:
+                    reindex = [0, 1, mid-2, mid+2]
+            else:
+                if dropped:
+                    reindex = [0, 1, 2, mid-1, n - 1]
+                else:
+                    reindex = [0, 1, mid - 3, mid, mid + 3]
+
+            tmp = [lst1[i] for i in reindex]
+            lst_links = bridge_points_by_circumfrence(tmp, lst2, self.coord_sys)
+            for lnk in lst_links:
+                lnk[0] = reindex[lnk[0]]
+        else:
+            lst_links = bridge_points_by_circumfrence(lst1, lst2, self.coord_sys)
 
         if b_reverse:  # fix indexing
             ll2 = len(lst2)
@@ -217,7 +243,7 @@ class SmartPoly:
 
         return lst_poly
 
-    def bridge_by_number(self, other, idx_offset=0, b_reversed=False):
+    def bridge_by_number(self, other, idx_offset=0, b_reversed=False, v_extruding=None):
         """Simple bridging for when we know the polys match (extrude, for instance)
         :param SmartPoly other: target to bridge to
         :param int idx_offset: used to handle twisting
@@ -238,7 +264,10 @@ class SmartPoly:
 
             p_new = SmartPoly(self.coord_sys, pt_list=vlist, break_link=False)
             p_new.calc_coord_sys(radial)
-            if approx(1, abs(p_new.normal().z)):  # on flat, point towards center
+            if v_extruding:  # y in extrude direction
+                p_new.face_attr['radial'] = v_extruding.normalized()
+                p_new.calc_coord_sys(radial=p_new.face_attr['radial'])
+            elif approx(1, abs(p_new.normal().z)):  # on flat, point towards center
                 v_edge = vlist[-1].co3 - vlist[-2].co3
                 if v_edge.length:
                     v_radial = p_new.normal().cross(v_edge.normalized()).normalized()
@@ -393,7 +422,7 @@ class SmartPoly:
         self.coord_sys.flip_normal()
         self.calc_2d()
 
-    def generate_arch(self, w, h, n_sides, arch_type, thickness):
+    def generate_arch(self, w, h, n_sides, arch_type, thickness, drop_sides=0):
         """Return list of SmartPoly, with last being center of arch
         :param float w: width of bounding box
         :param float h: height of bounding box
@@ -403,7 +432,8 @@ class SmartPoly:
         :param bool bridge_result: add bridging polygons to self
         :returns lst_poly, boundary_points: list of smart poly with center last, list of boundary points for bridging
         """
-        lst_pts1, lst_pts2, lst_ctr, lst_pts3 = generate_arch(w, h, n_sides, arch_type, thickness)
+        from ..mesh.coordsys import ppstr
+        lst_pts1, lst_pts2, lst_ctr, lst_pts3 = generate_arch(w, h, n_sides, arch_type, thickness, drop_sides)
         if thickness:
             lst_facepoints, newverts = self.zip_quads(lst_pts1, lst_pts2, False)
             lst_poly = [SmartPoly(self.coord_sys, pt_list=ptlist, break_link=False) for ptlist in lst_facepoints]
@@ -420,17 +450,39 @@ class SmartPoly:
             boundary_pts = [lst_pts2[0]] + lst_pts1 + [lst_pts2[-1]]
 
             if len(lst_pts3):
-                boundary_pts = boundary_pts + lst_pts3[1:3]
-                poly = SmartPoly(self.coord_sys, pt_list=lst_pts3)  # the space below the jack arch
+                n = len(lst_pts3) // 4
+                for i in range(n):
+                    ptlist = lst_pts3[i * 4: (i + 1) * 4]
+                    if i == 1:  # center or center + drop
+                        if ptlist[0].y != lst_pts2[0].y:
+                            ptlist = ptlist[:1] + lst_pts2 + ptlist[-1:]
+                        else:
+                            ptlist = lst_pts2
+
+                    if approx(ptlist[0].y, ptlist[1].y) and approx(ptlist[2].y, ptlist[3].y):
+                        continue  # skip flat polygon
+                    poly = SmartPoly(self.coord_sys, pt_list=ptlist, break_link=True)
+                    lst_poly.append(poly)
+
+                if n == 3:
+                    boundary_pts = lst_pts1 + [lst_pts3[3], lst_pts3[-4]]
+                else:
+                    boundary_pts = lst_pts1 + [lst_pts3[-2], lst_pts3[1]]
+                # poly = SmartPoly(self.coord_sys, pt_list=lst_pts3)  # the space below the jack arch
             else:
                 poly = SmartPoly(self.coord_sys, pt_list=lst_pts2)  # the inside
-
-            lst_poly.append(poly)
+                lst_poly.append(poly)
+                print("generate arch shouldn't get here")
 
         else:
-            poly = SmartPoly(self.coord_sys, pt_list=lst_pts1)
+            ptlist = lst_pts1
+            if len(lst_pts3):  # add drop if present
+                if lst_pts3[0].y != ptlist[0].y:
+                    ptlist = lst_pts1 + lst_pts3[-1:] + lst_pts3[:1]
+
+            poly = SmartPoly(self.coord_sys, pt_list=ptlist)
             lst_poly = [poly]
-            boundary_pts = poly.points
+            boundary_pts = ptlist
 
         return lst_poly, boundary_pts
 

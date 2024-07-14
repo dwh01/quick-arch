@@ -1,6 +1,8 @@
 import mathutils
 from mathutils import Matrix, Vector
 import itertools
+import functools
+import operator
 import bisect
 import math
 
@@ -21,6 +23,23 @@ def _segment_lengths(lst1):
         j = (i+1) % n
         e = lst1[j]-lst1[i]
         lst.append(e.length)
+    return lst
+
+
+def _segment_winding(lst1):
+    n = len(lst1)
+    ctr = functools.reduce(operator.add, lst1) / n
+    lst = []
+    for i in range(n):
+        j = (i+1) % n
+        vj = lst1[j]-ctr
+        vi = lst1[i]-ctr
+        sinth = vj.normalized().cross(vi.normalized()).length
+        if sinth==0 and vj.length:
+            c = (lst1[j]-lst1[i]).length / ((vj.length + vi.length)/2)  # s/r = theta
+        else:
+            c = math.asin(sinth)
+        lst.append(c)
     return lst
 
 
@@ -112,7 +131,7 @@ def generate_arc_points(ctr, r, theta0, step, n_step, thickness):
     return lst_pts, lst_pts2
 
 
-def generate_arch(w, h, n_sides, arch_type, thickness):
+def generate_arch(w, h, n_sides, arch_type, thickness, drop_sides=0):
     """arch_type_list =
     ("JACK", "Jack", "Flat", 1),
     ("ROMAN", "Roman", "Round/Oval (1 pt)", 2),
@@ -159,11 +178,6 @@ def generate_arch(w, h, n_sides, arch_type, thickness):
                 lst_pts2.append(Vector((x, h1)))
 
         lst_ctr.append(Vector((0, 0)))
-
-        lst_pts3.append(Vector((lst_pts2[0].x, 0)))
-        lst_pts3.append(lst_pts2[0])
-        lst_pts3.append(lst_pts2[-1])
-        lst_pts3.append(Vector((lst_pts2[-1].x, 0)))
 
     elif arch_type == 'ROMAN':
         r = w**2/(8*h) + h/2
@@ -353,6 +367,29 @@ def generate_arch(w, h, n_sides, arch_type, thickness):
             lst_pts.extend(lst1)
             lst_pts2.extend(lst2)
             lst_ctr.extend([ctr] * n_corner)
+
+    if thickness > 0:
+        # drop frame left
+        lst_pts3.append(Vector((lst_pts2[-1].x, -drop_sides)))
+        lst_pts3.append(lst_pts2[-1])
+        lst_pts3.append(lst_pts[-1])
+        lst_pts3.append(Vector((lst_pts[-1].x, -drop_sides)))
+        # center
+        lst_pts3.append(Vector((lst_pts2[0].x, -drop_sides)))
+        lst_pts3.append(lst_pts2[0])
+        lst_pts3.append(lst_pts2[-1])
+        lst_pts3.append(Vector((lst_pts2[-1].x, -drop_sides)))
+        # right
+        lst_pts3.append(Vector((lst_pts[0].x, -drop_sides)))
+        lst_pts3.append(lst_pts[0])
+        lst_pts3.append(lst_pts2[0])
+        lst_pts3.append(Vector((lst_pts2[0].x, -drop_sides)))
+    else:
+        # center
+        lst_pts3.append(Vector((lst_pts[0].x, -drop_sides)))
+        lst_pts3.append(lst_pts[0])
+        lst_pts3.append(lst_pts[-1])
+        lst_pts3.append(Vector((lst_pts[-1].x, -drop_sides)))
 
     return lst_pts, lst_pts2, lst_ctr, lst_pts3
 
