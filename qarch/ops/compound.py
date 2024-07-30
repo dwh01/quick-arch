@@ -1,4 +1,5 @@
 import bpy
+from .. import __package__ as base_package
 from .custom import CompoundOperator
 from .properties import SimpleWindowProperty, PointerProperty, SimpleDoorProperty, SimpleRailProperty, SimplePorticoProperty
 from .properties import ExtendGableProperty, DormerProperty, DeckProperty
@@ -28,259 +29,531 @@ class QARCH_OT_add_window(CompoundOperator):
 
     props: PointerProperty(type=SimpleWindowProperty)
 
-    def ensure_children(self, op_id):
-        """Called by invoke to make sure the child script is in place"""
-        lst_controlled = self.journal.controlled_list(op_id)
-        if len(lst_controlled) > 0:  # not first time called
-            # if we swap in/out, it changes child count
-            # we must remove children and start over
-            old_arch = self.journal[op_id]['properties']['arch_height']
-            old_sash = self.journal[op_id]['properties']['sash']
-            old_shutter = self.journal[op_id]['properties']['shutter']
-            if (old_arch != self.props.arch_height) or (old_sash != self.props.sash) or (old_shutter != self.props.shutter):
-                print("reset window", op_id)
-                adj = self.journal['adjusting']
-
-                first_child = self.journal.controlled_list(op_id)[0]
-                lst = delete_record(self.obj, first_child)
-                mm = ManagedMesh(self.obj)
-                for child_op_id in lst:
-                    mm.set_op(child_op_id)
-                    mm.delete_current_verts()
-
-                sel_info = SelectionInfo(from_dict=self.journal[op_id]['control_points'])
-                faces = mm.get_faces(sel_info)
-                for face in faces:
-                    face.hide = False  # make selectable
-                mm.to_mesh()
-                mm.free()
-
-                self.journal = Journal(self.obj)  # reload
-                self.journal['adjusting'] = adj
-                self.journal.flush()
-            bpy.ops.ed.undo_push(message="Reset Add Window Children")
-
-        return super().ensure_children(op_id)
-
     def get_script(self):
         """Script to position and create frame and window"""
-        from .dynamic_enums import from_path, script_name, file_type
-        divide_text = self.get_catalog_script(self.context, 'default', 'Doors', 'Position_Feature')
+        shutter = ""
+        if self.props.window_type == 'Plain':
+            s_name = 'Proportional'
+            if self.props.shutters not in ['0','N/A','']:
+                shutter = pathlib.Path(self.props.shutters)
 
-        if self.props.arch_height > 0.1:
-            frame_text = self.get_catalog_script(self.context, 'default', 'Windows', 'Standard_Arched_Window')
-            inner_text = ""
-            shutter_text = ""
-        else:
-            frame_text = self.get_catalog_script(self.context, 'default', 'Windows', 'Small_Window_Frame')
-            if self.props.sash:
-                inner_text = self.get_catalog_script(self.context, 'default', 'Windows', 'Sash_Window_Panes')
-            else:
-                inner_text = self.get_catalog_script(self.context, 'default', 'Windows', 'Large_Window_Fixed')
-            if self.props.shutter:
-                shutter_text = self.get_catalog_script(self.context, 'default', 'Windows', 'Shutters')
-            else:
-                shutter_text = ""
+        elif self.props.window_type == 'Arched':
+            s_name = 'Single_Gothic'
+        elif self.props.window_type == 'Double':
+            s_name = 'Double_Arched'
 
-        dct_master = json.loads(divide_text)
+        script_text = self.get_catalog_script(self.context, 'default', 'Windows', s_name)
 
-        sel_info = SelectionInfo()
-        sel_info.add_face(0, 1)  # add middle faces of divide
-        sel_info.set_mode('GROUP')
-        dct_frame = json.loads(frame_text)
-        if shutter_text != "":  # don't delete the face we need because that would make poll fail
-            rec = dct_frame["op3"]
-            del dct_frame["op3"]
-            dct_frame['controlled']["op0"] = [1]
-            del dct_frame['controlled']["op3"]
-            dct_frame['max_id'] = 2  # <-- this is why we can't have shutter with arch, we would wipe out the arch
-        frame_op_id = merge_record_dct(dct_master, dct_frame, sel_info)
+        if shutter != "":
+            dct_master = json.loads(script_text)
 
-        if shutter_text != "":
             sel_info = SelectionInfo()
-            sel_info.add_face(1, 1)  # add middle faces of divide
+            sel_info.add_face(4, 1)  # add middle face of outside edges cut
             sel_info.set_mode('GROUP')
-            dct_shutter = json.loads(shutter_text)
-            shutter_id = merge_record_dct(dct_master, dct_shutter, sel_info)
-            # reinsert record - seems like an append function is needed to hide this
-            # next_id = dct_master['max_id'] + 1
-            # dct_master[wrap_id(next_id)] = rec
-            # rec['control_points']['faces'] = {wrap_id(frame_op_id+1): [0]}
-            # dct_master['controlled'][wrap_id(frame_op_id)].append(next_id)
-            # dct_master['controlled'][wrap_id(next_id)]=[]
-            # dct_master['max_id'] = next_id
+            dct_shutter = json.loads(shutter.read_text())
+            for op_id in dct_shutter['controlled'].keys():
+                if op_id =="op-1":
+                    continue
+                dct_shutter[op_id]['description'] = "Left " + dct_shutter[op_id]['description']
+            left_op_id = merge_record_dct(dct_master, dct_shutter, sel_info)
+            dct_shutter = json.loads(shutter.read_text())
+            for op_id in dct_shutter['controlled'].keys():
+                if op_id =="op-1":
+                    continue
+                dct_shutter[op_id]['description'] = "Right " + dct_shutter[op_id]['description']
+            right_op_id = merge_record_dct(dct_master, dct_shutter, sel_info)
 
-        # for arch we're done, but for others
-        if inner_text != "":
-            sel_info = SelectionInfo()
-            sel_info.add_face(frame_op_id+1, 0)  # inset base for window
-            sel_info.set_mode('GROUP')
-            dct_inner = json.loads(inner_text)
-            inner_op_id = merge_record_dct(dct_master, dct_inner, sel_info)
-
-        for k in range(dct_master['max_id']+1):
-            v = dct_master[wrap_id(k)]
-            #print(k, v['op_name'], list(v['control_points']['faces'].keys()))
-
-        script_text = json.dumps(dct_master, cls=MyEncoder, indent=4)
+            script_text = json.dumps(dct_master, cls=MyEncoder, indent=4)
         return script_text
-
-    def child_count(self, arch_height, sash, shutter):
-        # used by topology test to look for user added stuff
-        if arch_height < 0.1:
-            if not sash:
-                if not shutter:
-                    ct = 11
-                else:
-                    ct = 15
-            else:
-                if not shutter:
-                    ct = 20
-                else:
-                    ct = 20  # 24 if we allowed shutters
-        else:
-            ct = 15
-        return ct
 
     def recordset(self, op_id):
         dct_records = {}
         dct_c, lst_c = self.journal.child_ops(op_id)
         lst_c.sort()
-        # for i, c in enumerate(lst_c):
-        #     print(i, c, self.journal.op_label(c), list(self.journal[c]['control_points']['faces'].keys()))
 
-        # lst_c is depth first
-        if self.props.arch_height < 0.1:
-            if not self.props.sash:
-                if not self.props.shutter:
-                    ops = ['position', 'frame size', 'midline', 'frame', 'delete wall',
-                           'glass size', 'glass frame', 'glass offset', 'delete reference', 'panes', 'mullions']
-
-                else:
-                    ops = ['position', 'frame size', 'midline', 'frame',  # 'delete wall',
-                           'extend outside', 'shutter base', 'shutter frame', 'louvers', 'delete shutter base',
-                           'glass size', 'glass frame', 'glass offset', 'delete reference', 'panes', 'mullions']
-            else:
-                if not self.props.shutter:
-                    ops = ['position', 'frame size', 'midline', 'frame', 'delete wall',
-                           'split sash', 'sash 1', 'sash 2', 'sash 1 frame', 'sash 2 frame',
-                           'glass 1', 'glass 2', 'delete 1', 'delete 2', 'delete 3', 'delete 4',
-                           'panes', 'mullions', 'panes 2', 'mullions2']
-                else:
-                    ops = ['position', 'frame size', 'midline', 'frame',  # 'delete wall',
-                           'extend outside', 'shutter base', 'shutter frame', 'louvers', 'delete shutter base',
-                           'split sash', 'sash 1', 'sash 2', 'sash 1 frame', 'sash 2 frame',
-                           'glass 1', 'glass 2', 'delete 1', 'delete 2', 'delete 3', 'delete 4',
-                           'panes', 'mullions', 'panes 2', 'mullions2']
-        else:
-            # if not self.props.shutter:
-            ops = ['position', 'frame size', 'midline', 'frame', 'delete wall',
-                   'arch cut', 'arch midline', 'delete arch wall', 'arch frame',
-                   'glass size', 'glass frame', 'glass offset', 'delete reference', 'panes', 'mullions'
-                   ]
-            # else:
-            #     ops = ['position', 'frame size', 'midline', 'frame',  # 'delete wall',
-            #            'extend outside', 'shutter base', 'shutter frame', 'louvers', 'delete shutter base',
-            #            'arch cut', 'arch midline', 'delete arch wall', 'arch frame',
-            #            'glass size', 'glass frame', 'glass offset', 'delete reference', 'panes', 'mullions'
-            #            ]
-
-        for i, txt in enumerate(ops):
-            j = lst_c[i]
-            dct_records[txt] = self.journal[j]
-            dct_records[txt]['description'] = txt
-            #print(i, j, txt)
+        for op in lst_c:
+            rec = self.journal[op]
+            txt = rec['description']
+            dct_records[txt] = rec
 
         return dct_records
 
     def write_props_to_journal(self, op_id):
+        if self.props.window_type == 'Plain':
+            self.write_props_to_journal_plain(op_id)
+        elif self.props.window_type == 'Arched':
+            self.write_props_to_journal_arched(op_id)
+        elif self.props.window_type == 'Double':
+            self.write_props_to_journal_double(op_id)
+
+    def write_props_to_journal_plain(self, op_id):
         """After this operator properties are updated, push them down to the script operators
         by updating the journal text
         """
+        from ..mesh.geom import _extract_size, _extract_offset
         dct_records = self.recordset(op_id)
 
         # normal operator properties
         self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
-        self.journal[op_id]['description'] = "Simple/Arched Window"
+        self.journal[op_id]['description'] = "Simple Window"
 
-        window_w = {'SMALL': 0.63, 'STANDARD': 0.81, 'LARGE': 1.26}[self.props.window_size]
-        window_h = {'SMALL': 0.90, 'STANDARD': 1.20, 'LARGE': 1.98}[self.props.window_size]
-        trim_w = {'SMALL': 0.076, 'STANDARD': 0.076, 'LARGE': 0.1}[self.props.window_size]
-        frame_width = window_w + 2 * trim_w
-        frame_ht = window_h + 2 * trim_w
-
-        # we use wall size to position window vertically
+        # we use wall size to position window
         mm = ManagedMesh(self.obj)
         sel_info = self.journal.get_sel_info(op_id)
         faces = mm.get_faces(sel_info)
+        # using first selection, so don't apply to multiple different sizes
         poly = SmartPoly(CoordSys(mm, faces[0]), pt_list=faces[0], break_link=True)
         mm.free()
-        if abs(poly.coord_sys.ydir[2]) > abs(poly.coord_sys.xdir[2]):
-            wall_ht = poly.box_size.y
+
+        size = _extract_size(self.journal[op_id]['properties']['size'], poly.box_size)
+        offset = _extract_offset(self.journal[op_id]['properties']['position'], poly.box_size, Vector(size))
+
+        if self.props.shutters not in ['0', 'N/A', '']:
+            dct_records['Right Shutter Base']['properties']['position']['offset_x'] = 1
+
+        # convert outer divides to non-proportional so we can apply to next wall
+        # of different size and get matching window
+        rec = dct_records['Set Width']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_x', 'is_relative_x']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_x', 'is_relative_x', 'center_x']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
+
+        if offset[0] == 0:  # change pointing of next
+            op_dict = dct_records['Set Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
         else:
-            wall_ht = poly.box_size.x
-        top = 2.04 + trim_w  # try to line up with door tops
-        base = top - frame_ht
-        if self.props.arch_height > 0.1:
-            base = base - self.props.arch_height
-            if base < 0.6:  # center if too low
-                base = (wall_ht - frame_ht - self.props.arch_height) / 2
-        elif base < 0.6:  # center if too low
-            base = (wall_ht - frame_ht) / 2
+            op_dict = dct_records['Set Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
 
-        child_rec = dct_records['position']
-        child_rec['properties']['offset']['offset_x'] = self.props.offset_x
-        child_rec['properties']['size']['size_x'] = frame_width
+        rec = dct_records['Set Height']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_y', 'is_relative_y', 'is_ratio_yx']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_y', 'is_relative_y', 'center_y']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
 
-        child_rec = dct_records['frame size']
-        child_rec['properties']['size']['size_y'] = frame_ht
-        child_rec['properties']['offset']['offset_y'] = base
-
-        child_rec = dct_records['frame']
-        child_rec['properties']['size']['size_y'] = self.props.wall_thickness
-        child_rec['properties']['size']['size_x'] = trim_w
-        child_rec['properties']['inset'] = -trim_w/2
-
-        child_rec = dct_records['midline']
-        child_rec['properties']['extrude_distance'] = -self.props.wall_thickness/2
-        if self.props.arch_height > 0.1:
-            child_rec['properties']['size']['size_y'] = -trim_w  # no top trim
+        if offset[1] == 0:  # change pointing of next
+            op_dict = dct_records['Apron Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
         else:
-            child_rec['properties']['size']['size_y'] = -2 * trim_w
-        child_rec['properties']['size']['size_x'] = -2 * trim_w
-        child_rec['properties']['position']['offset_x'] = trim_w
-        child_rec['properties']['position']['offset_y'] = trim_w
+            op_dict = dct_records['Apron Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
 
-        # grid divide for panes
-        child_rec = dct_records['panes']
-        child_rec['properties']['count_x'] = self.props.x_panes - 1
-        child_rec['properties']['count_y'] = self.props.y_panes - 1
+        apron_sill = self.props.trim_width + 0.025  # 1 inch sill
+        rec = dct_records['Apron Height']['properties']
+        rec['offset']['offset_y'] = apron_sill / size[1]
 
-        if self.props.sash:
-            child_rec = dct_records['panes 2']
-            child_rec['properties']['count_x'] = self.props.x_panes - 1
-            child_rec['properties']['count_y'] = self.props.y_panes - 1
+        remainder = size[1] - apron_sill
+        rec = dct_records['Lintel Height']['properties']
+        rec['offset']['offset_y'] = - apron_sill / remainder
 
-        if self.props.arch_height > 0.1:
-            child_rec = dct_records['arch cut']
-            child_rec['properties']['size']['size_y'] = self.props.arch_height
-            ratio = self.props.arch_height/(0.5*frame_width)
-            if ratio > 1:
-                child_rec['properties']['arch']['arch_type'] = 'GOTHIC'
-            elif ratio == 1:
-                child_rec['properties']['arch']['arch_type'] = 'ROMAN'
-            elif ratio > 0.5:
-                child_rec['properties']['arch']['arch_type'] = 'OVAL'
+        if self.props.frame_protrude >= 0:
+            ext = self.props.trim_width
+        else:  # want inset so don't extend sill past edges
+            ext = 0.005  # a bit left so that we have correct face numbering
+        rec = dct_records['Outside Edges']['properties']
+        rec['offset']['offset_x'] = ext/size[0]
+        rec['size']['size_x'] = 1 - (2*ext)/size[0]
+
+        rec = dct_records['Center in wall']['properties']
+        rec['extrude_distance'] = -self.props.wall_thickness/2
+
+        rec = dct_records['Side Frame Width']['properties']
+        remainder = size[0] - 2*ext
+        rec['offset']['offset_x'] = self.props.trim_width / remainder
+        rec['size']['size_x'] = 1 - (2 * self.props.trim_width) / remainder
+
+        rec = dct_records["Extrude Side Frame"]['properties']
+        rec['distance'] = self.props.wall_thickness/2 + self.props.frame_protrude
+
+        rec = dct_records['Intrude Side Frame']['properties']
+        rec['distance'] = -(self.props.wall_thickness / 2 + self.props.frame_protrude)
+
+        sash_frame_width = 0.04
+
+        inner_width = remainder - 2 * self.props.trim_width
+        inner_height = size[1] - 2 * apron_sill
+        over_y = inner_height/2 + sash_frame_width / 2
+        over_x = inner_width/2 + sash_frame_width / 2
+        rec_inner = dct_records['Inner Sash']['properties']  # inner because more recessed, if overlapped
+        rec_outer = dct_records['Outer Sash']['properties']
+
+        if self.props.sash == 'Casement':  # top bottom, no overlap
+            rec_inner['size']['size_x'] = 1
+            rec_inner['size']['size_y'] = 0.68
+            rec_outer['size']['size_x'] = 1
+            rec_outer['size']['size_y'] = 0.32/0.68
+            rec_outer['position']['offset_x'] = 0
+            rec_outer['position']['offset_y'] = 1
+            rec_inner['extrude_distance'] = 0
+            rec_outer['extrude_distance'] = 0
+        elif self.props.sash == 'French':  # sides, no overlap
+            rec_inner['size']['size_x'] = 0.5
+            rec_inner['size']['size_y'] = 1
+            rec_outer['size']['size_x'] = 1
+            rec_outer['size']['size_y'] = 1
+            rec_outer['position']['offset_x'] = 1
+            rec_outer['position']['offset_y'] = 0
+            rec_inner['extrude_distance'] = 0
+            rec_outer['extrude_distance'] = 0
+        elif self.props.sash == 'Sliding':  # sides, overlapped
+            rec_inner['size']['size_x'] = over_x / inner_width
+            rec_inner['size']['size_y'] = 1
+            rec_outer['size']['size_x'] = 1
+            rec_outer['size']['size_y'] = 1
+            rec_outer['position']['offset_x'] = 1 - sash_frame_width / over_x
+            rec_outer['position']['offset_y'] = 0
+            rec_inner['extrude_distance'] = -0.04
+            rec_outer['extrude_distance'] = 0.04
+        elif self.props.sash == 'Picture':  # collapse outer pane
+            rec_inner['size']['size_x'] = 1
+            rec_inner['size']['size_y'] = 1
+            rec_outer['size']['size_x'] = 1
+            rec_outer['size']['size_y'] = 0.01
+            rec_outer['position']['offset_x'] = 0
+            rec_outer['position']['offset_y'] = 1
+            rec_inner['extrude_distance'] = 0
+            rec_outer['extrude_distance'] = 0
+        else:  # Hung  top bottom overlapped
+            rec_inner['size']['size_x'] = 1
+            rec_inner['size']['size_y'] = over_y / inner_height
+            rec_outer['size']['size_x'] = 1
+            rec_outer['size']['size_y'] = 1
+            rec_outer['position']['offset_x'] = 0
+            rec_outer['position']['offset_y'] = 1 - sash_frame_width / over_y
+            rec_inner['extrude_distance'] = -0.04
+            rec_outer['extrude_distance'] = 0.04
+
+        rec = dct_records['Inner Glass']['properties']
+        sash_width = rec_inner['size']['size_x'] * inner_width
+        sash_height = rec_inner['size']['size_y'] * inner_height
+        rec['size']['size_x'] = (sash_width - 2 * sash_frame_width) / sash_width
+        rec['size']['size_y'] = (sash_height - 2 * sash_frame_width) / sash_height
+
+        rec = dct_records['Outer Glass']['properties']
+        sash_width = rec_outer['size']['size_x'] * sash_width
+        sash_height = rec_outer['size']['size_y'] * sash_height
+        rec['size']['size_x'] = (sash_width - 2 * sash_frame_width) / sash_width
+        if self.props.sash == 'Picture':
+            rec['size']['size_y'] = 0.01
+            dct_records['Extrude Outer Frame']['properties']['distance'] = 0
+        else:
+            rec['size']['size_y'] = (sash_height - 2 * sash_frame_width) / sash_height
+            dct_records['Extrude Outer Frame']['properties']['distance'] = self.props.wall_thickness/2
+
+        rec = dct_records['Divide Sill']['properties']
+        rec['offset']['offset_y'] = 1 - 0.025 / apron_sill
+
+        rec = dct_records['Extrude Sill']['properties']
+        rec['distance'] = self.props.sill_protrude
+
+        rec = dct_records['Intrude Sill']['properties']
+        rec['distance'] = -(self.props.sill_protrude + self.props.wall_thickness)
+
+        rec = dct_records['Extrude Apron']['properties']
+        rec_i = dct_records['Intrude Apron']['properties']
+        if self.props.sill_protrude > 0.02:
+            rec['distance'] = 0.02
+            rec_i['distance'] = -(0.02 + self.props.wall_thickness)
+        else:
+            rec['distance'] = self.props.sill_protrude/2
+            rec_i['distance'] = -(self.props.sill_protrude/2 + self.props.wall_thickness)
+
+        rec = dct_records['Intrude Header']['properties']
+        rec['distance'] = rec_i['distance']
+
+        rec = dct_records['Shape Lintel']['properties']
+        if self.props.frame_protrude < 0:  # square
+            rec['position']['offset_y'] = 0
+        else:
+            s = math.tan(math.pi/8) * size[0]/2
+            rec['position']['offset_y'] = s
+
+        rec = dct_records['Extrude Lintel']['properties']
+        rec['distance'] = self.props.lintel_protrude
+
+        for s in ['Outer Muntins', 'Inner Muntins']:
+            rec = dct_records[s]['properties']
+            rec['spacing'] = self.props.pane_size
+            if self.props.muntin_angle == 0:
+                rec['angle_1'] = 0
+                rec['angle_2'] = math.pi/2
+            elif self.props.muntin_angle == math.pi/2:
+                rec['angle_2'] = 0
+                rec['angle_1'] = math.pi / 2
             else:
-                child_rec['properties']['arch']['arch_type'] = 'TUDOR'
+                rec['angle_1'] = self.props.muntin_angle
+                rec['angle_2'] = self.props.muntin_angle
 
-            child_rec = dct_records['arch midline']
-            child_rec['properties']['extrude_distance'] = -self.props.wall_thickness / 2
+        self.journal.flush()
 
-            child_rec = dct_records['arch frame']
-            child_rec['properties']['size']['size_y'] = self.props.wall_thickness
-            child_rec['properties']['size']['size_x'] = trim_w
-            child_rec['properties']['inset'] = -trim_w / 2
+    def write_props_to_journal_double(self, op_id):
+        """After this operator properties are updated, push them down to the script operators
+        by updating the journal text
+        """
+        from ..mesh.geom import _extract_size, _extract_offset
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
+        self.journal[op_id]['description'] = "Simple Window"
+
+        # we use wall size to position window
+        mm = ManagedMesh(self.obj)
+        sel_info = self.journal.get_sel_info(op_id)
+        faces = mm.get_faces(sel_info)
+        # using first selection, so don't apply to multiple different sizes
+        poly = SmartPoly(CoordSys(mm, faces[0]), pt_list=faces[0], break_link=True)
+        mm.free()
+
+        size = _extract_size(self.journal[op_id]['properties']['size'], poly.box_size)
+        offset = _extract_offset(self.journal[op_id]['properties']['position'], poly.box_size, Vector(size))
+
+        # convert outer divides to non-proportional so we can apply to next wall
+        # of different size and get matching window
+        rec = dct_records['Set Width']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_x', 'is_relative_x']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_x', 'is_relative_x', 'center_x']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
+
+        if offset[0] == 0:  # change pointing of next
+            op_dict = dct_records['Set Outer Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
+        else:
+            op_dict = dct_records['Set Outer Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
+
+        rec = dct_records['Set Outer Height']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_y', 'is_relative_y', 'is_ratio_yx']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_y', 'is_relative_y', 'center_y']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
+
+        if offset[1] == 0:  # change pointing of next
+            op_dict = dct_records['Apron Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
+        else:
+            op_dict = dct_records['Apron Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
+
+        apron_sill = self.props.trim_width
+        rec = dct_records['Apron Height']['properties']
+        rec['offset']['offset_y'] = apron_sill / size[1]
+
+        remainder = size[1] - apron_sill
+        rec = dct_records['Outer Arch']['properties']
+        if self.props.arch_type == 'ROMAN':
+            arch_ht = 0.5
+        elif self.props.arch_type == 'GOTHIC':
+            arch_ht = 0.75
+        else:
+            arch_ht = 0.3
+        drop_len = remainder * (1-arch_ht*size[0]/size[1])
+        rec['size']['size_y'] = arch_ht
+        rec['arch']['drop_length'] = drop_len
+        rec['arch']['arch_type'] = self.props.arch_type
+
+        if self.props.arch_type == 'GOTHIC':
+            arch_ht = 1  # for inner arch, steeper
+
+        rec = dct_records['Intrude Apron']['properties']
+        rec['distance'] = -self.props.wall_thickness
+
+        for arch_side in ['Left ', 'Right ']:
+            rec = dct_records[arch_side + 'Arch Frame']['properties']
+            rec['size']['size_y'] = arch_ht
+            rec['arch']['drop_length'] = drop_len
+            rec['arch']['arch_type'] = self.props.arch_type
+
+            # if self.props.frame_protrude >= 0:
+
+            rec = dct_records[arch_side + 'Center in Wall']['properties']
+            if self.props.sash != 'Hung':
+                rec['extrude_distance'] = -self.props.wall_thickness / 2 + 0.02  # front fixed glass
+            else:
+                rec['extrude_distance'] = -self.props.wall_thickness / 2
+
+            for s in ['Intrude Frame']:
+                rec = dct_records[arch_side + s]['properties']
+                rec['distance'] = -self.props.wall_thickness
+
+            rec = dct_records[arch_side + 'Divide Glass']['properties']
+            rec_in = dct_records[arch_side + 'Move Inside Glass Back']['properties']
+            if self.props.sash == 'French':
+                rec['count_x'] = 1
+                rec['count_y'] = 0
+                rec['offset']['offset_y'] = 0
+                rec_in['extrude_distance'] = 0
+            elif self.props.sash == 'Casement':
+                rec['count_x'] = 0
+                rec['count_y'] = 1
+                rec['offset']['offset_y'] = drop_len / 2
+                rec_in['extrude_distance'] = 0
+            elif self.props.sash in ["Picture", "Sliding"]:  # use for single pane
+                rec['count_x'] = 0
+                rec['count_y'] = 1
+                rec['offset']['offset_y'] = .01
+                rec_in['extrude_distance'] = 0
+            else:
+                rec['count_x'] = 0
+                rec['count_y'] = 1
+                rec['offset']['offset_y'] = drop_len / 2
+                rec_in['extrude_distance'] = -0.04
+
+            for s in ['Outer Muntins', 'Inner Muntins']:
+                rec = dct_records[arch_side + s]['properties']
+                rec['spacing'] = self.props.pane_size
+                if self.props.muntin_angle == 0:
+                    rec['angle_1'] = 0
+                    rec['angle_2'] = math.pi / 2
+                elif self.props.muntin_angle == math.pi / 2:
+                    rec['angle_2'] = 0
+                    rec['angle_1'] = math.pi / 2
+                else:
+                    rec['angle_1'] = self.props.muntin_angle
+                    rec['angle_2'] = self.props.muntin_angle
+
+        self.journal.flush()
+
+    def write_props_to_journal_arched(self, op_id):
+        """After this operator properties are updated, push them down to the script operators
+        by updating the journal text
+        """
+        from ..mesh.geom import _extract_size, _extract_offset
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
+        self.journal[op_id]['description'] = "Simple Window"
+
+        # we use wall size to position window
+        mm = ManagedMesh(self.obj)
+        sel_info = self.journal.get_sel_info(op_id)
+        faces = mm.get_faces(sel_info)
+        # using first selection, so don't apply to multiple different sizes
+        poly = SmartPoly(CoordSys(mm, faces[0]), pt_list=faces[0], break_link=True)
+        mm.free()
+
+        size = _extract_size(self.journal[op_id]['properties']['size'], poly.box_size)
+        offset = _extract_offset(self.journal[op_id]['properties']['position'], poly.box_size, Vector(size))
+
+        # convert outer divides to non-proportional so we can apply to next wall
+        # of different size and get matching window
+        rec = dct_records['Set Width']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_x', 'is_relative_x']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_x', 'is_relative_x', 'center_x']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
+
+        if offset[0] == 0:  # change pointing of next
+            op_dict = dct_records['Set Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
+        else:
+            op_dict = dct_records['Set Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
+
+        rec = dct_records['Set Height']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_y', 'is_relative_y', 'is_ratio_yx']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_y', 'is_relative_y', 'center_y']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
+
+        if offset[1] == 0:  # change pointing of next
+            op_dict = dct_records['Apron Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
+        else:
+            op_dict = dct_records['Apron Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
+
+        apron_sill = self.props.trim_width
+        rec = dct_records['Apron Height']['properties']
+        rec['offset']['offset_y'] = apron_sill / size[1]
+
+        remainder = size[1] - apron_sill
+        rec = dct_records['Arch Frame']['properties']
+        if self.props.arch_type == 'ROMAN':
+            arch_ht = 0.5
+        elif self.props.arch_type == 'GOTHIC':
+            arch_ht = 1
+        else:
+            arch_ht = 0.3
+        drop_len = remainder * (1-arch_ht*size[0]/size[1])
+        rec['size']['size_y'] = arch_ht
+        rec['arch']['drop_length'] = drop_len
+        rec['arch']['arch_type'] = self.props.arch_type
+
+        # if self.props.frame_protrude >= 0:
+
+        rec = dct_records['Center in Wall']['properties']
+        if self.props.sash != 'Hung':
+            rec['extrude_distance'] = -self.props.wall_thickness/2 + 0.02  # front fixed glass
+        else:
+            rec['extrude_distance'] = -self.props.wall_thickness / 2
+
+        for s in ['Intrude Frame', 'Intrude Apron']:
+            rec = dct_records[s]['properties']
+            rec['distance'] = -self.props.wall_thickness
+
+        rec = dct_records['Divide Glass']['properties']
+        rec_in = dct_records['Move Inside Glass Back']['properties']
+        if self.props.sash == 'French':
+            rec['count_x'] = 1
+            rec['count_y'] = 0
+            rec['offset']['offset_y'] = 0
+            rec_in['extrude_distance'] = 0
+        elif self.props.sash == 'Casement':
+            rec['count_x'] = 0
+            rec['count_y'] = 1
+            rec['offset']['offset_y'] = drop_len / 2
+            rec_in['extrude_distance'] = 0
+        elif self.props.sash in ["Picture", "Sliding"]:  # use for single pane
+            rec['count_x'] = 0
+            rec['count_y'] = 1
+            rec['offset']['offset_y'] = .01
+            rec_in['extrude_distance'] = 0
+        else:
+            rec['count_x'] = 0
+            rec['count_y'] = 1
+            rec['offset']['offset_y'] = drop_len/2
+            rec_in['extrude_distance'] = -0.04
+
+        for s in ['Outer Muntins', 'Inner Muntins']:
+            rec = dct_records[s]['properties']
+            rec['spacing'] = self.props.pane_size
+            if self.props.muntin_angle == 0:
+                rec['angle_1'] = 0
+                rec['angle_2'] = math.pi/2
+            elif self.props.muntin_angle == math.pi/2:
+                rec['angle_2'] = 0
+                rec['angle_1'] = math.pi / 2
+            else:
+                rec['angle_1'] = self.props.muntin_angle
+                rec['angle_2'] = self.props.muntin_angle
 
         self.journal.flush()
 
@@ -293,38 +566,6 @@ class QARCH_OT_add_window(CompoundOperator):
 
         dct_records = self.recordset(op_id)  # after reading props since the records change based on selections
 
-        child_rec = dct_records['panes']
-        self.props.x_panes = child_rec['properties']['count_x'] + 1
-        self.props.y_panes = child_rec['properties']['count_y'] + 1
-
-        child_rec = dct_records['position']
-        self.props.offset_x = child_rec['properties']['offset']['offset_x']
-
-        # if self.props.arch_height > 0: not needed because the arch type is hidden from user
-
-    def test_topology(self, op_id):
-        # arch or no arch could break other children (manual entry in space above window)
-        # don't erase and rebuild if any descendants other than those we made
-        # check comes before ensure children and write_props
-        dct, lst = self.journal.child_ops(op_id)
-        num_children = len(lst)
-        if num_children == 0:
-            return False  # no problems
-
-        old_ht = self.journal[op_id]['properties']['arch_height']
-        old_sash = self.journal[op_id]['properties']['sash']
-        old_shutter = self.journal[op_id]['properties']['shutter']
-        changed = (old_ht < 0.1) != (self.props.arch_height < 0.1)
-        if changed:
-            if num_children != self.child_count(old_ht, old_sash, old_shutter):
-                print("children", num_children, self.child_count(old_ht, old_sash, old_shutter))
-                return True
-
-        if changed:  # erase children and start over
-            print("changed compound, delete children")
-            self.delete_children(op_id)
-        return False
-
 
 class QARCH_OT_add_door(CompoundOperator):
     bl_idname = "qarch.add_door"
@@ -333,134 +574,74 @@ class QARCH_OT_add_door(CompoundOperator):
 
     props: PointerProperty(type=SimpleDoorProperty)
 
-    def ensure_children(self, op_id):
-        """Called by invoke to make sure the child script is in place"""
-        lst_controlled = self.journal.controlled_list(op_id)
-        if len(lst_controlled) > 0:  # not first time called
-            # if we swap in/out, it changes child count
-            # we must remove children and start over
-            old_open = self.journal[op_id]['properties']['open_in']
-            old_finish = self.journal[op_id]['properties']['finish']
-            if (old_open != self.props.open_in) or (old_finish != self.props.finish):
-                print("reset door", op_id)
-                adj = self.journal['adjusting']
-
-                first_child = self.journal.controlled_list(op_id)[0]
-                lst = delete_record(self.obj, first_child)
-                mm = ManagedMesh(self.obj)
-                for child_op_id in lst:
-                    mm.set_op(child_op_id)
-                    mm.delete_current_verts()
-                # make sure compound faces exists
-                # mm.select_operation(op_id)
-                # print(mm.get_selection_info().to_dict())
-                mm.to_mesh()
-                mm.free()
-
-                self.journal = Journal(self.obj)  # reload
-                self.journal['adjusting'] = adj
-                self.journal.flush()
-
-        return super().ensure_children(op_id)
-
     def get_script(self):
         """Merges door frame, in or out door, and door finish scripts"""
-        from .dynamic_enums import from_path, script_name, file_type
-        divide_text = self.get_catalog_script(self.context, 'default', 'Doors', 'Position_Feature')
-        frame_text = self.get_catalog_script(self.context, 'default', 'Doors', 'Std_Door_Frame_ext')
-        if self.props.open_in:
-            door_text = self.get_catalog_script(self.context, 'default', 'Doors', 'Std_Door_In_Hinge_Left')
-        else:
-            door_text = self.get_catalog_script(self.context, 'default', 'Doors', 'Std_Door_Out_Hinge_Left')
-        finish_file = self.props.finish
+        script_text = self.get_catalog_script(self.context, 'default', 'Doors', 'Arched_Double_Door')
+        finish_faces = [(13,0), (10,9), (18,0), (15,10)]
+        dct_master = json.loads(script_text)
+
+        if self.props.door_type in ["Left", "Right"]:  # single door
+            # abuse journal
+            j = Journal(self.obj)
+            j.obj = None  # ensure no writeback
+            j.jj = dct_master
+            j.controlled = dct_master['controlled']
+            if self.props.door_type == "Left":
+                remove = 14
+                finish_faces = finish_faces[:2]
+            else:
+                remove = 9
+                finish_faces = finish_faces[2:]
+            j.delete_record(remove, flush=False)
+            # update divide topology
+            j.jj["op8"]['properties']['count_x'] = 0
+            j.jj["op8"]["gen_info"]["ranges"]["All"] = [[0, 1]]
+            j.jj["op8"]["gen_info"]["moduli"]["All"] = 0
+            if self.props.door_type == "Left":
+                j.jj["op9"]['control_points']['faces']['op8'] = 1
+            else:
+                j.jj["op14"]['control_points']['faces']['op8'] = 1
+
+        finish_file = self.props.finish.category_item
         if len(finish_file) > 3:
-            category, style, s_name = from_path(pathlib.Path(finish_file))
-            finish_text = self.get_catalog_script(self.context, style, category, s_name)
-
-        else:  # plain
-            finish_text = ""
-
-        dct_master = json.loads(divide_text)
-
-        sel_info = SelectionInfo()
-        sel_info.add_face(0, 1)  # add middle faces of divide
-        sel_info.set_mode('GROUP')
-        dct_frame = json.loads(frame_text)
-        frame_op_id = merge_record_dct(dct_master, dct_frame, sel_info)
-
-        sel_info = SelectionInfo()
-        sel_info.add_face(frame_op_id + 1, 0)  # link to face in center of wall
-        sel_info.flag_op(frame_op_id+1, sel_info.ALL_FACES)
-        sel_info.set_mode('GROUP')
-        dct_door = json.loads(door_text)
-        door_op_id = merge_record_dct(dct_master, dct_door, sel_info)
-
-        if finish_text != "":
-            # op 8/0 and op 16/4 are the door faces for open-in, add 1 to op for open-out (starts with flip normal)
-            # frame_op_id is 1
-            if self.props.open_in:
-                offset = 1
-            else:
-                offset = 0
-            sel_info = SelectionInfo()
-
-            sel_info.add_face(6 + offset + frame_op_id, 4)  # add first side of door
-            sel_info.set_mode('SINGLE')  # so user can change the finish individually later
-            dct_finish = json.loads(finish_text)
-            finish_op_id = merge_record_dct(dct_master, dct_finish, sel_info)
-
-            if self.props.open_in:
-                offset = 1
-            else:
-                offset = 0
-            sel_info = SelectionInfo()
-
-            sel_info.add_face(13 + offset + frame_op_id, 0)  # add last side of door
-            sel_info.set_mode('SINGLE')  # so user can change the finish individually later
-            dct_finish = json.loads(finish_text)
-            finish_op_id2 = merge_record_dct(dct_master, dct_finish, sel_info)
+            path = pathlib.Path(finish_file)
+            finish_text = path.read_text()
+            # add to faces
+            for f_op, f_seq in finish_faces:
+                sel_info = SelectionInfo()
+                sel_info.add_face(f_op, f_seq)
+                sel_info.set_mode('SINGLE')
+                dct_finish = json.loads(finish_text)
+                for update_op in range(0, dct_finish['max_id']+1):
+                    wrap = wrap_id(update_op)
+                    if wrap in dct_finish:
+                        rec = dct_finish[wrap]
+                        rec['description'] = rec.get('description', wrap) + ' for-{}-{}'.format(f_op, f_seq)
+                finish_op_id = merge_record_dct(dct_master, dct_finish, sel_info)
+                print("finish_op_id", finish_op_id)
 
         script_text = json.dumps(dct_master, cls=MyEncoder, indent=4)
         return script_text
 
-    def recordset(self, op_id):
-        dct_c, lst_c = self.journal.child_ops(op_id)
-        #print("children of {}".format(op_id))
-        lst_c.sort()
-        # for i, c in enumerate(lst_c):
-        #     print(i, self.journal.op_label(c), c)
-        # ops
-        #   0 grid divide (center doors)  size.size_x for frame width
-        #     1 grid divide (door height) size.size_y for frame height
-        #       2 inset polygon (center in thickness)  extrude_distance
-        #       3 face tag (delete start poly)
-        #         4 solidify edges (frame opening)  size.size_y
-        #         [add 1 to these for inward door, 5 would be flip normal]
-        #           5 inset polygon (door size)
-        #             6 solidify edges (trim door stop)
-        #             7 extrude (door thickness)
-        #             8 oriented (wood door)
-        #             9=8 oriented duplicate
-        #               10 solidify edges (hinges)  side_list
-        #               11 inset polygon (handle position)  position.offset_x
-        #                  12 extrude (handle mount)
-        #                     13 import mesh (inside handle)  category_item
-        #                  14 import mesh (outside handle)  category_item
-        #             15 flip_normal (flip door face)
-        #
-        # we did not include any of the finish operations, those will not be customizable from the compound operator
-        # for reference they are children of 15 and 8
-        dct_records = {}
-        for i, txt in enumerate(['frame width', 'frame height', 'center in thickness', 'delete start poly',
-                                 'frame opening', 'door size', 'trim door stop', 'door thickness', 'wood door',
-                                 'wood door', 'hinges', 'handle position', 'handle mount', 'outside handle',
-                                 'inside handle', 'flip door face', ]):
+    def invoke(self, context, event):
+        """Setup search fields"""
+        self.props.knob.category_name = "Handles"
+        self.props.hinges.category_name = "Hinges"
+        self.props.finish.category_name = "Panels"
+        self.props.finish.search_text = "finish"
+        return super().invoke(context, event)
 
-            if self.props.open_in and i > 4:
-                i = i + 1
-            j = lst_c[i]
-            dct_records[txt] = self.journal[j]
-            dct_records[txt]['description'] = txt
+    def recordset(self, op_id):
+        dct_records = {}
+        dct_c, lst_c = self.journal.child_ops(op_id)
+        lst_c.sort()
+
+        for op in lst_c:
+            rec = self.journal[op]
+            if not 'description' in rec:
+                rec['description'] = op
+            txt = rec['description']
+            dct_records[txt] = rec
 
         return dct_records
 
@@ -468,52 +649,133 @@ class QARCH_OT_add_door(CompoundOperator):
         """After this operator properties are updated, push them down to the script operators
         by updating the journal text
         """
+        from ..mesh.geom import _extract_size, _extract_offset
         dct_records = self.recordset(op_id)
 
         # normal operator properties
         self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
         self.journal[op_id]['description'] = "Door Macro"
 
-        trim_width = 0.076
-        handle_pos = 0.72 / 2 - 0.06  # standard
-        child_rec = dct_records['frame width']
-        child_rec['properties']['offset']['offset_x'] = self.props.offset_x
-        if self.props.width == 'NARROW':
-            child_rec['properties']['size']['size_x'] = 0.526 + trim_width * 2
-            handle_pos = 0.52 / 2 - 0.06
-        elif self.props.width == 'STANDARD':
-            child_rec['properties']['size']['size_x'] = 0.726 + trim_width * 2
-        elif self.props.width == 'WIDE':
-            trim_width = 0.1
-            handle_pos = 0.92 / 2 - 0.06
-            child_rec['properties']['size']['size_x'] = 0.926 + trim_width * 2
+        # we use wall size to position window
+        mm = ManagedMesh(self.obj)
+        sel_info = self.journal.get_sel_info(op_id)
+        faces = mm.get_faces(sel_info)
+        # using first selection, so don't apply to multiple different sizes
+        poly = SmartPoly(CoordSys(mm, faces[0]), pt_list=faces[0], break_link=True)
+        mm.free()
 
-        child_rec = dct_records['frame height']
-        child_rec['properties']['size']['size_y'] = 2.04 + trim_width
+        size = _extract_size(self.journal[op_id]['properties']['size'], poly.box_size)
+        offset = _extract_offset(self.journal[op_id]['properties']['position'], poly.box_size, Vector(size))
 
-        child_rec = dct_records['center in thickness']
-        child_rec['properties']['extrude_distance'] = -self.props.wall_thickness / 2
+        # convert outer divides to non-proportional so we can apply to next wall
+        # of different size and get matching door
+        rec = dct_records['Set Width']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_x', 'is_relative_x']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_x', 'is_relative_x', 'center_x']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
 
-        child_rec = dct_records['frame opening']
-        child_rec['properties']['size']['size_y'] = self.props.wall_thickness
-
-        child_rec = dct_records['hinges']
-        child_rec2 = dct_records['handle position']
-
-        if self.props.open_in:
-            if self.props.left_hinge:
-                child_rec['properties']['side_list'] = "1"
-                child_rec2['properties']['position']['offset_x'] = -handle_pos
-            else:
-                child_rec['properties']['side_list'] = "3"
-                child_rec2['properties']['position']['offset_x'] = handle_pos
+        if offset[0] == 0:  # change pointing of next
+            op_dict = dct_records['Set Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
         else:
-            if self.props.left_hinge:
-                child_rec['properties']['side_list'] = "3"
-                child_rec2['properties']['position']['offset_x'] = handle_pos
+            op_dict = dct_records['Set Height']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
+
+        rec = dct_records['Set Height']['properties']  # grid divide
+        rec_off = rec["offset"]
+        rec_siz = rec["size"]
+        for k in ['size_y', 'is_relative_y', 'is_ratio_yx']:
+            rec_siz[k] = self.journal[op_id]['properties']['size'][k]
+        for k in ['offset_y', 'is_relative_y', 'center_y']:
+            rec_off[k] = self.journal[op_id]['properties']['position'][k]
+
+        if offset[1] == 0:  # change pointing of next
+            op_dict = dct_records['Center in Wall']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 0
+        else:
+            op_dict = dct_records['Center in Wall']['control_points']['faces']
+            k = next(iter(op_dict))
+            op_dict[k][0] = 1
+
+        rec = dct_records['Center in Wall']['properties']
+        rec['extrude_distance'] = -self.props.wall_thickness/2
+
+        if self.props.arch_type == 'JACK':
+            arch_ht = 0.5
+            drop_len = size[1] - self.props.trim_width
+        elif self.props.arch_type == 'ROMAN':
+            arch_ht = 0.5
+            drop_len = size[1] - arch_ht * size[0]
+        elif self.props.arch_type == 'GOTHIC':
+            arch_ht = 1
+            drop_len = size[1] - arch_ht * size[0]
+        else:
+            arch_ht = 0.3
+            drop_len = size[1] - arch_ht * size[0]
+        drop_len = drop_len - 0.01  # ensure a bridge for the next step
+        rec = dct_records['Door Shape']['properties']
+        rec['arch']['arch_type'] = self.props.arch_type
+        rec['size']['size_y'] = arch_ht
+        rec['arch']['drop_length'] = drop_len
+        rec['frame'] = self.props.trim_width
+
+        for s in ['Extrude Surround', 'Intrude Surround', 'Extrude Frame']:
+            rec = dct_records[s]['properties']
+            rec['distance'] = self.props.wall_thickness / 2
+
+        rec = dct_records['Divide Door']['properties']
+        if self.props.door_type == 'Left':
+            rec['count_x'] = 0
+            rec2 = dct_records['Left Door Position']['control_points']['faces']
+            rec2[next(iter(rec2))] = [1]
+            rec3 = dct_records['Open Bottom']['control_points']['faces']
+            rec3[next(iter(rec3))] = [0]
+
+        elif self.props.door_type == 'Right':
+            rec['count_x'] = 0
+            rec2 = dct_records['Right Door Position']['control_points']['faces']
+            rec2[next(iter(rec2))] = [1]  # with double door it is 3
+            rec3 = dct_records['Open Bottom']['control_points']['faces']
+            rec3[next(iter(rec3))] = [0]
+
+        else:
+            rec['count_x'] = 1
+            rec2 = dct_records['Right Door Position']['control_points']['faces']
+            rec2[next(iter(rec2))] = [3]
+            rec3 = dct_records['Open Bottom']['control_points']['faces']
+            rec3[next(iter(rec3))] = [0,2]
+
+        for s in ["Left ", "Right "]:
+            if self.props.door_type == "Left" and s == "Right ":
+                continue
+            if self.props.door_type == "Right" and s == "Left ":
+                continue
+
+            rec = dct_records[s + 'Door Position']['properties']
+            rec2 = dct_records[s + 'Import Hinges']['properties']
+            rec2['catalog_object']['category_item'] = self.props.hinges.category_item
+            if s=="Right ":
+                rec2['position']['offset_x'] = size[0] - 2*self.props.trim_width - 0.01
+            # rec3 = dct_records[s + 'Handle Position']
+
+            if self.props.open_in:
+                rec['extrude_distance'] = -0.015
+                rec2['z_offset'] = -0.03
             else:
-                child_rec['properties']['side_list'] = "1"
-                child_rec2['properties']['position']['offset_x'] = -handle_pos
+                rec['extrude_distance'] = 0.045
+                rec2['z_offset'] = 0
+
+            if self.props.door_type == "Sliding":
+                rec2['z_offset'] = -0.02  # hide inside
+
+            rec = dct_records[s + 'Import Handle']['properties']
+            rec['catalog_object']['category_item'] = self.props.knob.category_item
 
         self.journal.flush()
 
@@ -700,38 +962,6 @@ class QARCH_OT_add_deck(CompoundOperator):
 
     props: PointerProperty(type=DeckProperty)
 
-    def ensure_children(self, op_id):
-        """Called by invoke to make sure the child script is in place"""
-        lst_controlled = self.journal.controlled_list(op_id)
-        if len(lst_controlled) > 0:  # not first time called
-            # if we swap in/out, it changes child count
-            # we must remove children and start over
-            old_roof = self.journal[op_id]['properties'].get('roof', False)
-            if old_roof != self.props.roof:
-                print("reset deck", op_id)
-                adj = self.journal['adjusting']
-
-                first_child = self.journal.controlled_list(op_id)[0]
-                lst = delete_record(self.obj, first_child)
-                mm = ManagedMesh(self.obj)
-                for child_op_id in lst:
-                    mm.set_op(child_op_id)
-                    mm.delete_current_verts()
-
-                sel_info = SelectionInfo(from_dict=self.journal[op_id]['control_points'])
-                faces = mm.get_faces(sel_info)
-                for face in faces:
-                    face.hide = False  # make selectable
-                mm.to_mesh()
-                mm.free()
-
-                self.journal = Journal(self.obj)  # reload
-                self.journal['adjusting'] = adj
-                self.journal.flush()
-            bpy.ops.ed.undo_push(message="Reset Add Deck Children")
-
-        return super().ensure_children(op_id)
-
     @classmethod
     def poll(cls, context):
         # because each gable has a unique direction
@@ -828,7 +1058,7 @@ class QARCH_OT_extend_gable(CompoundOperator):
     def poll(cls, context):
         # because each gable has a unique direction
         if cls.is_face_selected(context):
-            #mode = context.preferences.addons['qarch'].preferences.select_mode
+            #mode = context.preferences.addons[base_package].preferences.select_mode
             #if mode in {'SINGLE', 'REGION'}:
             return True
         return False
@@ -1254,7 +1484,7 @@ class QARCH_OT_add_dormer(CompoundOperator):
     def poll(cls, context):
         # because each gable has a unique direction
         if cls.is_face_selected(context):
-            mode = context.preferences.addons['qarch'].preferences.select_mode
+            mode = context.preferences.addons[base_package].preferences.select_mode
             if mode in {'SINGLE', 'REGION'}:
                 return True
         return False
