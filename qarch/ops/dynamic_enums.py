@@ -4,6 +4,9 @@ import pathlib
 import bpy
 import bpy.utils.previews
 import json
+import traceback
+from .. import __package__ as base_package
+
 
 # registration and module init info
 lst_classes = []
@@ -12,66 +15,63 @@ lst_funcs = [
     'int_to_face_tag',
     'face_tag_to_int',
     'file_type',
-    'from_path',
-    'BT_CATALOG_SRC',
     'BT_IMG_DESC',
     'mesh_name',
-    'text_name',
     'curve_name',
     'script_name',
     'to_path',
 ]
 
-BT_CATALOG_SRC = 'BT_Catalog_Src'
 BT_IMG_CAT = 'BT_Category'
 BT_IMG_DESC = 'BT_Description'
 BT_IMG_SCRIPT = 'script_'
 BT_IMG_CURVE = 'curve_'
 BT_IMG_MESH = "mesh_"
+BT_THUMBS = "QARCH_thumbnails"
 
-# storage for icons
+# storage for icons (images)
 preview_collections = {}
 # storage for enum tuples
 dynamic_enum_sets = {}
-# style catalogs
+# style catalogs, map category name to list of files
 catalogs = {}
+# map style group name to list of architectural styles
+style_dict = {}
 
 # note:
-# 1) a design feature of blender makes it impossible to safely store "loose" images
+# 1) a design feature of blender makes it hard to safely store "loose" images
 # even marked fake user and with automatically-pack-data turned on for the file
-# the images eventually get garbage collected and disappear
-# 2) you can't append to another blend file, you have to overwrite it, so it is
-# hard to push assets into a library. we can push into a directory
+# the images eventually tend to get garbage collected and disappear
 qarch_asset_dir = pathlib.Path(__file__).parent.parent / pathlib.Path("assets")
+ver = bpy.app.version
+if ver[0] == 4 and ver[1] >= 2:
+    user_asset_dir = pathlib.Path(bpy.utils.extension_path_user(base_package, path="assets", create=True))
+    print("user dir", user_asset_dir)
+else:
+    user_asset_dir = qarch_asset_dir
 
-# file structure is style/category/text+image
+
+# file structure is default/category/text+image or user/category/...
 # with the text files using script_name.txt or curve_name.txt, and the images as xxx_name.png for previews
+def to_path(is_user, category='', name=''):
+    if not is_user:
+        p = qarch_asset_dir / "default"
+    else:
+        p = user_asset_dir / "user"
 
-
-def to_path(style, category='', name=''):
-    p = qarch_asset_dir / pathlib.Path(style)
     if category != '':
-        p = p / pathlib.Path(category)
+        p = p / category
         if name != '':
-            p = p / pathlib.Path(name)
+            p = p / name
     return p
 
 
-def from_path(p):
-    """Convert path to style, category, name"""
-    name = p.name
-
-    p1 = p.relative_to(qarch_asset_dir)
-    parts = p1.parts
-    style = parts[0]
-    if len(parts) > 1:
-        category = parts[1]
-    else:
-        category = ''
-    return style, category, name
-
-
 def file_type(name):
+    if isinstance(name, pathlib.Path):
+        return file_type(name.stem)
+    if (len(name) > 4) and (name[-4] == "."):
+        name = name[:-4]
+
     if name.startswith(BT_IMG_SCRIPT):
         return "script", name[len(BT_IMG_SCRIPT):]
     if name.startswith(BT_IMG_CURVE):
@@ -80,59 +80,84 @@ def file_type(name):
 
 
 def script_name(stem):
-    if stem[-4]==".":
+    if isinstance(stem, pathlib.Path):
+        return file_type(stem.stem)
+
+    if stem[-4] == ".":
         stem = stem[:-4]
-    return BT_IMG_SCRIPT + stem + ".txt"
+    if stem[:len(BT_IMG_SCRIPT)] != BT_IMG_SCRIPT:
+        stem = BT_IMG_SCRIPT + stem
+    return stem + ".txt"
 
 
 def curve_name(stem):
     if stem[-4] == ".":
         stem = stem[:-4]
-
-    return BT_IMG_CURVE + stem + ".txt"
+    if stem[:len(BT_IMG_CURVE)] != BT_IMG_CURVE:
+        stem = BT_IMG_CURVE + stem
+    return stem + ".txt"
 
 
 def mesh_name(stem):
     if stem[-4] == ".":
         stem = stem[:-4]
-
-    return BT_IMG_MESH + stem + ".txt"
-
-
-def text_name(stem):
-    if stem[-4] == ".":
-        stem = stem[:-4]
-
+    if stem[:len(BT_IMG_MESH)] != BT_IMG_MESH:
+        stem = BT_IMG_MESH + stem
     return stem + ".txt"
+
+
+def load_styles():
+    """Called in ops __init__ register function"""
+    p = qarch_asset_dir / "default/styles.txt"
+    txt = p.read_text()
+    as_dict = json.loads(txt)
+    style_dict.update(as_dict)
+
+    p = user_asset_dir / "user/styles.txt"
+    if p.exists():
+        print(p)
+        txt = p.read_text()
+        as_dict = json.loads(txt)
+        for c in as_dict:
+            if c not in style_dict:
+                style_dict[c]={}
+            style_dict[c].update(as_dict[c])
 
 
 def load_catalog(reload=False):
     """Fill global dictionary"""
     global catalogs
 
-    if not (reload or len(catalogs)==0):
-        styles = list(catalogs.keys())
-        categories = set()
-        for s in styles:
-            sset = set(catalogs[s].keys())
-            categories = categories + sset
-        return catalogs, styles, categories
+    if not (reload or (len(catalogs) == 0)):
+        return catalogs
 
     catalogs.clear()
-    styles = []
-    categories = set()
-    for p in qarch_asset_dir.iterdir():
-        if p.is_dir():
-            styles.append(p.stem)
-            subcat = {}
-            catalogs[p.stem] = subcat
+    for topdir in [qarch_asset_dir / "default", user_asset_dir / "user"]:
+        if not topdir.exists():
+            print("make",topdir)
+            os.makedirs(str(topdir))
+        for p in topdir.iterdir():
+            if p.is_dir():
+                category = p.stem
+                if category not in catalogs:
+                    catalogs[category] = {}
+                for r in p.iterdir():
+                    if str(r) in catalogs[category]:
+                        continue
 
-            for q in p.iterdir():
-                if q.is_dir():
-                    categories.add(q.stem)
-                    subcat[q.stem] = [r.stem for r in q.iterdir() if r.suffix == ".png"]
+                    if r.suffix == ".txt":
+                        try:
+                            as_dict = json.loads(r.read_text())
+                        except Exception as exc:
+                            print("Could not parse json for {}".format(r))
+                            traceback.print_exc()
+                            continue
+                        s_list = as_dict.get('style', [])
+                        s_desc = as_dict.get('description', '')
+                        catalogs[category][str(r)] = {'styles': set(s_list), 'description': s_desc}
 
-    return catalogs, styles, categories
+    print("loaded catalogs")
+    return catalogs
 
 
 def find_search_props(self, context):
@@ -164,64 +189,48 @@ def load_previews(reload=False):
     if (not reload) and len(catalogs):
         return
 
-    catalog, styles, categories = load_catalog(reload)
+    catalog = load_catalog(reload)
 
-    for style_name in styles:
-        previews = preview_collections.get(style_name, {})
-        dyn_set = dynamic_enum_sets.get(style_name, {})
+    thumb_col = preview_collections.get(BT_THUMBS)
+    if thumb_col is None:
+        thumb_col = bpy.utils.previews.new()
+        preview_collections[BT_THUMBS] = thumb_col
 
-        for cat_name in categories:
-            if cat_name not in catalog[style_name]:
-                continue
+    for category, filedict in catalog.items():
+        enum_items = {'mesh': [], 'script': [], 'curve': []}
+        for filepath, info in filedict.items():
+            filepath = pathlib.Path(filepath)
+            img_path = filepath.with_suffix(".png")
+            if img_path.exists:
+                icon = thumb_col.load(filepath.stem, str(img_path), 'IMAGE', True)
+                icon_id = icon.icon_id
+            else:
+                icon_id = "QUESTION"
 
-            pcoll = previews.get(cat_name)
-            if pcoll is None:
-                pcoll = bpy.utils.previews.new()
+            ftype, stem = file_type(filepath)
+            description = info['description']
+            enum_val = (str(filepath), stem, description, icon_id, len(enum_items[ftype])+1)
+            enum_items[ftype].append(enum_val)
 
-            enum_items = dyn_set.get(cat_name)
-            if enum_items is None:
-                enum_items = []
-
-            for stem in catalog[style_name][cat_name]:
-                p_test = to_path(style_name, cat_name, stem).with_suffix(".txt")
-                if p_test.exists():
-                    icon = pcoll.get(stem)
-                    if not icon:
-                        icon = pcoll.load(stem, str(p_test.with_suffix(".png")), 'IMAGE')
-                        print("loaded preview", p_test.with_suffix(".png"))
-
-                    ftype, user_name = file_type(stem)
-                    description = ftype
-                    if ftype in ['script', 'curve', 'mesh']:
-                        as_dict = json.loads(p_test.read_text())
-                        description = as_dict.get('description', '')
-                    enum_val = (str(p_test), user_name, description, icon.icon_id, len(enum_items)+1)
-                    enum_items.append(enum_val)
-
-            previews[cat_name] = pcoll
-            dyn_set[cat_name] = enum_items
-
-        preview_collections[style_name] = previews
-        dynamic_enum_sets[style_name] = dyn_set
+        dynamic_enum_sets[category] = enum_items
+    print("loaded previews")
 
 
-def enum_catalogs(self, context):
-    """Callback to list catalogs (styles) available, in order"""
-    if len(catalogs) == 0:
-        load_previews()
-
-    key = "_catalogs_"
+def enum_styles(self, context):
+    """Callback to list styles available"""
     lst = []
-    for k, v in catalogs.items():
-        lst.append(
-            (k, k, 'style')
-        )
+    for group, styles in style_dict.items():
+        for s in styles:
+            lst.append((s, s, group))
 
     lst.sort(key=lambda e: e[0])
+    any = ('Any', 'Any', 'all styles')
+    lst.insert(0, any)
 
     # numbered
     lst_n = [e[:3] + (i,) for i, e in enumerate(lst)]
-    dynamic_enum_sets[key] = lst_n
+    # storage
+    dynamic_enum_sets['styles'] = lst_n
 
     return lst_n
 
@@ -235,21 +244,11 @@ def enum_categories(self, context):
     """
     global catalogs
     lst_return = []
-    # search, show_curves, show_scripts = find_search_props(self, context)
+    if len(catalogs)==0:
+        load_previews(True)
 
-    set_done = set()  # no duplicate names
-
-    lst_style_enum = enum_catalogs(self, context)
-    if hasattr(self, "style_name") and (self.style_name != ""):
-        lst_style_enum = [[self.style_name]]
-
-    for es in lst_style_enum:
-        style_name = es[0]
-        for k in catalogs[style_name]:
-            if k in set_done:
-                continue
-            set_done.add(k)
-            lst_return.append((k, k, ''))
+    for category in catalogs.keys():
+        lst_return.append((category, category, ''))
 
     lst_return.sort(key=lambda e: e[0])  # alphabetic
     lst_return = [e + (i+1,) for i, e in enumerate(lst_return)]
@@ -260,41 +259,40 @@ def enum_categories(self, context):
 def enum_category_items(self, context):
     """Callback uses self.category_name, self.search_text"""
     global catalogs
+    if len(catalogs)==0:
+        load_previews()
 
-    lst_style_enum = enum_catalogs(self, context)
+    style_filter = ""
     if hasattr(self, "style_name") and (self.style_name != ""):
-        lst_style_enum = [self.style_name]
+        style_filter = self.style_name
+        if style_filter == "Any":
+            style_filter = ""
 
     category_name = self.category_name
     if category_name == "0":
         return empty_icon_enums
+
     lst_return = []
     search, show_curves, show_scripts = find_search_props(self, context)
-    lst_style_enum = enum_catalogs(self, context)
-    for es in lst_style_enum:
-        style_name = es[0]
+    if show_curves:
+        ftype = "curve"
+    elif show_scripts:
+        ftype = "script"
+    else:
+        ftype = "mesh"
 
-        lst_categories = catalogs[style_name].keys()
-        if hasattr(self, "category_name") and (self.category_name != ""):
-            if self.category_name in catalogs[style_name]:
-                lst_categories = [self.category_name]
+    lst_items = dynamic_enum_sets[category_name][ftype]
+    for e in lst_items:
+        info = catalogs[category_name][e[0]]
+        if len(info['styles']) and len(style_filter):
+            if style_filter not in info['styles']:
+                continue
 
-        for category_name in lst_categories:
-            lst = dynamic_enum_sets[style_name][category_name]
-            for e in lst:
-                p = pathlib.Path(e[0])
-                ftype, name = file_type(p.stem)
-                if show_curves and (ftype != "curve"):
-                    continue
-                elif show_scripts and (ftype != "script"):
-                    continue
-                elif (not (show_curves or show_scripts)) and (ftype != 'mesh'):
-                    continue
-                if len(search) > 2:
-                    if search in e[1].lower():
-                        lst_return.append(e)
-                else:
-                    lst_return.append(e)
+        if len(search) > 2:
+            if search not in e[1].lower():
+                continue
+
+        lst_return.append(e)
 
     lst_return.sort(key=lambda e: e[1])  # alphabetic by friendly name
     lst_return = [e[:4] + (i+1,) for i, e in enumerate(lst_return)]  # number
@@ -360,7 +358,7 @@ def get_face_tag_enum(self, context):
         lst_enum.append(e + (len(lst_enum)-1,))
 
     preferences = context.preferences
-    addon_prefs = preferences.addons['qarch'].preferences
+    addon_prefs = preferences.addons[base_package].preferences
     user_tags = [s.strip() for s in addon_prefs.user_tags.split(",")]
     for s in user_tags:
         if s not in set_used:
@@ -406,12 +404,18 @@ def enum_objects_or_curves(self, context):
 
         # only used for string permanence
         dct_obj_enum[obj.name] = e_tuple
-    if len(lst_enum)==0:
+    if len(lst_enum) == 0:
         return empty_enums
+
+    lst_enum.sort(key=lambda e: e[1])  # alphabetic by friendly name
+    lst_enum = [e[:3] + (i + 1,) for i, e in enumerate(lst_enum)]  # number
+
     return empty_enums + lst_enum
 
 
-def exists_in_catalog(style, category, item):
-    d1 = catalogs.get(style, {})
-    d2 = d1.get(category, [])
-    return item in d2
+def exists_in_catalog(unused, category, stem):
+    for ftype, lst_items in dynamic_enum_sets[category].items():
+        for e in lst_items:
+            if e[1] == stem:
+                return True
+    return False

@@ -5,10 +5,11 @@ from bpy.types import AddonPreferences, FileAssetSelectParams, UserAssetLibrary
 import math
 import json
 import pathlib
+from .. import __package__ as base_package
 from .custom import CustomPropertyBase
 from collections import OrderedDict
 from ..object import enum_oriented_material, enum_all_material, enum_plan_material, enum_nonplan_material, enum_plan_wall_material, enum_plan_floor_material
-from .dynamic_enums import enum_catalogs, enum_categories, enum_category_items, enum_objects_or_curves
+from .dynamic_enums import enum_styles, enum_categories, enum_category_items, enum_objects_or_curves
 from .dynamic_enums import face_tag_to_int, int_to_face_tag, get_face_tag_enum
 
 # order might matter for registration
@@ -39,6 +40,7 @@ lst_classes = [
     'DashedProperty',
     'SolidifyEdgesProperty',
     'MakeLouversProperty',
+    'CatalogScriptProperty',
     'SimpleWindowProperty',
     'MeshImportProperty',
     'OrientedMaterialProperty',
@@ -54,11 +56,16 @@ lst_classes = [
     'ExtendGableProperty',
     'DormerProperty',
     'NicheProperty',
+    'QuoinDivideProperty',
     'PlanInsetWallsProperty',
     'PlanFeatureProperty',
     'PlanFloorProperty',
     'CalculatorProperty',
     'BTAddonPreferences',
+    'LatticeProperty',
+    'StyleNameProperty',
+    'QARCH_UL_Styles',
+    'UnionPolyProperty'
 ]
 
 lst_funcs = [
@@ -161,15 +168,28 @@ class ArchShapeProperty(CustomPropertyBase):
         ("GOTHIC", "Gothic", "Gothic pointed (2 pt)", 3),
         ("OVAL", "Oval", "Victorian oval (3 pt)", 4),
         ("TUDOR", "Tudor", "Tudor pointed (4 pt)", 5),
+        ('SQUARE', "Square (0 pt)", "Flat", 6),
+        ('TRIANGLE', "Triangle (0 pt)", "Triangle", 7),
+        ("DUTCH", "Dutch", "Rounded S-Curve (3 pt)", 8),
+        ("ARABIC", "Arabic", "Pointed S-Curve (4 pt)", 9),
     ]
     # has_keystone: BoolProperty(name="Keystone", default=False)
     arch_type: EnumProperty(name="Arch Type", items=arch_type_list, description="Type of arch", default="ROMAN")
-    num_sides: IntProperty(name="Num Sides", min=2, default=12, description="Number of sides")
+    step_size: FloatProperty(name="Step Size", min=0.01, default=0.06, description="Step size, should match brick row height")
     drop_length: FloatProperty(name="Drop Length", min=0, default=0, description="Vertical side length below arch")
+    keystone: BoolProperty(name="Keystone", default=False, description="Add keystone")
+    key_width: FloatProperty(name="Keystone Width", description="Width at top of arch", default= 0.85)
+    key_above: FloatProperty(name="Keystone Above", description="Rise above arch this much", default= 0)
+    key_below: FloatProperty(name="Keystone Below", description="Fall below arch this much", default= 0)
+    key_material: EnumProperty(name="Keystone Material", items=enum_nonplan_material)
 
     field_layout = [
-        ["num_sides", "drop_length"],
+        ["step_size", "drop_length"],
         ["arch_type"],
+        ['keystone'],
+        [{'keystone': True}, 'key_width'],
+        [{'keystone': True}, 'key_above', 'key_below'],
+        [{'keystone': True}, 'key_material'],
     ]
 
     topology_lock = ['arch_type', 'num_sides']
@@ -225,9 +245,11 @@ class SizeProperty(CustomPropertyBase):
     is_relative_x: BoolProperty(name="Relative", default=True, description="Relative size (0-1) for x")
     size_y: FloatProperty(name="Size Y", default=1.0, unit="LENGTH", description="Face Y size")
     is_relative_y: BoolProperty(name="Relative", default=True, description="Relative size (0-1) for y")
+    is_ratio_yx: BoolProperty(name="Ratio to X", default=False, description="Ratio y/x")
 
     field_layout = [
-        ['size_x', 'is_relative_x', 'size_y', 'is_relative_y'],
+        ['size_x', 'is_relative_x'],
+        ['size_y', 'is_relative_y', 'is_ratio_yx'],
     ]
 
     topology_lock = []
@@ -271,12 +293,13 @@ class SplitFaceProperty(CustomPropertyBase):
 class PolygonProperty(CustomPropertyBase):
     num_sides: IntProperty(name="Polygon Sides", default=4, min=3, description="Polygon number of sides")
     start_angle: FloatProperty(name="Start Angle", default=-45.0/180*math.pi, min=-math.pi, max=math.pi, unit="ROTATION", description="Rotation of polygon")
-
+    total_angle: FloatProperty(name="Total Angle", default=math.pi*2, unit="ROTATION", description="360 for full circle, 180 for half, etc.")
     field_layout = [
         ['num_sides', 'start_angle'],
+        ['total_angle']
     ]
 
-    topology_lock = ['num_sides']
+    topology_lock = ['num_sides', 'total_angle']
 
 
 class SuperCurveProperty(CustomPropertyBase):
@@ -301,7 +324,7 @@ class SuperCurveProperty(CustomPropertyBase):
 
 class CatalogObjectProperty(CustomPropertyBase):
     search_text: StringProperty(name="Search", description="Press enter to filter by substring")
-    style_name: EnumProperty(items=enum_catalogs, description="Style", default=0)
+    style_name: EnumProperty(items=enum_styles, description="Style", default=0)
     category_name: EnumProperty(items=enum_categories, name="Category", default=0)
     category_item: EnumProperty(items=enum_category_items, name="Objects", default=0)
     show_scripts: BoolProperty(name="Show Scripts", default=False)
@@ -348,7 +371,11 @@ lst_join_enum = [
     ('BRIDGE', 'Bridge', 'Connect new shape to old outline, replace old face', 0),
     ('FREE', 'Free', 'Float disconnected over old face', 1),
     ('OUTSIDE', 'Outside', 'Clip and keep part outside old face', 2),
-    ('INSIDE', 'Inside', 'Clip and keep part inside old face', 3)
+    ('INSIDE', 'Inside', 'Clip and keep part inside old face', 3),
+    ('INSIDE_BRIDGE', 'Inside Bridge', 'Clip and bridge to part inside old face', 4),
+    ('PARTITION', 'Partition', 'Cut control poly into parts', 5),
+    ('UNION', 'Union', 'Merge with control poly', 6),
+    ('DIFFERENCE', 'Subtract', 'Cut and remove from control poly', 7)
 ]
 
 
@@ -360,7 +387,7 @@ class InsetPolygonProperty(CustomPropertyBase):
     extrude_distance: FloatProperty(name="Extrude Distance", default=0.0, unit="LENGTH", description="Extrude distance")
     frame_material: EnumProperty(name="Frame Material", items=enum_nonplan_material)
     center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
-
+    del_source: BoolProperty(name="Delete Source", description="Remove starting faces", default=False)
     shape_type: EnumProperty(name="Shape Type", default="SELF", items=shape_type_list)
     by_inset: BoolProperty(name="By Insert", description="Inset thickness instead of scale and position", default=False)
     thickness: FloatProperty(name="Thickness", default=0)
@@ -376,7 +403,8 @@ class InsetPolygonProperty(CustomPropertyBase):
         ['position'],
         ['size'],
         ['join'],
-        ({'join': 'BRIDGE'}, 'add_perimeter'),
+        ({'join': {'BRIDGE','INSIDE_BRIDGE'}}, 'add_perimeter'),
+        ({'join': {'FREE', 'OUTSIDE', 'INSIDE'}}, 'del_source'),
         ['shape_type'],
         ({'shape_type': 'SELF'}, 'by_inset'),
         ({'shape_type': 'SELF', 'by_inset': True}, 'thickness'),
@@ -400,12 +428,14 @@ class PerpendicularFaceProperty(CustomPropertyBase):
     rotation: FloatProperty(name="Z Rotation", default=0, min=-math.pi, max=math.pi, unit="ROTATION", description="Rotation around perpendicular axis")
     offset_z: FloatProperty(name="Z Offset", default=0)
     material: EnumProperty(name="Center Material", items=enum_nonplan_material)
+    del_source: BoolProperty(name="Delete Source", description="Remove starting faces", default=False)
 
     field_layout = [
         ['position'],
         ['size'],
         ['rotation', 'offset_z'],
-        ['material']
+        ['material'],
+        ['del_source']
     ]
 
     topology_lock = []
@@ -431,7 +461,7 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     by_inset: BoolProperty(name="By Insert", description="Inset thickness instead of scale and position", default=False)
     thickness: FloatProperty(name="Thickness", default=0)
     inset: FloatProperty(name="Inset Offset", description="Distance off edge", default=0)
-    face_tag: EnumProperty(name='Face Tag', items=get_face_tag_enum, default=None, description="Face tag for selection")
+
     frame_material: EnumProperty(name="Frame Material", items=enum_nonplan_material)
     revolutions: IntProperty(name="Revolutions", description="If > 3, make a revolution of n steps instead of extrusion", default = 0)
     shape_type: EnumProperty(name="Shape Type", default="NGON", items=shape_type_list)
@@ -444,17 +474,13 @@ class SolidifyEdgesProperty(CustomPropertyBase):
     resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
     dashed: BoolProperty(name="Dashed", description="Dashed instead of solid", default=False)
     dash_info: PointerProperty(name="Dash Settings", type=DashedProperty)
-
-    # wouldn't it be nice to do "revolution" to make shaped columns along edges? in that case we wouldnt be
-    # extruding the curve, we'd stretch it to fit the edge length and revolve it. Making corners match wouldn't
-    # be possible in general (different sized ends) but the use case is for only one direction of edges so ok
-    # advantage over mesh instances is the auto sizing if the edge changes length. FUTURE
+    del_source: BoolProperty(name="Delete Source", description="Remove starting faces", default=False)
 
     field_layout = [
         ['size'],
         ['side_list'],
         ['z_offset', 'inset'],
-        ['face_tag'],
+        ['del_source'],
         ['frame_material'],
         ['shape_type'],
         ({'shape_type': 'NGON'}, 'poly'),
@@ -477,6 +503,7 @@ class ExtrudeProperty(CustomPropertyBase):
     distance: FloatProperty(name="Distance", default=0.1, unit="LENGTH", description="Extrude distance")
     steps: IntProperty(name="Steps", default=1, description="Number of steps along axis")
     on_axis: BoolProperty(name="On Axis", default=False, description="Direction other than normal")
+    both_directions: BoolProperty(name="Both Directions", default=False, description="Extrude in both directions")
     axis: PointerProperty(name="Axis", type=DirectionProperty)
     align_end: BoolProperty(name="Align End", description="Align end face normal with axis", default=False)
     twist: FloatProperty(name="Twist Angle", default=0.0, unit="ROTATION", description="Degrees to rotate top")
@@ -489,6 +516,7 @@ class ExtrudeProperty(CustomPropertyBase):
 
     field_layout = [
         ['distance', 'steps'],
+        ['both_directions'],
         ['flip_normals', 'on_axis'],
         [{'on_axis': True}, 'axis'],
         [{'on_axis': True}, 'align_end'],
@@ -510,6 +538,7 @@ class SweepProperty(CustomPropertyBase):
     size: PointerProperty(name='End Size', type=SizeProperty, description='Scale result face to this size')
     side_material: EnumProperty(name="Side Material", items=enum_nonplan_material)
     center_material: EnumProperty(name="Center Material", items=enum_nonplan_material)
+    y_up: BoolProperty(name="Y up", description="Make new faces y orientation up of using extrude direction", default=False)
 
     field_layout = [
         ['origin'],
@@ -517,7 +546,8 @@ class SweepProperty(CustomPropertyBase):
         ['angle', 'steps'],
         ['size'],
         ['side_material'],
-        ['center_material']
+        ['center_material'],
+        ['y_up']
     ]
 
     topology_lock = ['steps']
@@ -536,6 +566,7 @@ class MakeLouversProperty(CustomPropertyBase):
     flip_xy: BoolProperty(name="Flip xy", default=False, description="Change orientation")
     connect_louvers: BoolProperty(name="Connected", default=False, description="Connect to make bellows")
     material: EnumProperty(name="Material", items=enum_nonplan_material)
+    del_source: BoolProperty(name="Delete Source", description="Remove starting faces", default=False)
 
     field_layout = [
         ['count_x', 'count_y'],
@@ -543,72 +574,135 @@ class MakeLouversProperty(CustomPropertyBase):
         ['blade_angle', 'blade_thickness'],
         ['depth_thickness', 'depth_offset'],
         ['flip_xy', 'connect_louvers'],
-        ['material']
+        ['material'],
+        ['del_source']
     ]
 
     topology_lock = ['count_x', 'count_y', 'flip_xy']
 
 
-window_size_enum = [
-    ('SMALL', 'small', 'Window 63 x 90 cm'),
-    ('STANDARD', 'standard', 'Window 81 x 120 cm'),
-    ('LARGE', 'large', 'Window 126 x 198 cm')
+window_sash_enum = [
+    ('Picture', 'Picture', 'Single section fixed window'),
+    ('Casement', 'Casement', 'Lower section swings open'),
+    ('French', 'French Door', 'Double casement full height'),
+    ('Sliding', 'Sliding', 'Sideways slide in plain, picture in arches'),
+    ('Hung', 'Hung', 'Vertical slide'),
 ]
 
 
-class SimpleWindowProperty(CustomPropertyBase):  # demo case
-    offset_x: FloatProperty(name="Offset X", default=0, description="Offset from center of face")
-    window_size: EnumProperty(name="Window Size", items=window_size_enum, default='STANDARD')
-    x_panes: IntProperty(name="X panes", min=1, default=2, description="Number of window panes across")
-    y_panes: IntProperty(name="y panes", min=1, default=2, description="Number of window panes vertical")
-    sash: BoolProperty(name="Movable Sashes", default=False, description="Two sliding sections of window")
-    shutter: BoolProperty(name="Shutters", default=False, description="Add shutters on sides")
-    arch_height: FloatProperty(name="Arch", description="Arch height/width or 0 for flat top", default=0, min=0)
-    wall_thickness: FloatProperty(name="Wall Thickness", default=0.2,
-                                  description="Framed ext=0.2, Brick ext=0.35, Interior=0.13")
+class CatalogScriptProperty(CustomPropertyBase):
+    search_text: StringProperty(name="Search", description="Press enter to filter by substring")
+    style_name: EnumProperty(items=enum_styles, description="Style", default=0)
+    category_name: EnumProperty(items=enum_categories, name="Category", default=0)
+    category_item: EnumProperty(items=enum_category_items, name="Objects", default=0)
+    show_scripts: BoolProperty(name="Show Scripts", default=True)
+    show_curves: BoolProperty(name="Show Curves", default=False)
 
     field_layout = [
-        ['offset_x'],
-        ['window_size'],
-        ["x_panes", "y_panes"],
-        ['sash', 'shutter'],
-        ({'sash': False}, "arch_height"),
-        ['wall_thickness']
+        ['style_name'],
+        ['category_name'],
+        ['search_text'],
+        ['category_item'],
     ]
 
-    topology_lock = ['arch_height']
+    topology_lock = ['category_item']
+    previews = ['category_item']
 
 
-door_width_enum = [
-    ('NARROW', 'narrow', 'Door 52.6 cm wide'),
-    ('STANDARD', 'standard', 'Door 72.6 cm wide'),
-    ('WIDE', 'wide', 'Door 92.6 cm wide')
+class SimpleWindowProperty(CustomPropertyBase):  # demo case
+    window_count: IntProperty(name="Window Count", min=1, max=3, default=1, description="Number of window sections across")
+    center_higher: FloatProperty(name="Raise Center", default=0, description="Adjust center of 3 windows")
+    size: PointerProperty(type=SizeProperty, name="Window Size")
+    position: PointerProperty(type=PositionProperty, name="Window Position")
+    wall_thickness: FloatProperty(name="Wall Thickness", default=0.2, min=0.1)
+    outer_width: FloatProperty(name="Outer Frame Width", default=0.17, description="Width of outer frame")
+    trim_width: FloatProperty(name="Trim Width", default=0.075, min=0)
+    inner_protrude: FloatProperty(name="Inner Trim Protrude", default=0)
+    frame_protrude: FloatProperty(name="Frame Protrude", default=0)
+    lintel_protrude: FloatProperty(name="Lintel Protrude", default=0.02, min=0)
+    sill_protrude: FloatProperty(name="Sill Protrude", default=0.04, min=0)
+    pane_size: FloatProperty(name="Pane size", default=0.2)
+    muntin_angle: FloatProperty(name="Muntin Angle", default=0, unit='ROTATION')
+    sash: EnumProperty(name="Sash Type", items=window_sash_enum, default='Hung')
+    outer_arch_type: EnumProperty(name="Outer Arch Type", items=ArchShapeProperty.arch_type_list, default='JACK')
+    inner_arch_type: EnumProperty(name="Inner Arch Type", items=ArchShapeProperty.arch_type_list, default='JACK')
+    outer_key: BoolProperty(name="Outer Key", default=False, description="Add keystone to outer")
+    inner_key: BoolProperty(name="Inner Key", default=False, description="Add keystone to inner")
+    top_gap: FloatProperty(name="Frieze Gap", description="Minimum space between outer arch and inner arch at top")
+    max_outer_arch: FloatProperty(name="Limit outer arch", default=2, description="Max outer arch ratio h/w")
+    max_inner_arch: FloatProperty(name="Limit inner arch", default=2, description="Max inner arch ratio h/w")
+    # lookup stuff
+    show_scripts: BoolProperty(name="scripts", default=True)
+    search_text: StringProperty(name="search", default="Left_Shutter")
+    category_name: StringProperty(name="category", default="Shutters")
+    shutters: EnumProperty(name="Shutters", items=enum_category_items)
+    # materials
+    trim_material: EnumProperty(name="Trim Material", items=enum_nonplan_material)
+    outer_material: EnumProperty(name="Outer Frame Material", items=enum_nonplan_material)
+    key_material: EnumProperty(name="Keystone Material", items=enum_nonplan_material)
+    shutter_material: EnumProperty(name="Shutter Material", items=enum_nonplan_material)
+    frieze_material: EnumProperty(name="Frieze Material", items=enum_nonplan_material)
+    hide_outer_sides: BoolProperty(name="Hide Sides", default=False, description="Make outer top and bottom only")
+
+    field_layout = [
+        ['size'],
+        ['position'],
+        ["wall_thickness", "trim_width", 'outer_width'],
+        ['frame_protrude', 'lintel_protrude'],
+        ['inner_protrude', 'sill_protrude'],
+        ['pane_size', 'muntin_angle'],
+        ['sash'],
+        ['outer_arch_type', 'outer_key'],
+        ['inner_arch_type', 'inner_key'],
+        ['max_outer_arch', 'max_inner_arch'],
+        ['window_count', 'top_gap'],
+        [{'window_count': 1}, 'center_higher'],
+        [{'window_count': 1}, 'shutters'],
+        [{'window_count': 1}, 'shutter_material'],
+        ['trim_material', 'frieze_material'],
+        ['outer_material', 'hide_outer_sides'],
+        ['key_material']
+    ]
+
+    topology_lock = ['window_count', 'sash', 'shutters', 'outer_key', 'inner_key']
+    previews = ['shutters']
+
+
+door_type_enum = [
+    ('Left', 'Left', 'Single Left Hinge'),
+    ('Right', 'Right', 'Single Right Hinge'),
+    ('French', 'French Door', 'Double door'),
+    ('Sliding', 'Sliding', 'Double, offset for sliding')
 ]
 
 
 class SimpleDoorProperty(CustomPropertyBase):
-    offset_x: FloatProperty(name="Offset X", default=0, description="Offset from center of face")
-    width: EnumProperty(name="Width", items=door_width_enum, default='STANDARD')
+    size: PointerProperty(type=SizeProperty, name="Window Size")
+    position: PointerProperty(type=PositionProperty, name="Window Position")
+    wall_thickness: FloatProperty(name="Wall Thickness", default=0.2, min=0.1)
+    trim_width: FloatProperty(name="Trim Width", default=0.075, min=0)
+    frame_protrude: FloatProperty(name="Frame Protrude", default=0)
     open_in: BoolProperty(name="Open In", default=True, description="Open in or out")
-    left_hinge: BoolProperty(name="Left Hinge", default=True, description="Hinge on left or right")
-    wall_thickness: FloatProperty(name="Wall Thickness", default=0.2, description="Framed ext=0.2, Brick ext=0.35, Interior=0.13")
-    # hidden properties to set up the enum list
-    search_text: StringProperty(name="Search", description="Press enter to filter by substring", default="_Finish")
-    style_name: StringProperty(name="Style", description="Style", default="default")
-    category_name: StringProperty(name="Category", default="Doors")
-    show_scripts: BoolProperty(name="Show Scripts", default=True)
-    show_curves: BoolProperty(name="Show Scripts", default=False)
-    # the enum we care about
-    finish: EnumProperty(items=enum_category_items, name="Finish")
+    door_type: EnumProperty(name="Door Type", items=door_type_enum, default='Left')
+    arch_type: EnumProperty(name="Arch Type", items=ArchShapeProperty.arch_type_list, default='JACK')
+
+    knob: PointerProperty(name="Knob", type=CatalogObjectProperty)
+    hinges: PointerProperty(name="Hinge", type=CatalogObjectProperty)
+    finish: PointerProperty(name="Finish", type=CatalogScriptProperty)
 
     field_layout = [
-        ['offset_x'],
-        ['width'],
-        ['open_in', 'left_hinge'],
-        ['wall_thickness'],
+        ['door_type'],
+        ['arch_type'],
+        ['size'],
+        ['position'],
+        ['wall_thickness', 'frame_protrude'],
+        ['open_in', 'trim_width'],
+        ['knob'],
+        ['hinges'],
         ['finish']
     ]
-    topology_lock = ['open_in', 'finish']
+    topology_lock = ['door_type', 'finish']
+    previews = []
 
 
 class SimplePorticoProperty(CustomPropertyBase):
@@ -677,6 +771,27 @@ class DeckProperty(CustomPropertyBase):
     topology_lock = ['roof']
 
 
+class LatticeProperty(CustomPropertyBase):
+    angle_1: FloatProperty(name="Angle 1", unit="ROTATION", description="Angle of front slats", default=math.pi / 4,
+                           min= 0, max=math.pi / 2)
+    angle_2: FloatProperty(name="Angle 2", unit="ROTATION", description="Angle of back slats", default=math.pi / 4,
+                           min=0, max=math.pi / 2)
+    separation: FloatProperty(name="Separation", description="Front to back offset", default=0)
+    width: FloatProperty(name="Slat width", description="Width of slats", default=0.01)
+    depth: FloatProperty(name="Slat depth", description="Depth of slats", default=0.01)
+    spacing: FloatProperty(name="Slat spacing", description="Spacing of slats", default=0.1)
+    material: EnumProperty(name="Material", items=enum_nonplan_material, description="Material for new faces")
+
+    field_layout = [
+        ['angle_1', 'angle_2'],
+        ['separation', 'spacing'],
+        ['width', 'depth'],
+        ['material']
+    ]
+
+    topology_lock = ['spacing']
+
+
 class MeshImportProperty(CustomPropertyBase):
     use_catalog: BoolProperty(name="From Catalog", default=False)
     catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
@@ -733,11 +848,32 @@ class BuildFaceProperty(CustomPropertyBase):
     topology_lock = []
 
 
+class UnionPolyProperty(CustomPropertyBase):
+    material: EnumProperty(name="Material", items=enum_nonplan_material, description="Material for new face")
+    radial: PointerProperty(name="Y direction", type=DirectionProperty)
+
+    field_layout = [
+        ['material'],
+        ['radial']
+    ]
+
+    topology_lock = []
+
+
 class BuildRoofProperty(CustomPropertyBase):
     slope: FloatProperty(name="Slope", description="Tangent slope", default=0.6)
+    hip: BoolProperty(name="Hip", description="Make hip roof instead of shed roof", default=True)
+    shed_side: IntProperty(name="High side", description="Face side for top of shed", default=0)
+    gable_sides: StringProperty(name="Gable sides", description="Comma separated list of numbers, or empty for none")
+    wall_material: EnumProperty(name="Wall Material", items=enum_nonplan_material, description="Material for gable walls")
 
-    field_layout = [['slope']]
-    topology_lock = []
+    field_layout = [
+        ['slope', 'hip'],
+        [{'hip': True}, 'gable_sides'],
+        [{'hip': False}, 'shed_side'],
+        ['wall_material'],
+    ]
+    topology_lock = ['hip']
 
 
 stair_shape_type_list = [
@@ -824,16 +960,40 @@ class NicheProperty(CustomPropertyBase):
     add_perimeter: BoolProperty(name="Add Perimeter Points", description="Add points to perimeter to match if needed",
                                 default=False)
     frame_bricks: FloatProperty(name="Frame Bricks", default=1, description="Thickness of frame in bricks")
+    brick_ht: FloatProperty(name="Brick Height", min=0.01, default=0.05, description="Brick height")
+    brick_len: FloatProperty(name="Brick Len", min=0.01, default=0.17, description="Brick length")
     recess: FloatProperty(name="Recess", default=0.2, unit="LENGTH", description="Recess back distance")
+    keystone: BoolProperty(name="Keystone", default=False, description="Add Keystone")
+    arch_type: EnumProperty(name="Arch Type", items=ArchShapeProperty.arch_type_list, default='ROMAN')
 
     field_layout = [
+        ['arch_type'],
         ['position'],
         ['size'],
+        ['brick_ht', 'brick_len'],
         ['frame_bricks', 'recess'],
-        ['add_perimeter']
+        ['add_perimeter', 'keystone']
     ]
 
     topology_lock = []
+
+
+class QuoinDivideProperty(CustomPropertyBase):
+    tooth_height: FloatProperty(name="Tooth Height", default=1, description="Height in bricks")
+    long_width: FloatProperty(name="Long Width", default=1, description="Long tooth size in bricks")
+    short_width: FloatProperty(name="Short Width", default=0.5, description="Short tooth size in bricks")
+    start_long: BoolProperty(name="Start Long", description="First tooth long or short", default=True)
+    left_side: BoolProperty(name="Left Side", description="Inset from left or right", default=True)
+    inset: FloatProperty(name="Inset", default=0, description="Inset from edge in bricks")
+
+
+    field_layout = [
+        ['tooth_height', 'inset'],
+        ['long_width', 'short_width'],
+        ['start_long', 'left_side']
+    ]
+
+    topology_lock = ['left_side']
 
 
 class PlanInsetWallsProperty(CustomPropertyBase):
@@ -1003,7 +1163,7 @@ class CalculatorProperty(bpy.types.PropertyGroup):
 class BTAddonPreferences(AddonPreferences):
     # this must match the add-on name, use '__package__'
     # when defining this in a submodule of a python package.
-    bl_idname = "qarch"
+    bl_idname = base_package
 
     user_tags: StringProperty(name="Face tags", description="Comma separated list of custom tags")
     select_mode: EnumProperty(
@@ -1023,4 +1183,23 @@ class BTAddonPreferences(AddonPreferences):
         layout.prop(self, "select_mode")
         # layout.prop(self, "build_style")
 
+class StyleNameProperty(bpy.types.PropertyGroup):
+    group: StringProperty(name="Group")
+    style: StringProperty(name="Style")
+    active: BoolProperty(name="Active")
 
+
+class QARCH_UL_Styles(bpy.types.UIList):
+    """Demo UIList."""
+    bl_idname = "QARCH_UL_Styles"
+
+    # https://sinestesia.co/blog/tutorials/using-uilists-in-blender/
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        # Make sure your code supports all 3 layout types
+        row = layout.row()
+        if self.layout_type in {'DEFAULT'}:
+            row.label(text=item.group)
+            row.label(text=item.style)
+        else:  # {'COMPACT','GRID'}
+            row.label(text=item.style)
+        row.prop(item, 'active', text="")

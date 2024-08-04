@@ -20,6 +20,7 @@ PY_VERSION = "python3.10"
 WIDTH = 256
 HEIGHT = 256
 
+is_user = False  # set to false during development of built in stuff, true for deployment
 
 def draw(image_name):
     context = bpy.context
@@ -69,7 +70,7 @@ def draw(image_name):
 
 
 def gen_import_script(obj_name, filepath, b_delete):
-    from ..ops.dynamic_enums import qarch_asset_dir
+    from ..ops.dynamic_enums import qarch_asset_dir, user_asset_dir
     text = """import bpy
 obj_name = "{}"
 filepath = "{}"
@@ -87,17 +88,20 @@ bpy.data.collections["Collection"].objects.link(bpy.data.objects[obj_name])
 bpy.ops.wm.save_mainfile()
 """.format(obj_name, filepath, b_delete)
 
-    txt_file = qarch_asset_dir / "import_asset.py"
+    if is_user:
+        txt_file = user_asset_dir / "import_asset.py"
+    else:
+        txt_file = qarch_asset_dir / "import_asset.py"
     txt_file.write_text(text)
 
 
-def export_mesh(obj, style_name, category_name, category_item, description):
-    from ..ops.dynamic_enums import qarch_asset_dir, mesh_name, to_path, BT_CATALOG_SRC
+def export_mesh(obj, style, category_name, category_item, description):
+    from ..ops.dynamic_enums import qarch_asset_dir, mesh_name, to_path, user_asset_dir
     from ..object import is_bt_object, Journal
 
     qual_name = mesh_name(category_item)  # prefix with mesh_ end with .txt
 
-    txt_file = to_path(style_name, category_name, qual_name)
+    txt_file = to_path(is_user, category_name, qual_name)
     img_file = txt_file.with_suffix(".png")
     img_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -106,17 +110,18 @@ def export_mesh(obj, style_name, category_name, category_item, description):
 
     obj.name = qual_name[:-4]  # remove .txt
     assert obj.name[-4:] != ".txt", "why is this still here?"
-    # create a custom property that will survive naming conflicts (obj.001)
-    obj[BT_CATALOG_SRC] = "{}/{}/{}".format(style_name, category_name, obj.name)
+    # import script run in background needs the new name saved
+    bpy.ops.wm.save_mainfile()
 
     # crate a description file; we could also dump a journal here
     if is_bt_object(obj):
         j = Journal(obj)
         j.set_description(description)
+        j.jj['style'] = list(style)
         j.flush()
         txt = json.dumps(j.jj, indent=4)
     else:
-        txt = json.dumps({'description': description})
+        txt = json.dumps({'description': description, 'style': list(style)})
     txt_file.write_text(txt)
 
     python_exe = os.path.join(sys.prefix, 'bin', PY_VERSION)
@@ -125,24 +130,21 @@ def export_mesh(obj, style_name, category_name, category_item, description):
 
     gen_import_script(obj.name, bpy.data.filepath, True)
 
-    libpath = qarch_asset_dir / "{}.blend".format(style_name)
-    scriptpath = qarch_asset_dir / "import_asset.py"
+    if is_user:
+        libpath = user_asset_dir / "default.blend"
+        scriptpath = user_asset_dir / "import_asset.py"
+    else:
+        libpath = qarch_asset_dir / "default.blend"
+        scriptpath = qarch_asset_dir / "import_asset.py"
     subprocess.call([blender_exe, "--background", str(libpath), "--python", str(scriptpath)])
 
 
 def find_object(style_name, category_name, category_item):
-    from ..ops.dynamic_enums import BT_CATALOG_SRC
-    qual_name = category_item  # because this is called from operators with enums that have the qualified stem
-    first_cut = [ob for ob in bpy.data.objects if ob.name.startswith(qual_name)]
-    test = "{}/{}/{}".format(style_name, category_name, category_item)
-    for ob in first_cut:
-        try:
-            check = ob[BT_CATALOG_SRC]
-        except Exception:
-            pass
-        else:
-            if check == test:
-                return ob
+    p = pathlib.Path(category_item)
+    stem = p.stem
+    first_cut = [ob for ob in bpy.data.objects if ob.name == stem]
+    if len(first_cut):
+        return first_cut[0]
 
     return None
 
@@ -162,7 +164,8 @@ def import_mesh(style_name, category_name, category_item):
     # probably loads as the last item in objects, but just in case
     cur_objs = set(obj.name for obj in bpy.data.objects)
 
-    libpath = qarch_asset_dir / "{}.blend".format(style_name)
+    # get path to blend file
+    libpath = category_item.parent.parent / "default.blend"
     with bpy.data.libraries.load(str(libpath), link=False) as (data_from, data_to):
         if category_item not in data_from.objects:
             print("item not in library")
@@ -179,7 +182,7 @@ def import_mesh(style_name, category_name, category_item):
         col = get_bt_collection()
         col.objects.link(obj)
 
-        txt_file = to_path(style_name, category_name, category_item).with_suffix(".txt")
+        txt_file = to_path(is_user, category_name, category_item).with_suffix(".txt")
         txt = txt_file.read_text()
         as_dict = json.loads(txt)  # as a minimum, we have a dict with description in it
         if 'controlled' in as_dict:

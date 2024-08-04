@@ -217,6 +217,8 @@ class CoordSys:
                 v3 = v3.co3
             else:
                 raise TypeError('SmartPoint has invalid 3d coordinates')
+        elif isinstance(v3, tuple) or isinstance(v3, list):
+            v3 = Vector(v3)
         elif not (isinstance(v3, Vector) and (len(v3) == 3)):
             raise TypeError('Expected a Vector(3)')
 
@@ -239,6 +241,8 @@ class CoordSys:
                 v2 = v2.co2
             else:
                 raise TypeError('SmartPoint has invalid 2d coordinates')
+        elif isinstance(v2, tuple) or isinstance(v2, list):
+            v2 = Vector(v2)
         elif not (isinstance(v2, Vector) and (len(v2) == 2)):
             raise TypeError('Expected a Vector(2) not {}'.format(v2))
 

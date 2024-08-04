@@ -1,0 +1,178 @@
+{
+    "max_id": 3,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1
+        ],
+        "op1": [
+            2,
+            3
+        ],
+        "op2": [],
+        "op3": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Louvered shutter",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": -0.5,
+                "is_relative_x": true,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 0.5,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "join": "FREE",
+            "del_source": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0,
+            "by_inset": false,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.029999999329447746
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Base"
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.10000000149011612,
+                "is_relative_x": false,
+                "size_y": -0.10000000149011612,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "SELF",
+            "by_inset": false,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op0": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Frame"
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.029999999329447746,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    1,
+                    2,
+                    3,
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op1": 2
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 8], [10, 13], [15, 18]], "Tops": [[4, 4], [9, 9], [14, 14], [19, 19]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Shutter Extrude"
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_make_louvers",
+        "properties": {
+            "count_x": 1,
+            "count_y": 25,
+            "margin_x": 0.0,
+            "margin_y": 0.029999999329447746,
+            "blade_angle": 0.2617993950843811,
+            "blade_thickness": 0.003000000026077032,
+            "depth_thickness": 0.029999999329447746,
+            "depth_offset": 0.014999999664723873,
+            "flip_xy": false,
+            "connect_louvers": false,
+            "material": "BT_Trim",
+            "del_source": true
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Blades": [[0, 149]], "Risers": []}, "moduli": {"Blades": 6, "Risers": 0}},
+        "description": "Shutter Make Louvers"
+    },
+    "style": []
+}

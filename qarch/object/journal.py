@@ -138,6 +138,34 @@ class Journal:
                 lst2.append(op)
         return lst2
 
+    def delete_record(self, operation_id, flush=True):
+        parents = self.parents(operation_id)
+
+        dct_children, lst_children = self.child_ops(operation_id)
+        lst_children.insert(0, operation_id)
+
+        lst_children.reverse()  # doesn't matter, but remove lowest level first
+        for op_id in lst_children:
+            # test for existence because ops with multiple parents can lead to double attempt to delete
+            if wrap_id(op_id) in self.jj['controlled']:
+                del self.jj['controlled'][wrap_id(op_id)]
+            if wrap_id(op_id) in self.jj:
+                del self.jj[wrap_id(op_id)]
+
+        for parent_id in parents:
+            lst = self['controlled'][wrap_id(parent_id)]
+            lst.remove(operation_id)
+
+        # remove trailing count if we deleted the last operations
+        op_max = self.jj['max_id']
+        while wrap_id(op_max) not in self.jj:
+            op_max = op_max - 1
+        self.jj['max_id'] = op_max
+
+        if flush:
+            self.flush()
+        return lst_children
+
     def describe(self, op_id):
         record = self.jj[wrap_id(op_id)]
         t = record.get('description', '')
@@ -300,10 +328,11 @@ def set_journal(obj, journal):
     update_block(text_block, journal)
 
 
-def export_record(obj, operation_id, filename, do_screenshot, imagefile, description):
+def export_record(obj, operation_id, filename, do_screenshot, imagefile, description, style=[]):
     """Select operation and children and export to text file"""
     from ..mesh import draw
     dct_subset = extract_record(obj, operation_id, description)
+    dct_subset['style'] = list(style)
 
     text = json.dumps(dct_subset, cls=MyEncoder, indent=4)
 
@@ -371,31 +400,7 @@ def extract_record(obj, operation_id, description):
 def delete_record(obj, operation_id):
     """Removes instructions for all trailing operations, returns op ids so verts can be deleted"""
     journal = Journal(obj)
-    parents = journal.parents(operation_id)
-
-    dct_children, lst_children = journal.child_ops(operation_id)
-    lst_children.insert(0, operation_id)
-
-    lst_children.reverse()  # doesn't matter, but remove lowest level first
-    for op_id in lst_children:
-        # test for existence because ops with multiple parents can lead to double attempt to delete
-        if wrap_id(op_id) in journal.jj['controlled']:
-            del journal.jj['controlled'][wrap_id(op_id)]
-        if wrap_id(op_id) in journal.jj:
-            del journal.jj[wrap_id(op_id)]
-
-    for parent_id in parents:
-        lst = journal['controlled'][wrap_id(parent_id)]
-        lst.remove(operation_id)
-
-    # remove trailing count if we deleted the last operations
-    op_max = journal.jj['max_id']
-    while wrap_id(op_max) not in journal.jj:
-        op_max = op_max-1
-    journal.jj['max_id'] = op_max
-
-    journal.flush()
-    return lst_children
+    return journal.delete_record(operation_id)
 
 
 def import_record(filename):
@@ -414,6 +419,8 @@ def merge_record_dct(dct_master, dct_operation, sel_info):
 
     for old_id in range(0, dct_operation['max_id']+1):
         op_str = wrap_id(old_id)
+        if op_str not in dct_operation:
+            continue
         record = dct_operation[op_str]
 
         if old_id in dct_new_id:  # have we seen this before?
@@ -432,6 +439,7 @@ def merge_record_dct(dct_master, dct_operation, sel_info):
             if old_inf.mode in ['SINGLE', 'REGION']:
                 if sel_info.mode not in ['SINGLE', 'REGION']:
                     print("Mismatch {} {}".format(old_inf.mode, sel_info.mode))
+                    print(old_inf.to_dict(), sel_info.to_dict())
                     return "Topology mismatch with selection mode, expect single or region"
             else:
                 vtest1 = old_inf.face_list(old_inf.op_list()[0])

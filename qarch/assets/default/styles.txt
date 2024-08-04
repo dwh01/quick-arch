@@ -1,0 +1,11 @@
+{
+"American":[
+    "Colonial", "Federal", "Neoclassical", "Gothic Revival", "Italianate",
+    "Queen Anne", "Craftsman", "Modernist", "Contemporary"
+],
+"European":[
+    "Romanesque",
+    "Tudor", "Elizabethan", "Georgian", "Cottage",
+    "Norman", "French Provincial", "Second Empire"
+]
+}

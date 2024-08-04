@@ -1,0 +1,1 @@
+{"description": "Modern Hinge", "style": []}

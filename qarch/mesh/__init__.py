@@ -26,6 +26,9 @@ from .geom import (
     extrude_walls,
     copy_faces,
     niche,
+    quoin_divide,
+    lattice,
+    union_poly,
 )
 
 from .coordsys import CoordSys

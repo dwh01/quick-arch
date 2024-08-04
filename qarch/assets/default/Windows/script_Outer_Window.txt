@@ -1,0 +1,613 @@
+{
+    "max_id": 16,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1
+        ],
+        "op1": [
+            2
+        ],
+        "op2": [
+            3
+        ],
+        "op3": [
+            4,
+            5,
+            6
+        ],
+        "op4": [
+            7,
+            8,
+            9,
+            10,
+            11,
+            14,
+            15
+        ],
+        "op5": [
+            12
+        ],
+        "op6": [],
+        "op7": [],
+        "op8": [],
+        "op9": [],
+        "op10": [],
+        "op11": [],
+        "op12": [
+            13
+        ],
+        "op13": [],
+        "op14": [],
+        "op15": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Outer Window Setup",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 2,
+            "count_y": 0,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "define_size": true,
+            "size": {
+                "size_x": 0.6000000238418579,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    5
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 2]]}, "moduli": {"All": 0}},
+        "description": "Set Width"
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 0,
+            "count_y": 2,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.20000000298023224,
+                "is_relative_y": true,
+                "center_y": false
+            },
+            "define_size": true,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 0.6000000238418579,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 2]]}, "moduli": {"All": 0}},
+        "description": "Set Height"
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "join": "FREE",
+            "del_source": true,
+            "shape_type": "SELF",
+            "by_inset": false,
+            "center_material": "BT_Siding",
+            "extrude_distance": -0.10000000149011612
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": [], "Key": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+        "description": "Center in Wall"
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 0,
+            "count_y": 1,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": false,
+                "offset_y": 0.07000000029802322,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "define_size": false
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op2": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 0}},
+        "description": "Outer Apron"
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 0.5,
+                "is_relative_y": true,
+                "is_ratio_yx": true
+            },
+            "join": "BRIDGE",
+            "add_perimeter": true,
+            "shape_type": "ARCH",
+            "arch": {
+                "step_size": 0.06,
+                "drop_length": 1.5699999332427979,
+                "arch_type": "JACK",
+                "keystone": true,
+                "key_width": 0.15000000596046448,
+                "key_above": 0.029999999329447746,
+                "key_below": -0.0010000000474974513,
+                "key_material": "BT_Trim"
+            },
+            "frame": 0.10000000149011612,
+            "frame_material": "BT_Brick",
+            "center_material": "BT_Siding",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[67, 70]], "Center": [[65, 65]], "Frame": [[0, 63]], "Drop":[[64,64], [66, 66]], "Key": [[71,71]]}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+        "description": "Outer Arch"
+    },
+    "op5": {
+        "op_id": 5,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.10000000149011612,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Brick",
+            "center_material": "BT_Brick"
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3]], "Tops": [[4, 4]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Extrude Outer Apron"
+    },
+    "op6": {
+        "op_id": 6,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": -0.10000000149011612,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Brick",
+            "center_material": "BT_Brick"
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3]], "Tops": [[4, 4]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Intrude Outer Apron"
+    },
+    "op7": {
+        "op_id": 7,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.10000000149011612,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": true,
+            "side_material": "BT_Brick",
+            "center_material": "BT_Brick"
+        },
+        "control_points": {
+            "faces": {
+                "op4": [[0,64,1]]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 8], [10, 13], [15, 18], [20, 23], [25, 28], [30, 33], [35, 38], [40, 43], [45, 48], [50, 53], [55, 58]], "Tops": [[4, 4], [9, 9], [14, 14], [19, 19], [24, 24], [29, 29], [34, 34], [39, 39], [44, 44], [49, 49], [54, 54], [59, 59]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Extrude Outer Frame"
+    },
+    "op8": {
+        "op_id": 8,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": -0.10000000149011612,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Brick",
+            "center_material": "BT_Brick"
+        },
+        "control_points": {
+            "faces": {
+                "op4": [[0,64,1], 64, 66]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 8], [10, 13], [15, 18], [20, 23], [25, 28], [30, 33], [35, 38], [40, 43], [45, 48], [50, 53], [55, 58], [60, 63], [65, 68]], "Tops": [[4, 4], [9, 9], [14, 14], [19, 19], [24, 24], [29, 29], [34, 34], [39, 39], [44, 44], [49, 49], [54, 54], [59, 59], [64, 64], [69, 69]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Intrude Outer Frame"
+    },
+    "op9": {
+        "op_id": 9,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": -0.10000000149011612,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Plaster",
+            "center_material": "BT_Plaster"
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    [67,71,1]
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 14]], "Tops": [[15, 15]]}, "moduli": {"Sides": 15, "Tops": 0}},
+        "description": "Intrude Outer Surround"
+    },
+    "op10": {
+        "op_id": 10,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.10000000149011612,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Plaster",
+            "center_material": "BT_Siding"
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    [67,71,1]
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 14]], "Tops": [[15, 15]]}, "moduli": {"Sides": 15, "Tops": 0}},
+        "description": "Extrude Outer Surround"
+    },
+    "op11": {
+        "op_id": 11,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 1,
+            "count_y": 0,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": false
+            },
+            "define_size": false
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    65
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 0}},
+        "description": "Divide Inner N"
+    },
+    "op12": {
+        "op_id": 12,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 0,
+            "count_y": 1,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "define_size": false
+        },
+        "control_points": {
+            "faces": {
+                "op5": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 0}},
+        "description": "Outer Sill Cut"
+    },
+    "op13": {
+        "op_id": 13,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.03999999910593033,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Brick",
+            "center_material": "BT_Brick"
+        },
+        "control_points": {
+            "faces": {
+                "op12": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3]], "Tops": [[4, 4]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Outer Sill Extrude"
+    },
+    "op14": {
+        "op_id": 14,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.10000000149011612,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": true,
+            "side_material": "BT_Brick",
+            "center_material": "BT_Brick"
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    64,
+                    66
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 8]], "Tops": [[4, 4], [9, 9]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Extrude Outer Sides"
+    },
+    "op15": {
+        "op_id": 15,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.10999999940395355,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    71
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3]], "Tops": [[4, 4]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Extrude Keystone"
+    },
+    "style": ["Compound"]
+}

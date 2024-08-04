@@ -83,7 +83,7 @@ class SelectionInfo:
         self.sel_face = {}
         self.sel_vert = {}
         self.op_flag = {}
-        self.mode = 'SINGLE'
+        self.mode = 'GROUP'
 
         if from_dict is not None:
             self.from_dict(from_dict)
@@ -119,7 +119,12 @@ class SelectionInfo:
         """Number of faces total"""
         c = 0
         for v in self.sel_face.values():
-            c = c + len(v)
+            for i in v:
+                if isinstance(i, list):
+                    start, stop, step = tuple(i)
+                    c = c + len(range(start, stop, step))
+                else:
+                    c = c + 1
         return c
 
     def count_ops(self):
@@ -135,7 +140,15 @@ class SelectionInfo:
 
     def face_list(self, op_id):
         """List of face sequence not bmesh index"""
-        return self.sel_face.get(wrap_id(op_id), [])
+        lst = self.sel_face.get(wrap_id(op_id), [])
+        rval = []
+        for i in lst:
+            if isinstance(i, list):
+                start, stop, step = tuple(i)
+                rval= rval + list(range(start, stop, step))
+            else:
+                rval.append(i)
+        return rval
 
     def flag_op(self, op_id, code):
         key = wrap_id(op_id)
@@ -145,7 +158,7 @@ class SelectionInfo:
         self.sel_face = d['faces']
         self.sel_vert = d.get('verts', [])
         self.op_flag = d['flags']
-        self.mode = d.get('mode', 'SINGLE')
+        self.mode = d.get('mode', 'GROUP')
 
     def get_flag(self, op_id):
         return self.op_flag.get(wrap_id(op_id), self.NORMAL)
@@ -154,7 +167,7 @@ class SelectionInfo:
         return self.mode
 
     def includes(self, op_id, face_seq_id):
-        lst = self.sel_face[op_id]
+        lst = self.face_list(op_id)
         if face_seq_id in lst:
             return True
         return False
@@ -164,10 +177,11 @@ class SelectionInfo:
         for k, v in self.sel_face.items():
             if not k in other.sel_face:
                 return False
-            v2 = other.sel_face[k]
-            if len(v) != len(v2):
+            lst1 = self.face_list(k)
+            lst2 = other.face_list(k)
+            if len(lst1) != len(lst2):
                 return False
-            for a, b in zip(v, v2):
+            for a, b in zip(lst1, lst2):
                 if a != b:
                     return False
         return True
@@ -231,6 +245,8 @@ class TopologyInfo:
     def add(self, k, n=1):
         if n < 1:
             return
+        if k not in self.ranges:
+            self.ranges[k]=[]
         if len(self.ranges[k]):
             lst = self.ranges[k]
             lst.sort(key=lambda l:l[0])
@@ -249,7 +265,10 @@ class TopologyInfo:
     def count(self):
         max_val = -1
         for lst_range in self.ranges.values():
-            limits = lst_range[-1]
+            if len(lst_range):
+                limits = lst_range[-1]
+            else:
+                limits = [-1,-1]
             max_val = max(max_val, limits[1])
         return max_val + 1
 
@@ -258,7 +277,7 @@ class TopologyInfo:
         self.moduli = d['moduli']
 
     def get_range_sequence(self, key, f_range):
-        range_list = self.ranges[key]
+        range_list = self.ranges.get(key,[])
         if len(range_list)==0:
             return []
         n_range = round(len(range_list)*f_range)
@@ -268,12 +287,13 @@ class TopologyInfo:
         # print(n_range, "vs", int(math.floor(len(range_list) * f_range)))  # better to round then floor?
 
         limits = range_list[int(n_range)]
-        return list(range(limits[0], limits[1]+1))
+        seq = list(range(limits[0], limits[1]+1))
+        return seq
 
     def is_compatible(self, other):
-        for k in self.ranges.keys():
-            if k not in other.ranges:
-                return False
+        # for k in self.ranges.keys():
+        #     if k not in other.ranges:
+        #         return False
         return True
 
     def is_same_as(self, other):
@@ -291,7 +311,7 @@ class TopologyInfo:
         return True
 
     def map_sequence(self, key, f_range, d_pos, f_pos):
-        lst_range = self.ranges[key]
+        lst_range = self.ranges.get(key, [])
         if len(lst_range)==0:
             return None
 
@@ -315,8 +335,16 @@ class TopologyInfo:
         self.moduli[key] = m
 
     def test_full_key(self, key, lst_seq):
+        t = []
+        for i in lst_seq:
+            if isinstance(i, list):
+                start, stop, step = tuple(i)
+                t = t + list(range(start, stop, step))
+            else:
+                t.append(i)
+        lst_seq = t
         set_test = set(lst_seq)
-        old_range_list = self.ranges[key]
+        old_range_list = self.ranges.get(key, [])
         range_full = []
         for limits in old_range_list:
             b_full = True
@@ -344,7 +372,7 @@ class TopologyInfo:
                         addr = (key, range_base)
                     else:
                         m = self.moduli.get(key, 0)
-                        if m == 0:
+                        if m <= 1:
                             m = (max_seq - min_seq)
 
                         mod_rem = (face_seq - min_seq) % m
@@ -353,8 +381,8 @@ class TopologyInfo:
                         mod_base = mod_div / (max_seq - min_seq)  # fractional position of "row" in array
                         seq_base = mod_rem / m  # fractional position of column in row
                         addr = (key, range_base, mod_base, seq_base)
-                        return addr
-        return None
+                    return addr
+        return None  # (next(iter(self.ranges)), 0)
 
     def sequence(self, addr):
         if len(addr)==2:
@@ -363,9 +391,11 @@ class TopologyInfo:
             seq_base = 0
         else:
             key, range_base, mod_base, seq_base = addr
-        range_list = self.ranges[key]
+        if mod_base == 1:
+            mod_base = 0
+        range_list = self.ranges.get(key, [])
         i = int(math.floor(range_base * len(range_list)))
-        if i > len(range_list):
+        if i > len(range_list)-1:
             print("above range count")
             return None
         range_info = range_list[i]
@@ -382,9 +412,14 @@ class TopologyInfo:
         s = int(mod_rem + row_start)
         if min_seq <= s <= max_seq:
             return s
-        print("not between", min_seq, s, max_seq)
+        # print("not between", min_seq, s, max_seq)
         return None
 
+    def full_sequence(self, k):
+        lst = []
+        for range_info in self.ranges.get(k, []):
+            lst.extend(range(range_info[0], range_info[1] + 1))
+        return lst
 
     def warp_to(self, other, op_id, sel_info):
         """Convert face_list in current topology to values in other topology"""
@@ -395,30 +430,57 @@ class TopologyInfo:
         # we have numbering groups 1-n*m, where n is sides and m is steps
         # store n in the modulus number
         # keep the top faces in their own key since often top faces are used for other things
-        old_face_seq = sel_info.face_list(op_id)
+        old_face_seq = sel_info.sel_face[wrap_id(op_id)]
+        # old_face_seq = sel_info.face_list(op_id)
         new_face_seq = []
 
         for key in self.ranges:
             all_full, range_full = self.test_full_key(key, old_face_seq)
-            for i, range_info in enumerate(self.ranges[key]):
+            # print(key, all_full, range_full)
+            for i, range_info in enumerate(self.ranges.get(key,[])):
                 is_full = range_full[i]
                 if is_full:
-                    f_range = i/len(self.ranges[key])
+                    f_range = i/len(self.ranges.get(key,[]))
                     lst = other.get_range_sequence(key, f_range)
                     new_face_seq.extend(lst)
                 else:
-                    for face_seq in range(range_info[0], range_info[1]+1):
-                        if face_seq in old_face_seq:
-                            addr = self.address(face_seq)
+                    for inf in old_face_seq:
+                        if isinstance(inf, list):
+                            start_addr = self.address(inf[0])
+                            stop_addr = self.address(inf[1])
+                            # old_range = range(inf[0], inf[1], inf[2])
+                            # print("stepped", start_addr, stop_addr)
+                            if start_addr and stop_addr:
+                                start = other.sequence(start_addr)
+                                stop = other.sequence(stop_addr)
+                                if start is None or stop is None:
+                                    pass # print("skipping")
+                                else:
+                                    new_range = range(start, stop, inf[2])
+                                    new_face_seq.extend(new_range)
+                            else:
+                                pass # print("No range", inf, start_addr, stop_addr)
+                        else:
+                            addr = self.address(inf)
                             if addr is not None:
                                 s = other.sequence(addr)
                                 if s is not None:
                                     new_face_seq.append(s)
+                                else:
+                                    pass # print(addr, "not in range", other.ranges)
+        new_face_seq = list(set(new_face_seq))
+        new_face_seq.sort()
+        if len(new_face_seq) == 0:
+            new_face_seq = [i for i in sel_info.face_list(op_id) if i < other.count()]
+            if len(new_face_seq)==0:
+                # print("-----WARP------", op_id)
+                # print(sel_info.to_dict())
+                # print(self.to_dict())
+                # print("---------------")
+                return False
 
-        print("before warp {} {}".format(op_id, old_face_seq))
-        print("after warp {}".format(new_face_seq))
         sel_info.replace_sequence(op_id, new_face_seq)
-
+        return True
 
 def create_instancing_nodes(obj):
     col_name = obj.name + BT_INST_COLLECTION
@@ -479,7 +541,7 @@ def create_instancing_nodes(obj):
     node_group.links.new(instNode.outputs['Instances'], joinNode.inputs['Geometry'])
 
     node_group.links.new(colNode.outputs['Instances'], instNode.inputs['Instance'])
-    node_group.links.new(pickNode.outputs[4], instNode.inputs['Instance Index'])
+    node_group.links.new(pickNode.outputs[0], instNode.inputs['Instance Index'])
     node_group.links.new(rotNode.outputs['Attribute'], instNode.inputs['Rotation'])
     node_group.links.new(scaleNode.outputs[0], instNode.inputs['Scale'])
 
@@ -554,7 +616,7 @@ def upgrade_object(obj):
     key = obj.data.attributes.new(FACE_OP_ID, 'INT', 'FACE')
     key = obj.data.attributes.new(LOOP_UV_W, 'FLOAT', 'CORNER')
 
-    attribute_values = [-1]
+    attribute_values = [-1]*len(obj.data.vertices)
     key = obj.data.attributes.new(VERT_OP_ID, 'INT', 'POINT')
     key.data.foreach_set("value", attribute_values)
     key = obj.data.attributes.new(BT_INST_PICK, 'INT', 'POINT')

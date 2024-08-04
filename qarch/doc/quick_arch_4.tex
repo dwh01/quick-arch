@@ -1,0 +1,252 @@
+%! Author = dave
+%! Date = 7/16/24
+
+% Preamble
+\documentclass[11pt]{article}
+
+% Packages
+\usepackage{amsmath}
+
+% Document
+\begin{document}
+
+    \section{Create Object}
+    To use the history feature of the building tool, the object is associated with a text log.
+    To create an object, use the create object button.
+    This will place you into edit mode.
+    NOTE: Change the mesh selection mode (top left of screen) from vertex to face before beginning operations.
+    Otherwise, the redo-last feature doesn't work because the tool can't reset which face is selected.
+    The first operation after creation is usually to insert a base polygon as the floor of the first room.
+
+    \section{QArch Selection Mode}
+    At the top of the QArch panel is a dropdown for selection mode.
+    \begin{itemize}
+        \item Single, each face selected gets a separate copy of the operation applied (so you can redo independently)
+        \item Group, all faces selected get the sampe copy of the operation applies (redo one makes them all match)
+        \item Region, some operations like buid-roof require the collection of faces to be treated as a one polygon region
+    \end{itemize}
+
+    \section{Coordinate System}
+    Each polygon (face) has a coordinate system associated with it.
+    For non-horizontal surfaces, the cross product between +Z and the face normal defines the +X direction.
+    In other words, if you tip a square up on edge, the bottom edge becomes the X axis.
+    For a horizontal surface, the global X axis becomes the face X axis.
+    However, there are times when a different system makes sense and is imposed.
+    When you create a frame (by making a smaller polygon inset into a larger polygon),
+    the X axis follows the perimeter of the control polygon counter-clockwise around.
+    This gives you a consistent way to reproduce scripts on any of the frame faces
+    (since the key direction is usually in vs out).
+    If you assign BT\_Nothing as the material, the X axis edge is colored blue, and the Y axis edge is colored red.
+
+    \section{Size and Position}
+    Many operations allow you to specify relative size or position.
+    In this case, a 1 means the same size as the control.
+    A special feature is that a negative size means to subtract that number from the control polygon size.
+    Position is normally calculated from the bottom left corner of the polygon bounding box,
+    but You may also have the option to calculate position relative to the center of the bounding box.
+
+    \section{Deleting Faces}
+    During construction, faces are never really deleted because they are used as references when executing the history
+    script.
+    Instead, the faces are tagged as DELETE, and marked hidden in the mesh edit mode.
+    They also get a transparent material assigned.
+    In object mode, all faces will be shown, and even though transparent, the existence of two faces in the same plane
+    can cause rendering artifacts.
+    The cleanup button will perform a true delete on the faces tagged DELETE .
+    To restore the faces for further editing, simply use the rebuild button.
+
+    \section{Set Active and Redo}
+    When a face is selected, you can see the sequence of operations leading to the creation of that face with
+    Set Active Operation or Redo Operation.
+    Set Active Operation will highlight the faces created by the selected operation.
+    Once highlighted, the Remove Operation button becomes active.
+    All operations in the list following the removed operation are removed as well.
+    You can select None as the active operation to deselect.
+    Using the Redo Operation button brings up the redo-last panel in the lower left of the screen, just like when
+    you first executed the operation.
+    Some parameters may become locked if you have subsequent operations that depend on faces created by the operation
+    you are redo-ing.
+    Set Active Operation is also used before exporting a script to the catalog.
+    The selected operation and all following operations become a script which you can apply to other locations.
+
+    \section{Calc UV}
+    Normally, UV coordinates are calculated for you, but if for some reason they are not, use this button to update
+    the selected faces.
+
+    \section{Cleanup}
+    As noted in the section about deleted faces, the cleanup operation removes the hidden faces to enable proper
+    rendering.
+
+    \section{Insert Polygon}
+    The insert polygon operation allows you to define a new shape in the coordinate system of a control shape, or the
+    global coordinate system if no face is selected. Four options for joining the new geometery are given.
+    \begin{itemize}
+        \item Free, which simply positions a new polygon
+        \item Inside, which clips the new polygon to only keep what is inside the boundary of the control polygon
+        \item Outside, which clips the new polygon to keep the part outside the control
+        \item Bridge, which joins the inside and outside polygons together and deletes the control polygon, assuming
+        that the bridge polygons were meant to replace it.
+    \end{itemize}
+    The first point generated lies on the x axis, and the following points move counter-clockwise.
+    The start-angle parameter lets you rotate the polygon.
+    Set it to -180/n (if you have n sides) to get the first side parallel to the y axis and centered on the x axis.
+
+    Other shapes besides regular polygons are possible.
+    \begin{itemize}
+        \item Self, make a scaled copy of the control polygon
+        \item Ngon, make a regular polygon, optionally with an inset frame (keep the frame width smaller than the polygon!)
+        \item Arch, make an arch, with or without built in frame
+        \item Super, look up super-ellipse, this function is too complicated to describe and probably not useful
+        \item Curve, choose a curve from the blend file
+        \item Catalog, choose a curve from the qarch catalog
+    \end{itemize}
+
+    You may also provide an extrude distance which will float the new polygon over the control.
+
+    \section{Plan Tools}
+    These tools are under development for purposes of being able to construct a floorplan and then build it all at once
+    in a selected style.
+
+    \section{Macro Tools}
+    Macro tools are really a wrapper around exported scripts that collect some user input to customize the script before
+    adding it to the object history.
+
+    \section{Apply Script}
+    This button will load the catalog of scripts with descriptions and pictures.
+    The script is applied as if you had executed all the individual steps.
+    Sometimes, the script has a direction that makes sense on one side of a building but not the other.
+    Use redo-operation to select the questionable step and customize it for your needs.
+
+    \section{Import Mesh}
+    Impor mesh lets you use an object in the current file, or a mesh from the catalog.
+    It can be instanced as an array, or added directly to the mesh you are working on.
+    When instanced, a geometry nodes modifier takes care of generating the instances.
+    The input to the modifier uses a shared mesh so that if you edit one object, they all reflect the change.
+
+    \section{Add Window}
+    Add a window in small, medium, or large size.
+    Customize fixed or sliding sash, number of panes, and shutters.
+    A standard height is tried, but if the space is too small, the window will be centered vertically.
+
+    \section{Niche}
+    This is meant to be used in a brick wall, and the height and width are rounded to get brick sized results.
+    Use to create a recess with an arched top.
+
+    \section{Add Door}
+    Doors come in one height but three widths.
+    You can also customize whether it opens in or out, and which side the hinges are on.
+    The door will be plain, but other scripts can be applied to the door face to decorate it.
+    On the opposite side of the door, check the face orientation before applying a script.
+    You may need to use flip-normal first.
+
+    \section{Add Portico}
+    This adds an overhang when applied to the space left above a door.
+    The support columns are extruded from two small polygons.
+    You can remove the last extrude operation and use import-mesh to add fancy columns instead.
+
+    \section{Add Railing}
+    A railing is made by extruding up a solid and then applying this function to the sides.
+    When you are done, mark the unused sides as DELETE .
+    You can use a simple shape extruded vertically, or select a curve to be rotated for each vertical spindle.
+
+    \section{Build Roof}
+    This uses a polygon skeleton algorithm to make complex hip roofs.
+    It has a definite bug when working on L shaped roofing in some orientations.
+    The roof tangent sets the angle of the roof, higher numbers are steeper.
+    You may have to set the selection type to Single or Region for this.
+
+    \section{Extend Gable}
+    On a sloped face, usually a triangle generated by the build roof algorithm, this macro extrudes the face to create
+    a vertical gable end.
+    You may have to set the selection type to Single or Region for this.
+
+    \section{Add Dormer}
+    This will cut out a rectangle plus triangle from a sloped roof and extrude them to form a dormer.
+
+    \section{Build Stairs}
+    Stairs have an unusually large set of paramters.
+    It is possible to make spiral stairs as well as straight stairs.
+    Remember that z offset is away from the wall face, not up and down!
+
+    \section{Detail Tools}
+    The detail tools are low level routines that can be used to do almost anything.
+    Be aware that there may be more than one way to do things, but probably only one of them will be a good way if you
+    intend to export the script later.
+    Especially avoid selecting faces from multiple operations when building scripts as the playback can get confused as
+    to what faces already exist.
+    If you are not saving a script, do whatever feels right.
+
+    \section{Solidify Edges}
+    A very powerful utility, this is used to create the mullions around window panes, the frames for doors, and the
+    vertical posts in railings.
+    You can specify which edge to solidify, or leave blank for all.
+    A simple shape or a curve loaded from a catalog can be used.
+    In fact, there are curves for Mansard roofing that can be applied to the attic floor to create a Mansard roof that
+    wraps around with a nice profile.
+    It is also possible to specify dash width and spacing.
+    The dash feature makes dentil molding easy, and is used in some of the raised brick scripts.
+
+    \section{Grid Divide}
+    This feature can have x or y cuts set to zero so that you can split horizontally or vertically.
+    Without defining the size, you get evenly spaced cuts.
+    With a defined size, you set the spacing and get the number specified.
+    This is how the door and window scripts set their position: they know how wide the frame has to be and set the cut
+    number to 2, then let the user specify the offset from the center of the face.
+    This makes a nice vertical slice of the right size.
+
+    \section{Split Face}
+    With split face you can pick two vertex indices to connect, or pick one vertex and a direction (x or y). The result
+    is two faces.
+
+    \section{Quoin Divide}
+    Quoins are the large blocks set into the corners of brick buildings.
+    The Quoin Divide cuts like a big set of zipper teeth so that you can change the material to a contrast on one side
+    vs the other.
+
+    \section{Extrude Fancy}
+    In addition to extruding the face, you can resize it and twist while extruding.
+    You can select a direction other than normal, and if so, whether to align the end face with that direction.
+
+    \section{Extrude Sweep}
+    The sweep is tricky to get used to.
+    If you set the origin to <0,0,0> the rotation will be around the bottom left corner of the bounding box.
+    If you set the axis to <1,0,0> the axis will be the bottom edge of the bounding box.
+    Moving the origin to y=1 and is\_relative\_y=True will position the origin at the top of the bounding box.
+    Just try it out.
+
+    \section{Project Face}
+    You choose the index of the target face by trial and error since it's hard to know what order the face selection
+    will be presented in.
+    The faces other than the target project along their normals until they meet the plane of the target.
+    Or, you can use bridge to join to faces together.
+    The hip option is used to join with a right angle, like making molding on one exterior wall join to molding on the
+    next wall.
+
+    \section{Build Face}
+    Switch to edge or vertex mode, make a selection, and use this button to create a face from the selection.
+    Then switch back to face selection mode.
+
+    \section{Make Louvers}
+    Louvers are used in shutters or if you want blinds for a window.
+    They can also be connected for making simple stairs or other things.
+
+    \section{Perpendicular Face}
+    Sometimes you need to switch face orientation to build something.
+    This generates a polygon flipped out 90 degrees from the control.
+
+    \section{Set Oriented Material}
+    The wood grain texture uses extra data to control how the face is oriented relative to the wood grain.
+    This button takes the long direction of the face(s) and orients the wood in that direction.
+
+    \section{Flip Normal}
+    In addition to flipping the normal after an extrude, this can be used with the toggle off to create a no-action.
+    The no-action may be a useful parent for a set of operations that you want to export to the catlog of scripts.
+
+    \section{Face Info}
+    With one face selected, face info reports on the tag, material, and other properties of interest.
+    With one or more faces selected, clicking the button allows you to edit that property.
+    Also reported is the operation and face number within the operation, sometimes useful for tracking down how a face
+    was generated.
+
+
+\end{document}

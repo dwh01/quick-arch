@@ -7,18 +7,19 @@ import itertools
 import json
 import pathlib
 import rna_info
+from .. import __package__ as base_package
 from ..object import get_obj_data, set_obj_data, ACTIVE_OP_ID, REPLAY_OP_ID
 from ..object import Journal, merge_record, SelectionInfo, TopologyInfo, wrap_id, delete_record
 from ..mesh import ManagedMesh, copy_faces
 import struct
-from .dynamic_enums import enum_category_items, BT_CATALOG_SRC, from_path
+from .dynamic_enums import enum_category_items
 
 # registration and module init info
 lst_classes = [
 ]
 lst_funcs = []
 
-_do_debug = False
+_do_debug = True
 def debug_print(s):
     if _do_debug:
         print(s)
@@ -163,28 +164,18 @@ class CustomOperator(bpy.types.Operator):
     # restore adjusting in case children changed it
     # if we are user invoked, the prop dialog will continue to call
     # execute where we will see the adjusting value
+    description: bpy.props.StringProperty(name="Description", description="Optional operation description")
 
     def draw(self, context):
         """Simple case, override if needed
         Passes draw_locked flag in context to make some fields read only
         """
-        should_lock = self.draw_locked(context)
-        self.layout.popover("QARCH_PT_calculator")
-        self.props.draw(context, self.layout, False)  # should_lock)
 
-    def draw_locked(self, context):
-        """True means lock topology changing variables because children exist"""
-        should_lock = False
-        self.get_state(context)
-        if self.active_id > -1:
-            op_id = self.active_id
-        elif len(self.adjusting_ids):
-            op_id = self.adjusting_ids[0]
-        else:
-            op_id = -1
-        if op_id > -1:
-            should_lock = len(self.journal.controlled_list(op_id)) > 0
-        return should_lock
+        self.layout.popover("QARCH_PT_calculator")
+        row = self.layout.row()
+        row.prop(self, 'description')
+
+        self.props.draw(context, self.layout)
 
     def divide_selections(self, initial_sel_info):
         """Separate to single faces"""
@@ -212,9 +203,9 @@ class CustomOperator(bpy.types.Operator):
     def execute(self, context):
         self.get_state(context)
         op_id = self.active_id
-
+        b_extra_undo = False
         preferences = context.preferences
-        self.addon_prefs = preferences.addons['qarch'].preferences  # note: self is passed to functions
+        self.addon_prefs = preferences.addons[base_package].preferences  # note: self is passed to functions
 
         prop_dict = self.props.to_dict()
         debug_print("Execute {} {} props {}".format(self.bl_idname, op_id, self.props.to_dict(compact=True)))
@@ -230,6 +221,8 @@ class CustomOperator(bpy.types.Operator):
         else:  # new op
             selections = self.divide_selections(self.initial_sel_info)
             n_region = len(selections)
+            if isinstance(self, CompoundOperator):
+                b_extra_undo = True
 
         for i_region in range(n_region):
             sel_info = selections[i_region]
@@ -245,23 +238,9 @@ class CustomOperator(bpy.types.Operator):
                     cur_op_id = op_id
                     debug_print("  Execute existing op {} and add to adjusting, sel={}".format(cur_op_id, sel_info))
                 self.adjusting_ids.append(cur_op_id)
-                # self.journal.flush()
-            self.journal.flush()  # topology check is classmethod and loads the journal
-            topo_change = self.test_topology(cur_op_id)
-            if topo_change:
-                if isinstance(self, CompoundOperator):
-                    # compounds create exactly one face per control, so there will never be a this-operation
-                    #  topology mismatch but the compound can use this to identify script changing events
-                    #  because once children exist, changing the script would be hard
-                    self.report({"ERROR_INVALID_INPUT"}, "Topology change could delete verts that children depend on")
-                    self.initial_journal.flush()  # blender undo will not fix the text record, so we do it
-                    return {"CANCELLED"}
-                # else delete old geometry so the mesh doesn't get corrupted
-                debug_print("    Removing old verts because of topo change")
-                self.remove_verts(cur_op_id)
 
-            # selection state is not guaranteed
-            # so operator implementations should rely on finding the control points
+            self.journal.flush()
+            self.remove_verts(cur_op_id)  # to make clean edges and faces
             ret = self.function(self.obj, sel_info, cur_op_id, prop_dict)
             if ret == {'CANCELLED'}:
                 print("cancelled by function")
@@ -308,30 +287,18 @@ class CustomOperator(bpy.types.Operator):
         else:
             restore_op = self.adjusting_ids[0]
         self.restore_state(restore_op, context)
+        if b_extra_undo:
+            print("extra undo")
+            bpy.ops.ed.undo_push(message="Extra undo for new Compound Op")
         return {"FINISHED"}
 
     def get_adjusting(self, context):
-        # from .dynamic_enums import qarch_asset_dir
-        # tmpfile = qarch_asset_dir / "temp/adjusting.txt"
-        # if not tmpfile.exists():
-        #     with open(tmpfile, "w") as f:
-        #         f.write("[]")
-        # with open(tmpfile, "r") as f:
-        #     line = f.readline()
-        #     lst = eval(line)
         lst = self.journal['adjusting']
-        #print("get adjusting",lst)
         return lst
 
     def set_adjusting(self, context, lst):
-        # from .dynamic_enums import qarch_asset_dir
-        # tmpfile = qarch_asset_dir / "temp/adjusting.txt"
-        # with open(tmpfile, "w") as f:
-        #     line = str(lst)
-        #     f.write(line)
         self.journal['adjusting'] = lst
         self.journal.flush()
-        #print("set adjusting", lst)
 
     def get_state(self, context):
         """Setup internal variables to help us"""
@@ -405,13 +372,14 @@ class CustomOperator(bpy.types.Operator):
             debug_print("Invoke op {} {} read props".format(op_id, self.bl_idname))
             self.read_props_from_journal(op_id)
         else:
+            self.description = ""
             if not self.is_face_selected(context):  # don't start with relative size, confusing to see nothing
                 if 'size' in self.props.to_dict():
                     self.props.size.is_relative_x = False
                     self.props.size.is_relative_y = False
 
             debug_print("Invoke op {} new props".format(self.bl_idname))
-            if 'UNDO' not in self.bl_options:  # no adjust last panel to pop up
+            if ('UNDO' not in self.bl_options) or isinstance(self, CompoundOperator):
                 wm = context.window_manager
                 return wm.invoke_props_dialog(self)
 
@@ -437,19 +405,22 @@ class CustomOperator(bpy.types.Operator):
         # override this function in Compound Operator to read child properties too
         record = self.journal[op_id]
         self.props.from_dict(record['properties'])
+        if record.get('description', '') != '':
+            self.description = record['description']
 
     def restore_state(self, op_id, context):
         if self.obj:
             set_obj_data(self.obj, ACTIVE_OP_ID, -1)
 
             mm = ManagedMesh(self.obj)
-            mm.rehide()  # hidden faces can't be selected
             if op_id > -1:
                 mm.select_operation(op_id)  # select current operation faces
+            mm.rehide()  # hidden faces can't be selected
             mm.to_mesh()
 
             if not self.poll(context):  # well then, better select the way it was before; this unhides as needed
                 mm.set_selection_info(self.initial_sel_info)
+                print("Restore sel {} for poll".format(self.initial_sel_info.sel_face))
             mm.to_mesh()
 
             mm.free()
@@ -462,25 +433,6 @@ class CustomOperator(bpy.types.Operator):
         mm.to_mesh()
         mm.free()
 
-    def test_topology(self, op_id):
-        """are we changing topology?"""
-        prop_dict = self.journal[op_id]['properties']
-        return self.topology_check_recursive(self.props, prop_dict)
-
-    @staticmethod
-    def topology_check_recursive(props, prop_dict):
-        for pname, val in prop_dict.items():
-            if pname not in props.bl_rna.properties:  # due to change in property definition
-                continue
-            rna = props.bl_rna.properties[pname]
-            if isinstance(rna, bpy.types.PropertyGroup):
-                if CustomOperator.topology_check_recursive(getattr(props, pname), val):
-                    return True
-            elif pname in props.topology_lock:
-                if val != getattr(props, pname):
-                    return True
-        return False
-
     def update_topology(self, gen_info, cur_op_id):
         """Try to fix control points, return false if unable"""
         try:
@@ -491,7 +443,8 @@ class CustomOperator(bpy.types.Operator):
 
         if not old_gen.is_compatible(gen_info):
             print("update topo failed because of topology mismatch")
-            print(old_gen, gen_info)
+            print("old:", old_gen)
+            print("new:", gen_info)
             return False
 
         if old_gen.is_same_as(gen_info):
@@ -501,7 +454,14 @@ class CustomOperator(bpy.types.Operator):
         for child in lst_controlled:
             rec = self.journal[child]
             sel_info = SelectionInfo(rec['control_points'])
-            old_gen.warp_to(gen_info, cur_op_id, sel_info)
+            if not old_gen.warp_to(gen_info, cur_op_id, sel_info):
+                print("update topo failed because of missing faces")
+                print("old:", old_gen)
+                print("new:", gen_info)
+                print(rec.get('description', ''))
+                return False
+
+            #print("warp to", old_gen, gen_info, sel_info.to_dict())
             rec['control_points'] = sel_info.to_dict()
 
         return True
@@ -510,6 +470,7 @@ class CustomOperator(bpy.types.Operator):
         """Update properties in record and flush journal"""
         # override this function in Compound Operator to alter child properties too
         self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
+        self.journal[op_id]['description'] = self.description
         self.journal.flush()
 
 
@@ -540,6 +501,13 @@ class CompoundOperator(CustomOperator):
 
     def ensure_children(self, op_id):
         """Called by invoke to make sure the child script is in place"""
+        adj = self.journal['adjusting']
+        if self.test_topology(op_id):  # we just reset children
+            self.journal = Journal(self.obj)  # reload
+            self.journal['adjusting'] = adj
+            self.journal.flush()
+            bpy.ops.ed.undo_push(message="Reset Children")
+
         lst_controlled = self.journal.controlled_list(op_id)
         if len(lst_controlled) == 0:  # first time called
             script = self.get_script()
@@ -571,8 +539,7 @@ class CompoundOperator(CustomOperator):
 
     def get_catalog_script(self, context, style, category, s_name):
         """In case you want to load rather than hard copy a script"""
-        from .dynamic_enums import script_name, file_type
-        self.style_name = style
+        self.style_name = ''
         self.category_name = category
         self.show_scripts = True
         items = enum_category_items(self, context)
@@ -585,15 +552,13 @@ class CompoundOperator(CustomOperator):
                 name = e[1]
                 filepath = e[0]
         if filepath == '':
-            print("no filepath", style, category, name, s_name)
+            print("no filepath", style, category, s_name)
             print(items)
             return ''
 
         if s_name not in bpy.data.texts:  # not already loaded
             ob_txt = bpy.data.texts.load(filepath, internal=True)
             ob_txt.name = s_name
-            style, cat, name = from_path(pathlib.Path(filepath))
-            ob_txt[BT_CATALOG_SRC] = style  # metadate for replacement if we reorder styles
         return bpy.data.texts[s_name].as_string()
 
     def get_script(self):
@@ -602,9 +567,26 @@ class CompoundOperator(CustomOperator):
         assert False, "implement this function"
         return ""
 
-    # override test_topology if there is something to lock, see SimpleWindow for example
+    # override test_topology if there is a need to reset, see SimpleWindow for example
     def test_topology(self, op_id):
-        return False
+        dct, lst = self.journal.child_ops(op_id)
+        num_children = len(lst)
+        if num_children == 0:
+            return False  # no problems
+
+        changed = False
+        for pname in self.props.topology_lock:
+            if pname not in self.journal[op_id]['properties']:  # not recorded for the current options?
+                continue
+            old_val = self.journal[op_id]['properties'][pname]
+            if old_val != getattr(self.props, pname):
+                changed = True
+                break
+
+        if changed:  # erase children and start over
+            print("changed compound, delete children")
+            self.delete_children(op_id)
+        return changed
 
 
 def set_operation_consistent(obj, op_id):

@@ -21,7 +21,11 @@ def import_bt_materials():
                 if mat not in lst_bt_materials:
                     lst_bt_materials.append(mat)
 
-    bpy.ops.ed.undo_push(message="Loaded materials")
+    try:
+        bpy.ops.ed.undo_push(message="Loaded materials")
+    except Exception as e:
+        print("Warning, could not push undo after material load")
+        pass
 
 
 def material_best_mode(mat_name):

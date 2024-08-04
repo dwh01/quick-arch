@@ -5,30 +5,40 @@ import functools
 import operator
 from .geom_2d import (bridge_points_by_circumfrence,
                       generate_arch, generate_inset, generate_ngon, generate_revolve, generate_super)
-import Polygon, Polygon.Shapes
-from .coordsys import CoordSys, SmartPoint, approx, approx_vector
 
+from .coordsys import CoordSys, SmartPoint, approx, approx_vector
+import math
 
 def polygon3_to_smart(coord_sys, poly3):
     """returns polygons, ignores holes
 
     :param CoordSys coord_sys: the coordinate system to apply
-    :param Polygon.Polygon poly3: the polygon3 library polygon to convert
+    :param shapely.Polygon poly3: the polygon to convert
     :return list(SmartPoly):
     """
+    import shapely
     lst_out = []
-    for i in range(len(poly3)):
-        if poly3.isHole(i):
-            pass
-        else:
-            contour = poly3.contour(i)
-            s_pts = [Vector(v) for v in contour]
-            if poly3.orientation(i) == -1:
-                s_pts.reverse()
-            s_pts = [coord_sys.make_3d(v) for v in s_pts]
 
-            m_poly = SmartPoly(coord_sys=coord_sys, pt_list=s_pts)
-            lst_out.append(m_poly)
+    p = shapely.get_exterior_ring(poly3)
+    if p is None:
+        return []
+    if len(p.coords)==0:
+        return []
+    s_pt = []
+    for pt in p.coords:
+        s_pt.append(Vector(pt))
+    if (s_pt[0]-s_pt[-1]).length < 0.001:
+        s_pt = s_pt[:-1]
+    s_pt.reverse()  # shapely uses clockwise winding
+
+    s_pts = [coord_sys.make_3d(v) for v in s_pt]
+
+    m_poly = SmartPoly(coord_sys=coord_sys.copy(), pt_list=s_pts)
+    m_poly.calc_coord_sys(coord_sys.ydir, b_no_roll=True)
+    if m_poly.normal().dot(coord_sys.normal) < 0:
+        m_poly.flip_normal()
+
+    lst_out.append(m_poly)
 
     return lst_out
 
@@ -123,23 +133,17 @@ class SmartPoly:
             arch_name, dropped = arch_type
             mid = len(self.points)//2
             reindex = []
-            n = len(self.points)
-            if len(lst2)==3:
-                if dropped:
-                    reindex = [0, 1, mid-1]
-                else:
-                    reindex = [n-1, 0, mid]
-            elif (len(lst2) == 4) or (len(lst2) % 2):
-                if dropped:
-                    reindex = [0, 1, 2, n-1]
-                else:
-                    reindex = [0, 1, mid-2, mid+2]
-            else:
-                if dropped:
-                    reindex = [0, 1, 2, mid-1, n - 1]
-                else:
-                    reindex = [0, 1, mid - 3, mid, mid + 3]
+            bl, br, tc = 0, 0, 0
+            for i in range(1, len(self.points)):
+                if (self.points[i].co2.x < self.points[bl].co2.x) and (self.points[i].co2.y <= self.points[bl].co2.y):
+                    bl = i
+                if (self.points[i].co2.x > self.points[br].co2.x) and (self.points[i].co2.y <= self.points[br].co2.y):
+                    br = i
+                if (self.points[i].co2.y > self.points[tc].co2.y):
+                    tc = i
 
+            reindex = [bl, br, tc]
+            print("arch reindex", reindex)
             tmp = [lst1[i] for i in reindex]
             lst_links = bridge_points_by_circumfrence(tmp, lst2, self.coord_sys)
             for lnk in lst_links:
@@ -342,12 +346,11 @@ class SmartPoly:
 
     def clip_with(self, other, join_type):
         """Return 0 or more pieces of this polygon after clipping with other"""
-        # better to use a good library than try to do it ourselves
-        # need Polygon3 from PyPy
-        # from blender shell or script do
-        # import sys, os, subprocess
-        # python_exe = os.path.join(sys.prefix, 'bin', 'python3.10')
-        # subprocess.call([python_exe, "-m", "pip", "install", "Polygon3"])
+        import shapely
+        prec = 1/10000.0
+        #roundit = lambda v: (int(v[0] * prec), int(v[1] * prec))
+        #unround = lambda v: Vector((v[0] / prec, v[1] / prec))
+
         if len(self.points) < 3:
             return []
         if len(other.points) < 3:
@@ -355,22 +358,24 @@ class SmartPoly:
 
         self_pts = [c.co2 for c in self.points]
         other_pts = [self.coord_sys.make_2d(c.co3) for c in other.points]
-        self_poly = Polygon.Polygon(self_pts)
-        other_poly = Polygon.Polygon(other_pts)
+        self_poly = shapely.Polygon(self_pts)
+        other_poly = shapely.Polygon(other_pts)
 
         res_poly = self
         if join_type == 'OUTSIDE':
-            res_poly = self_poly - other_poly
+            res_poly = self_poly.difference(other_poly, grid_size=prec)
         elif join_type == 'INSIDE':
-            res_poly = self_poly & other_poly
+            res_poly = self_poly.intersection(other_poly, grid_size=prec)
         elif join_type == 'UNION':
-            res_poly = self_poly | other_poly
-        elif join_type == 'PARTITION':
-            a = res_poly = other_poly - self_poly
-            b = res_poly = self_poly & other_poly
-            c = res_poly = self_poly - other_poly
+            res_poly = self_poly.union(other_poly, grid_size=prec)
+        elif join_type == 'DIFFERENCE':
+            a = self_poly.difference(other_poly, grid_size=prec)
             lst = polygon3_to_smart(self.coord_sys, a)
-            lst = lst + polygon3_to_smart(self.coord_sys, b)
+            return lst
+        elif join_type == 'PARTITION':
+            a = self_poly.difference(other_poly, grid_size=prec)
+            c = self_poly.intersection(other_poly, grid_size=prec)
+            lst = polygon3_to_smart(self.coord_sys, a)
             lst = lst + polygon3_to_smart(self.coord_sys, c)
             return lst
 
@@ -422,23 +427,26 @@ class SmartPoly:
         self.coord_sys.flip_normal()
         self.calc_2d()
 
-    def generate_arch(self, w, h, n_sides, arch_type, thickness, drop_sides=0):
+    def generate_arch(self, w, h, brick_size, arch_type, thickness, drop_sides=0):
         """Return list of SmartPoly, with last being center of arch
         :param float w: width of bounding box
         :param float h: height of bounding box
-        :param int n_sides: approx number of sides (may be increased for symmetry reasons)
+        :param int brick_size: size of steps
         :param str arch_type: name of arch method [JACK, ROMAN, GOTHIC, OVAL, TUDOR]
         :param float thickness: width of arch frame, or 0 for no frame
         :param bool bridge_result: add bridging polygons to self
         :returns lst_poly, boundary_points: list of smart poly with center last, list of boundary points for bridging
         """
         from ..mesh.coordsys import ppstr
-        lst_pts1, lst_pts2, lst_ctr, lst_pts3 = generate_arch(w, h, n_sides, arch_type, thickness, drop_sides)
+        kpoly = None
+        lst_pts1, lst_pts2, lst_ctr, lst_pts3 = generate_arch(w, h, brick_size, arch_type, thickness, drop_sides)
         if thickness:
             lst_facepoints, newverts = self.zip_quads(lst_pts1, lst_pts2, False)
             lst_poly = [SmartPoly(self.coord_sys, pt_list=ptlist, break_link=False) for ptlist in lst_facepoints]
 
             for p, ctr in zip(lst_poly, lst_ctr):
+                if ctr is None:
+                    continue
                 c = p.calc_center_box()
                 ctr = self.coord_sys.make_3d(ctr)
                 r = ctr - c
@@ -449,25 +457,59 @@ class SmartPoly:
 
             boundary_pts = [lst_pts2[0]] + lst_pts1 + [lst_pts2[-1]]
 
+            pre_0 = None
+            post_0 = None
+            peak = 0
+            for j, pt in enumerate(lst_pts2):  # find center
+                if abs(pt.x) < 0.001:
+                    if lst_pts1[j].y > peak:
+                        peak = lst_pts1[j].y
+                elif pt.x > 0:
+                    pre_0 = j
+                elif pt.x < 0:
+                    post_0 = j
+                    break
+            if arch_type in ['GOTHIC', 'TUDOR', 'ARABIC', 'TRIANGLE']:  # diamond keystone
+                keypts = [lst_pts2[pre_0 + 1], lst_pts1[pre_0+1], Vector((0,peak)), lst_pts1[post_0-1]]
+                if abs(keypts[1].x) < 0.001:  # special case pentagon
+                    keypts = [lst_pts2[pre_0], lst_pts1[pre_0], Vector((0,peak)), lst_pts1[post_0], lst_pts2[post_0]]
+                # remove degenerate spike from center poly, pre_0+1 in range stops at pre_0, but we want center point
+                lst_pts1 = lst_pts1[:pre_0 + 2] + lst_pts1[post_0:]
+                lst_pts2 = lst_pts2[:pre_0 + 2] + lst_pts2[post_0:]
+                kpoly = SmartPoly(self.coord_sys, pt_list=keypts, break_link=False)
+            else:
+                if (lst_pts1[pre_0] - lst_pts1[post_0]).length < brick_size:
+                    pre_0 -= 1
+                    post_0 += 1
+                keypts = [lst_pts2[pre_0], lst_pts1[pre_0], lst_pts1[post_0], lst_pts2[post_0]]
+                kpoly = SmartPoly(self.coord_sys, pt_list=keypts, break_link=False)
+                kpoly.face_attr['radial'] = kpoly.coord_sys.ydir
+                kpoly.face_attr['uv_origin'] = kpoly.coord_sys.make_3d(Vector((0,0)))
+                kpoly.face_attr['uv_mode'] = 'FACE_POLAR'
+                kpoly.calc_coord_sys(radial=kpoly.face_attr['radial'])
+
             if len(lst_pts3):
                 n = len(lst_pts3) // 4
                 for i in range(n):
                     ptlist = lst_pts3[i * 4: (i + 1) * 4]
                     if i == 1:  # center or center + drop
-                        if ptlist[0].y != lst_pts2[0].y:
-                            ptlist = ptlist[:1] + lst_pts2 + ptlist[-1:]
+                        if ptlist[1].y != ptlist[0].y:
+                            if arch_type in ['SQUARE']:  # full lst_pts2 extends beyond drop center
+                                pt_add = [v for v in lst_pts2 if ptlist[0].x < v.x < ptlist[2].x]
+                                ptlist = ptlist + pt_add
+                            else: # only add bottom points
+                                ptlist = ptlist[1:3] + lst_pts2
+
                         else:
                             ptlist = lst_pts2
 
-                    if approx(ptlist[0].y, ptlist[1].y) and approx(ptlist[2].y, ptlist[3].y):
-                        continue  # skip flat polygon
                     poly = SmartPoly(self.coord_sys, pt_list=ptlist, break_link=True)
                     lst_poly.append(poly)
 
                 if n == 3:
-                    boundary_pts = lst_pts1 + [lst_pts3[3], lst_pts3[-4]]
+                    boundary_pts = lst_pts1 + [lst_pts3[0], lst_pts3[1], lst_pts3[-2], lst_pts3[-1]]
                 else:
-                    boundary_pts = lst_pts1 + [lst_pts3[-2], lst_pts3[1]]
+                    boundary_pts = lst_pts1 + lst_pts3[1:3]
                 # poly = SmartPoly(self.coord_sys, pt_list=lst_pts3)  # the space below the jack arch
             else:
                 poly = SmartPoly(self.coord_sys, pt_list=lst_pts2)  # the inside
@@ -477,14 +519,15 @@ class SmartPoly:
         else:
             ptlist = lst_pts1
             if len(lst_pts3):  # add drop if present
-                if lst_pts3[0].y != ptlist[0].y:
-                    ptlist = lst_pts1 + lst_pts3[-1:] + lst_pts3[:1]
+                if lst_pts3[1].y != ptlist[-1].y:
+                    ptlist = lst_pts1 + lst_pts3
 
             poly = SmartPoly(self.coord_sys, pt_list=ptlist)
             lst_poly = [poly]
+
             boundary_pts = ptlist
 
-        return lst_poly, boundary_pts
+        return lst_poly, boundary_pts, kpoly
 
     def generate_inset(self, thickness):
         """Create an inset of self at distance thickness
@@ -495,12 +538,13 @@ class SmartPoly:
         poly.make_verts()
         return poly
 
-    def generate_ngon(self, n_sides, start_angle):
+    def generate_ngon(self, n_sides, start_angle, total_angle=2*math.pi):
         """Create a regular polygon
         :param int n_sides: number of sides on shape
         :param float start_angle: clocking to first point
+        :param float total_angle: 2 pi for full circle
         :return SmartPoly: n-gon"""
-        lst_pts = generate_ngon(n_sides, start_angle)
+        lst_pts = generate_ngon(n_sides, start_angle, total_angle)
         poly = SmartPoly(self.coord_sys, pt_list=lst_pts)
         poly.make_verts()
         return poly
@@ -565,6 +609,9 @@ class SmartPoly:
         return poly
 
     def grid_divide(self, count_x, count_y, offset_x=0, offset_y=0, size_x=0, size_y=0):
+        import shapely
+        if count_x == 0 and count_y == 0:
+            return [SmartPoly(self.coord_sys, pt_list=self.points, break_link=True)]
         lst_poly = []
         dx = self.box_size.x / (count_x + 1)
         if size_x:
@@ -572,8 +619,8 @@ class SmartPoly:
         dy = self.box_size.y / (count_y + 1)
         if size_y:
             dy = size_y
-        cutter = Polygon.Shapes.Rectangle(dx, dy)
-        master = Polygon.Polygon([c.co2 for c in self.points])
+
+        master = shapely.Polygon([c.co2 for c in self.points])
         x0 = self.bbox_min.x
         if offset_x:
             x1 = x0 + offset_x
@@ -590,14 +637,24 @@ class SmartPoly:
             for j in range(count_y + 1):
                 if j == count_y:
                     y1 = self.bbox_min.y + self.box_size.y
-                cutter.warpToBox(x0, x1, y0, y1)
-                res_poly = master & cutter
-                lst = polygon3_to_smart(self.coord_sys, res_poly)
-                lst_poly += lst
+                cutter = shapely.box(x0, y0, x1, y1)
+                # cutter = shapely.Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+                res_poly = master.intersection(cutter, grid_size=1e-4)
+                if res_poly:
+                    lst = polygon3_to_smart(self.coord_sys, res_poly)
+                    lst_poly += lst
                 y0 = y1
                 y1 = y1 + dy
             x0 = x1
             x1 = x1 + dx
+
+        if len(lst_poly) == 0:  # fallback for things shapely doesn't like
+            if count_x == 1 and count_y == 0:
+                pt = self.bbox_min + Vector((self.box_size.x/2, 0))
+                return self.split_xy(pt, False)
+            elif count_y == 1 and count_x == 0:
+                pt = self.bbox_min + Vector((0, self.box_size.y / 2))
+                return self.split_xy(pt, True)
 
         return lst_poly
 
@@ -610,6 +667,7 @@ class SmartPoly:
         mm = self.coord_sys.mm
         if ref:
             attrs = mm.get_face_attrs(ref)
+            del attrs[mm.key_tag]
         else:
             attrs = {}
 
@@ -629,7 +687,7 @@ class SmartPoly:
         else:
             pointing = self.face_attr.get('radial', self.coord_sys.ydir)
         attrs[mm.key_radial] = pointing
-        self.calc_coord_sys(pointing)
+        self.calc_coord_sys(pointing, b_no_roll=True)
 
         if attrs[mm.key_uv] in ['ORIENTED', 'ORIENTED_SPIN', 'FACE_BBOX', 'FACE_POLAR']:
             if 'uv_rot' in self.face_attr:
@@ -690,7 +748,7 @@ class SmartPoly:
         v1 = (sv2.co3 - sv1.co3).normalized()
         v2 = (sv3.co3 - sv2.co3).normalized()
         vz = v1.cross(v2)
-        if vz.length == 0:  # straight line
+        if vz.length <= 0.001:  # straight line
             v_out = -self.normal().cross(v1.normalized())
         elif vz.dot(self.normal()) < 0:  # concave
             v_out = v2.normalized() - v1.normalized()
@@ -1009,23 +1067,42 @@ class SmartPoly:
                 new_poly.append(remainder)
         return new_poly
 
-    def union(self, lst_poly):
+    def union(self, lst_poly, b_coverage=False):
         """Create a merged polygon"""
+        import shapely
+        prec = 1/10000.0
+
         self_pts = [c.co2 for c in self.points]
-        self_poly = Polygon.Polygon(self_pts)
-        Polygon.setTolerance(1e-3)
-        for other in lst_poly:
-            other_pts = [self.coord_sys.make_2d(c.co3) for c in other.points]
-            self_poly.addContour(other_pts)
+        self_poly = shapely.Polygon(self_pts)
 
-        self_poly.simplify()
+        if b_coverage:
+            for other in lst_poly:
+                other_pts = [self.coord_sys.make_2d(c.co3) for c in other.points]
+                other_poly = shapely.Polygon(other_pts)
+                self_poly = shapely.coverage_union(self_poly, other)
+            res = self_poly
+        else:
+            lst_all = [self_poly]
+            for other in lst_poly:
+                other_pts = [self.coord_sys.make_2d(c.co3) for c in other.points]
+                other_poly = shapely.Polygon(other_pts)
+                other_poly = other_poly
+                lst_all.append(other_poly)
 
-        contour = self_poly.contour(0)  # no holes
-        s_pts = [Vector(v) for v in contour]
-        if self_poly.orientation(0) == -1:
-            s_pts.reverse()
+            # for i in range(len(lst_all)):
+            #     lst_all[i] = lst_all[i].buffer(0.1)
+            # res = shapely.union_all(lst_all, grid_size=prec).buffer(-0.1)
+            res = shapely.union_all(lst_all, grid_size=prec)
+
+
+        s_pts = []
+        for pt in res.exterior.coords:
+            s_pts.append(pt)
+        s_pts.reverse()
 
         verts = [self.coord_sys.make_3d(v) for v in s_pts]
+        if (verts[0] - verts[-1]).length < 0.001:
+            verts = verts[:-1]
 
         # test for bad verts that sometimes appear at seams
         n = len(verts)
@@ -1033,16 +1110,28 @@ class SmartPoly:
         for j in range(n):
             k = (j+1) % n
             i = (j-1+n) % n
-            e1 = verts[j]-verts[i]
+            e1 = verts[j] - verts[i]
+            if approx(e1.length, 0):
+                print("skip duplicate",i,j, e1.length)
+                continue
             e2 = verts[k] - verts[j]
+            if approx(e2.length, 0):
+                print("skip duplicate", j, k, e2.length)
+                continue
             e1.normalize()
             e2.normalize()
             if -0.99 < e1.dot(e2) < 0.99:
                 lst.append(verts[j])
+            else:
+                print(j, "skip inline", verts[j])
 
         verts = lst
 
-        u_poly = SmartPoly(self.coord_sys, pt_list=verts)
+        u_poly = SmartPoly(self.coord_sys.copy(), pt_list=verts)
+        u_poly.calc_coord_sys(self.coord_sys.ydir, b_no_roll=True)
+        if u_poly.normal().dot(self.normal()) < 0:
+            u_poly.flip_normal()
+
         return u_poly
 
 

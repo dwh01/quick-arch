@@ -45,8 +45,10 @@ class ManagedMesh:
             self.is_edit = True
             try:
                 self.bm = bmesh.from_edit_mesh(obj.data)
-            except AttributeError:
-                self.bm = None
+            except ValueError:
+                self.bm = bmesh.new()
+                self.bm.from_mesh(obj.data)
+                self.is_edit = False
         else:
             self.bm = bmesh.new()
             self.bm.from_mesh(obj.data)
@@ -382,6 +384,11 @@ class ManagedMesh:
         """Select all verts for operation, does not deselect first"""
         if self.bm is None:
             return
+        for f in self.bm.faces:
+            if f[self.key_face_op] == op_id:
+                f.hide = False
+                f.select_set(True)
+
         for v in self.bm.verts:
             inf = v[self.key_op]
             if inf == op_id:

@@ -19,6 +19,7 @@ from ..mesh import (
     project_face,
     extrude_walls,
     build_face,
+    union_poly,
     build_roof,
     build_stairs,
     plan_feature,
@@ -26,6 +27,8 @@ from ..mesh import (
     set_plan_floor,
     perpendicular_face,
     niche,
+    quoin_divide,
+    lattice,
 )
 from ..object import get_obj_data, ACTIVE_OP_ID, material_best_mode
 
@@ -53,12 +56,15 @@ lst_classes = [
     'QARCH_OT_extrude_walls',
     'QARCH_OT_build_face',
     'QARCH_OT_build_roof',
+    'QARCH_OT_quoin_divide',
     'QARCH_OT_build_stairs',
     'QARCH_OT_plan_feature',
     'QARCH_OT_plan_inset_walls',
     'QARCH_OT_set_plan_floor',
     'QARCH_OT_perpendicular_face',
     'QARCH_OT_niche',
+    'QARCH_OT_add_lattice',
+    'QARCH_OT_union_poly',
 ]
 lst_funcs = []
 
@@ -454,7 +460,7 @@ class QARCH_OT_import_mesh(CustomOperator):
     def invoke(self, context, event):
         lst = enum_categories(self.props, context)
         if len(lst) and (self.props.catalog_object.category_name in ['', '0', 'N/A']):
-            pick = min(1, len(lst))
+            pick = min(1, len(lst)-1)
             self.props.catalog_object.category_name = lst[pick][0]
 
         return super().invoke(context, event)
@@ -493,6 +499,41 @@ class QARCH_OT_project_face(CustomOperator):
             mm = ManagedMesh(context.object)
             sel_info = mm.get_selection_info()
             return sel_info.count_faces() > 1
+
+
+class QARCH_OT_union_poly(CustomOperator):
+    """Select by tags"""
+    bl_idname = "qarch.union_poly"
+    bl_label = "Join Faces"
+    bl_description = "Join coplanar faces"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = union_poly
+
+    props: PointerProperty(type=UnionPolyProperty)
+
+    @classmethod
+    def poll(cls, context):
+        if cls.is_face_selected(context):
+            mm = ManagedMesh(context.object)
+            sel_info = mm.get_selection_info()
+            return sel_info.count_faces() > 1
+
+
+    def invoke(self, context, event):
+        # if this is not a replay, replace defaults with what is in the face now
+        mm = ManagedMesh(context.object)
+        org = None
+        lst_faces = mm.get_faces(mm.get_selection_info())
+        face = lst_faces[0]
+        self.props.radial.x = face[mm.key_radial][0]
+        self.props.radial.y = face[mm.key_radial][1]
+        self.props.radial.z = face[mm.key_radial][2]
+        idx = face.material_index
+        self.props.material = context.object.data.materials[idx].name
+        mm.free()
+
+        return super().invoke(context, event)
 
 
 class QARCH_OT_build_face(CustomOperator):
@@ -567,6 +608,38 @@ class QARCH_OT_niche(CustomOperator):
     function = niche
 
     props: PointerProperty(type=NicheProperty)
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+
+class QARCH_OT_quoin_divide(CustomOperator):
+    """Prepare wall for quoins coloring"""
+    bl_idname = "qarch.quoin_divide"
+    bl_label = "Split for quoins"
+    bl_description = "Construct toothed cut in wall"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = quoin_divide
+
+    props: PointerProperty(type=QuoinDivideProperty)
+
+    @classmethod
+    def poll(cls, context):
+        return cls.is_face_selected(context)
+
+
+class QARCH_OT_add_lattice(CustomOperator):
+    """Add diagonal lattice"""
+    bl_idname = "qarch.add_lattice"
+    bl_label = "Add Lattice"
+    bl_description = "Construct diagonal lattice"
+    bl_options = {"REGISTER", "UNDO"}
+
+    function = lattice
+
+    props: PointerProperty(type=LatticeProperty)
 
     @classmethod
     def poll(cls, context):

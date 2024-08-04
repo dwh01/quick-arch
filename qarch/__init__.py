@@ -6,13 +6,15 @@ from .object import get_obj_data, ACTIVE_OP_ID
 
 from .ops.state import QARCH_PT_faceinfo, QARCH_PT_calculator  # must register at end
 
+ver = bpy.app.version
+# blender.org says remove this but the install says it should be here
 bl_info = {
-    "name": "Quick Arch",
-    "author": "Lucky Kadam (luckykadam94@gmail.com)",
-    "version": (1, 3, 0),
+    "name": "Parametric Architecture",
+    "author": "D. Hughes (dwhughes1970@gmail.com)",
+    "version": (1, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Toolshelf > Quick Arch",
-    "description": "Architectural Tools",
+    "description": "Parametric Architectural Tools",
     "warning": "",
     "wiki_url": "",
     "tracker_url": "",
@@ -29,7 +31,7 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         preferences = context.preferences
-        addon_prefs = preferences.addons['qarch'].preferences
+        addon_prefs = preferences.addons[__package__].preferences
         row = layout.row(align=True)
         row.prop(addon_prefs, "select_mode")
 
@@ -46,8 +48,12 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
                 row.label(text="Active = {}".format(active))
 
         row = layout.row(align=True)
-        row.operator("qarch.redo_op")
+        row.operator("qarch.child_operation")
         row.operator("qarch.remove_operation")
+
+        row = layout.row(align=True)
+        row.operator("qarch.redo_op")
+        row.operator("qarch.rehide")
 
         row = layout.row(align=True)
         row.operator("qarch.calc_uvs")
@@ -143,9 +149,13 @@ class QARCH_PT_low_level(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("qarch.solidify_edges")
+        row.operator("qarch.add_lattice")
+        row = layout.row(align=True)
+        row.operator("qarch.grid_divide")
+        row.operator("qarch.union_poly")
         row = layout.row(align=True)
         row.operator("qarch.split_face")
-        row.operator("qarch.grid_divide")
+        row.operator("qarch.quoin_divide")
         row = layout.row(align=True)
         row.operator("qarch.extrude_fancy")
         row.operator("qarch.extrude_sweep")

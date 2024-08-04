@@ -25,7 +25,8 @@ from .utils import (
     get_instance_collection,
     is_bt_object,
     BT_OBJ_DATA,
-    upgrade_object
+    upgrade_object,
+    BT_INST_COLLECTION
 )
 
 from .journal import (

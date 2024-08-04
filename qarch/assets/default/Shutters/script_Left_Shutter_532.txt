@@ -1,0 +1,568 @@
+{
+    "max_id": 11,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1
+        ],
+        "op1": [
+            2
+        ],
+        "op2": [
+            3,
+            6,
+            9
+        ],
+        "op3": [
+            4
+        ],
+        "op4": [
+            5
+        ],
+        "op5": [],
+        "op6": [
+            7
+        ],
+        "op7": [
+            8
+        ],
+        "op8": [],
+        "op9": [
+            10
+        ],
+        "op10": [
+            11
+        ],
+        "op11": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Left 5-3-2 panel shutter",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": -0.5,
+                "is_relative_x": true,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 0.5,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "join": "FREE",
+            "del_source": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0,
+            "by_inset": false,
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.029999999329447746
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Base"
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.03999999910593033,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op0": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3]], "Tops": [[4, 4]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Shutter Extrude"
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 0,
+            "count_y": 2,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.5,
+                "is_relative_y": true,
+                "center_y": false
+            },
+            "define_size": true,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 0.30000001192092896,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 2]]}, "moduli": {"All": 0}},
+        "description": "Shutter Face Divide"
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.05000000074505806,
+                "is_relative_x": false,
+                "size_y": -0.029999999329447746,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Nothing",
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "SINGLE"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Frame"
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.029999999329447746,
+                "is_relative_x": false,
+                "size_y": -0.029999999329447746,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.019999999552965164,
+            "frame_material": "BT_Trim",
+            "center_material": "BT_Trim",
+            "extrude_distance": -0.009999999776482582
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[5, 8]], "Center": [[4, 4]], "Frame": [[0, 3]]}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Recess"
+    },
+    "op5": {
+        "op_id": 5,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.09999999403953552,
+                "is_relative_x": false,
+                "size_y": -0.10000000149011612,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": true,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7848745584487915,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.009999999776482582
+        },
+        "control_points": {
+            "faces": {
+                "op4": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Raise"
+    },
+    "op6": {
+        "op_id": 6,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.05000000074505806,
+                "is_relative_x": false,
+                "size_y": -0.029999999329447746,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Nothing",
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "SINGLE"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Frame"
+    },
+    "op7": {
+        "op_id": 7,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.029999999329447746,
+                "is_relative_x": false,
+                "size_y": -0.029999999329447746,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.019999999552965164,
+            "frame_material": "BT_Trim",
+            "center_material": "BT_Trim",
+            "extrude_distance": -0.009999999776482582
+        },
+        "control_points": {
+            "faces": {
+                "op6": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[5, 8]], "Center": [[4, 4]], "Frame": [[0, 3]]}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Recess"
+    },
+    "op8": {
+        "op_id": 8,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.10000000149011612,
+                "is_relative_x": false,
+                "size_y": -0.10000000149011612,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.009999999776482582
+        },
+        "control_points": {
+            "faces": {
+                "op7": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Raise"
+    },
+    "op9": {
+        "op_id": 9,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.05000000074505806,
+                "is_relative_x": false,
+                "size_y": -0.029999999329447746,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Nothing",
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    2
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "SINGLE"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Frame"
+    },
+    "op10": {
+        "op_id": 10,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.029999999329447746,
+                "is_relative_x": false,
+                "size_y": -0.029999999329447746,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.019999999552965164,
+            "frame_material": "BT_Trim",
+            "center_material": "BT_Trim",
+            "extrude_distance": -0.009999999776482582
+        },
+        "control_points": {
+            "faces": {
+                "op9": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[5, 8]], "Center": [[4, 4]], "Frame": [[0, 3]]}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Recess"
+    },
+    "op11": {
+        "op_id": 11,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": true,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": true,
+                "center_y": true
+            },
+            "size": {
+                "size_x": -0.10000000149011612,
+                "is_relative_x": false,
+                "size_y": -0.10000000149011612,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Trim",
+            "center_material": "BT_Trim",
+            "extrude_distance": 0.009999999776482582
+        },
+        "control_points": {
+            "faces": {
+                "op10": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 4]], "Center": [[0, 0]], "Frame": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0}},
+        "description": "Shutter Panel Raise"
+    },
+    "style": []
+}

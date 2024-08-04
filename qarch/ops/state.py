@@ -4,6 +4,7 @@ import math
 
 import bpy
 from bpy.props import EnumProperty, StringProperty, IntProperty, FloatProperty, BoolProperty
+from .. import __package__ as base_package
 from .custom import *
 from .properties import face_tag_to_int, get_face_tag_enum
 from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo, REPLAY_OP_ID
@@ -14,10 +15,12 @@ lst_classes = [
     'QARCH_OT_create_object',
     'QARCH_OT_set_active_op',
     'QARCH_OT_redo_op',
+    'QARCH_OT_rehide',
     'QARCH_OT_rebuild_object',
     'QARCH_OT_remove_operation',
     'QARCH_OT_add_face_tags',
     'QARCH_OT_clean_object',
+    'QARCH_OT_child_operation',
 ]
 lst_funcs = []
 
@@ -87,6 +90,8 @@ def build_op_enums(dct_op_tree, op_id, journal, level):
         text = text.rjust(2 * level + len(text)) + " "
         text = text + journal.op_label(op_id)
         descr = journal.describe(op_id)
+        if len(descr):
+            text = text + " " + descr
         # add enum tuple to list
         enum_rec = (wrap_id(op_id), text, descr, op_id)
         dct_Enums[op_id] = enum_rec
@@ -187,6 +192,31 @@ class QARCH_OT_redo_op(bpy.types.Operator):
     def invoke(self, context, event):
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
+
+
+class QARCH_OT_rehide(bpy.types.Operator):
+    """For cleanup when deleted faces are showing"""
+    bl_idname = "qarch.rehide"
+    bl_label = "Rehide"
+    bl_description = "Rehide deleted faces"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            return True
+        return False
+
+    def execute(self, context):
+        active_op = get_obj_data(context.object, ACTIVE_OP_ID)
+        journal = Journal(context.object)
+
+        mm = ManagedMesh(context.object)
+        mm.rehide()
+        mm.to_mesh()
+        mm.free()
+
+        return {"FINISHED"}
 
 
 class QARCH_OT_rebuild_object(bpy.types.Operator):
@@ -403,6 +433,148 @@ class QARCH_OT_clean_object(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def from_faces_linked(orig_mm, new_name, vertices, faces_linked):
+    from ..object import upgrade_object, BT_INST_COLLECTION
+    from ..mesh.geom import calc_face_uv
+    """Convert bmesh faces to new mesh"""
+    # https://blender.stackexchange.com/questions/289911/how-to-copy-a-few-faces-from-one-bmesh-to-another
+    # set gets unique elements, list gets ordered elements
+
+    # establishes a map between the new mesh vertex indices and
+    # actual mesh vertex indices
+    vmap = dict()
+    for i, vert in enumerate(vertices):
+        vmap[vert.index] = i
+
+    coordinates = [v.co for v in vertices]
+
+    # build faces with new indices
+    faces = []
+    for face in faces_linked:
+        faces.append([vmap[v.index] for v in face.verts])
+
+    # create a mesh from that
+    mesh = bpy.data.meshes.new(name=new_name)
+    mesh.from_pydata(coordinates, [], faces)
+    uv = mesh.uv_layers.new(name='UVMap')
+
+    obj = bpy.data.objects.new(name=new_name, object_data=mesh)
+    orig_mm.obj.users_collection[0].objects.link(obj)
+
+    upgrade_object(obj)
+    # copy over instance sources
+    col_sources = obj.name + BT_INST_COLLECTION
+    old_sources = orig_mm.obj.name + BT_INST_COLLECTION
+    for ob in bpy.data.collections[old_sources].objects:
+        bpy.data.collections[col_sources].objects.link(ob)
+
+    for mat in orig_mm.obj.data.materials:
+        if mat.name not in mesh.materials:
+            mesh.materials.append(mat)
+
+    # add aux info
+    mm2 = ManagedMesh(obj)
+    uv_lay_old = orig_mm.bm.loops.layers.uv.active
+    uv_lay_new = mm2.bm.loops.layers.uv.active
+    for i_face, orig_face in enumerate(faces_linked):
+        new_face = mm2.bm.faces[i_face]
+        for k in ['key_tag', 'key_face_op', 'key_uv_rot', 'key_uv_orig', 'key_face_seq', 'key_elev', 'key_radial', 'key_uv']:
+            lnew = getattr(mm2, k)
+            lold = getattr(orig_mm, k)
+            new_face[lnew] = orig_face[lold]
+            new_face.material_index = orig_face.material_index
+        # for iloop, old_loop in enumerate(orig_face.loops):
+        #     new_loop = new_face.loops[iloop]
+        #     new_loop[mm2.key_uv_w] = old_loop[orig_mm.key_uv_w]
+        #     new_loop[uv_lay_new].uv = old_loop[uv_lay_old].uv
+        calc_face_uv(new_face, mm2)
+
+    for i_vert, orig_vert in enumerate(vertices):
+        new_vert = mm2.bm.verts[vmap[orig_vert.index]]
+        for k in ['key_op', 'key_pick', 'key_inst_rot', 'key_seq', 'key_inst_scale']:
+            lnew = getattr(mm2, k)
+            lold = getattr(orig_mm, k)
+            new_vert[lnew] = orig_vert[lold]
+
+
+    mm2.to_mesh()
+    mm2.free()
+
+    return obj
+
+class QARCH_OT_child_operation(bpy.types.Operator):
+    """Turn operation and children into a second child mesh"""
+    # one can imagine keeping the script for the new mesh
+    # but you need a way to cross reference to the control polygon
+    # or a way to mark the starting state so it is not destroyed by a rebuild
+    bl_idname = "qarch.child_operation"
+    bl_label = "Make Child"
+    bl_description = "Remove operation and create child mesh instead"
+    bl_options = {"REGISTER"}
+    bl_property = 'new_name'
+
+    new_name: StringProperty(name="Child Name", description="Name of child object to create")
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+            if op_id is not None:
+                return op_id > -1
+        return False
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        self.new_name = ""
+        return wm.invoke_props_dialog(self)
+
+    def execute(self, context):
+        active_op = get_obj_data(context.object, ACTIVE_OP_ID)
+        journal = Journal(context.object)
+        journal['adjusting'].clear()
+
+        new_name = self.new_name
+        if len(new_name) == 0:
+            return {'FINISHED'}
+
+        mm = ManagedMesh(context.object)
+        mm.deselect_all()
+        mm.select_operation(active_op)
+
+        dct, lst = journal.child_ops(active_op)
+        lst.append(active_op)
+
+        vertices = [v for v in mm.bm.verts if v[mm.key_op] in lst]
+        faces_linked = [f for f in mm.bm.faces if (f[mm.key_face_op] in lst) and (f[mm.key_tag] != -1)]
+
+        obj = from_faces_linked(mm, new_name, vertices, faces_linked)
+        obj.parent = context.object
+        obj.matrix_parent_inverse = context.object.matrix_world.inverted()
+
+
+        # the rest of this is identical to remove_operation
+        sel_info = journal.get_sel_info(active_op)
+
+        lst = delete_record(context.object, active_op)
+        lst.append(active_op)
+
+        mm = ManagedMesh(context.object)
+        for op_id in lst:
+            mm.set_op(op_id)
+            mm.delete_current_verts()
+
+        # remake faces
+        for vlist in mm.get_face_verts(sel_info):
+            if len(vlist) >= 3:
+                mm.new_face(vlist)
+
+        mm.to_mesh()
+        mm.free()
+
+        set_obj_data(context.object, ACTIVE_OP_ID, -1)
+
+        return {'FINISHED'}
+
 class QARCH_PT_faceinfo(bpy.types.Panel):
     bl_label = "Face Info"
     bl_parent_id = "QARCH_PT_mesh_tools"
@@ -491,6 +663,6 @@ class QARCH_PT_calculator(bpy.types.Panel):
     bl_region_type = "WINDOW"
 
     def draw(self, context):
-        addon_prefs = context.preferences.addons['qarch'].preferences
+        addon_prefs = context.preferences.addons[base_package].preferences
         layout = self.layout
         addon_prefs.calc_prop.draw(context, layout)

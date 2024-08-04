@@ -2,11 +2,11 @@
 import copy
 
 import bpy
-from bpy.props import StringProperty, PointerProperty, BoolProperty, EnumProperty
+from bpy.props import StringProperty, PointerProperty, BoolProperty, EnumProperty, IntProperty
 import bpy.utils.previews
 import pathlib, os, json, uuid, shutil
 from .custom import CustomOperator, replay_history
-from .dynamic_enums import enum_categories, enum_category_items, qarch_asset_dir, load_previews, enum_catalogs, exists_in_catalog
+from .dynamic_enums import enum_categories, enum_category_items, qarch_asset_dir, load_previews, enum_styles, exists_in_catalog
 from .dynamic_enums import BT_IMG_CAT, BT_IMG_DESC, BT_IMG_CURVE, BT_IMG_MESH, file_type, to_path, script_name, curve_name, mesh_name
 from ..object import (
     export_record,
@@ -18,12 +18,11 @@ from ..object import (
     Journal,
     REPLAY_OP_ID,
     )
-
+from .properties import StyleNameProperty
 from ..mesh import ManagedMesh
 
 lst_classes = [
     'QARCH_OT_load_script',
-    'QARCH_OT_save_script',
     'QARCH_OT_apply_script',
     'QARCH_OT_open_catalogs',
     'QARCH_OT_catalog_script',
@@ -32,6 +31,25 @@ lst_classes = [
     'QARCH_OT_scan_catalogs'
 ]
 lst_funcs = []
+
+is_user = False  # set to false during development of built in stuff, true for deployment
+
+def fill_style_list(list_prop):
+    from ..ops.dynamic_enums import style_dict
+    for group, lst_styles in style_dict.items():
+        for style in lst_styles:
+            my_item = list_prop.add()
+            my_item.group = group
+            my_item.style = style
+
+
+def get_style_set(list_prop):
+    s = set()
+    for info in list_prop:
+        if info.active:
+            s.add(info.style)
+    return s
+
 
 # load script and apply to selected face
 # load mesh from blend file and add to current mesh
@@ -99,7 +117,7 @@ class QARCH_OT_load_script(bpy.types.Operator):
         self.layout.prop(self, "filepath")
 
 
-# not a CustomOperator, don't save export as history
+# not a CustomOperator, don't save export as history, obsolete
 class QARCH_OT_save_script(bpy.types.Operator):
     bl_idname = "qarch.save_script"
     bl_label = "Save Script"
@@ -140,7 +158,7 @@ class QARCH_OT_apply_script(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     search_text: StringProperty(name="Search", description="Press enter to filter by substring")
-    style_name: EnumProperty(name="Style", items=enum_catalogs, description="Style")
+    style_name: EnumProperty(name="Style", items=enum_styles, description="Style")
     category_name: EnumProperty(items=enum_categories, name="Category", default=0)
     category_item: EnumProperty(items=enum_category_items, name="Scripts")
     apply: BoolProperty(name="Apply to Selection", default = False)
@@ -220,8 +238,8 @@ class QARCH_OT_open_catalogs(bpy.types.Operator):
         return True
 
     def invoke(self, context, event):
-        from .dynamic_enums import qarch_asset_dir
-        self.directory = str(qarch_asset_dir)
+        from .dynamic_enums import user_asset_dir
+        self.directory = str(user_asset_dir)
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
@@ -237,12 +255,23 @@ class QARCH_OT_catalog_script(bpy.types.Operator):
     bl_description = "Save current operation to catalog"
     bl_options = {"REGISTER", "UNDO"}
 
-    # file_path: StringProperty(name="Filename", description="Script to load", subtype="FILE_PATH")
-    style_name: StringProperty(name="Style", description="Style name (default, scifi, etc.)")
+    overwrite: BoolProperty(name="Overwrite", description="Overwrite existing", default=True)
+    # move to scene style_list: bpy.props.CollectionProperty(type=StyleNameProperty)
+    active_style: IntProperty(name="active_style")
     category_name: StringProperty(name="Category", description="Collection name (Doors, Windows, etc.)")
     description: StringProperty(name="Description", description="Description text")
     category_item: StringProperty(name="Name", description="Name of script")
 
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.prop(self, 'overwrite')
+        col.prop(self, 'category_name')
+        col.prop(self, 'description')
+        scn = context.scene
+        col.template_list("QARCH_UL_Styles", "Catalog Script", scn, 'style_list', self, 'active_style',
+                          item_dyntip_propname='style')
+        col.prop(self, 'category_item')
 
     @classmethod
     def poll(cls, context):
@@ -256,33 +285,36 @@ class QARCH_OT_catalog_script(bpy.types.Operator):
     def invoke(self, context, event):
         # self.xy = event.mouse_x, event.mouse_y
         self.category_item = ""
+        scn = context.scene
+        if len(scn.style_list) == 0:
+            fill_style_list(scn.style_list)
         return self.execute(context)
 
     def execute(self, context):
-        if (len(self.category_name)== 0) or (len(self.category_item)== 0) or (len(self.style_name)==0):
+        if (len(self.category_name)== 0) or (len(self.category_item)== 0):
             return {"FINISHED"}
 
-        style = self.style_name
+        scn = context.scene
+        style = get_style_set(scn.style_list)
         category = self.category_name
         name = self.category_item
 
-        # cur_text_path = pathlib.Path(self.file_path)
-        # cur_img_path = cur_text_path.with_suffix(".png")
-
         qual_name = script_name(name)
-        txt_path = to_path(style, category, qual_name)
+        txt_path = to_path(is_user, category, qual_name)
         img_path = txt_path.with_suffix(".png")
 
         img_path.parent.mkdir(parents=True, exist_ok=True)
 
         obj = context.object
-        operation_id = get_obj_data(obj, ACTIVE_OP_ID)
-        export_record(obj, operation_id, str(txt_path), True, str(img_path), self.description)
-        set_obj_data(obj, ACTIVE_OP_ID, -1)
+        mm = ManagedMesh(obj)
+        mm.rehide()  # improve picture
+        mm.to_mesh()
+        mm.free()
+        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
-        # shutil.copy(str(cur_text_path), str(txt_path))
-        # if cur_img_path.exists():
-        #     shutil.copy(str(cur_img_path), str(img_path))
+        operation_id = get_obj_data(obj, ACTIVE_OP_ID)
+        export_record(obj, operation_id, str(txt_path), True, str(img_path), self.description, style)
+        set_obj_data(obj, ACTIVE_OP_ID, -1)
 
         # context.window.cursor_warp(10, 10)
         # def move_back(*args):
@@ -299,10 +331,22 @@ class QARCH_OT_catalog_curve(bpy.types.Operator):
     bl_description = "Export curve to catalog"
     bl_options = {"REGISTER", "UNDO"}
 
-    style_name: StringProperty(name="Style", description="Style name (default, scifi, etc.)")
+    overwrite: BoolProperty(name="Overwrite", description="Overwrite existing", default=True)
+    active_style: IntProperty(name="active_style")
     category_name: StringProperty(name="Category", description="Collection name (Doors, Windows, etc.)")
     description: StringProperty(name="Description", description="Description text")
     category_item: StringProperty(name="Name", description="Name of object in catalog")
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.prop(self, 'overwrite')
+        col.prop(self, 'category_name')
+        col.prop(self, 'description')
+        scene = context.scene
+        col.template_list("QARCH_UL_Styles", "Catalog Curve", scene, 'style_list', self, 'active_style',
+                          item_dyntip_propname='style')
+        col.prop(self, 'category_item')
 
     @classmethod
     def poll(cls, context):
@@ -313,6 +357,9 @@ class QARCH_OT_catalog_curve(bpy.types.Operator):
 
     def invoke(self, context, event):
         self.category_item = ""
+        scn = context.scene
+        if len(scn.style_list) == 0:
+            fill_style_list(scn.style_list)
         return self.execute(context)
 
     def execute(self, context):
@@ -322,16 +369,19 @@ class QARCH_OT_catalog_curve(bpy.types.Operator):
 
         cat_name = self.category_name
         qual_name = curve_name(self.category_item)
-        txt_file = to_path(self.style_name, self.category_name, qual_name)
+        txt_file = to_path(is_user, self.category_name, qual_name)
         img_file = txt_file.with_suffix(".png")
         img_file.parent.mkdir(parents=True, exist_ok=True)
 
         img = draw(self.category_item)
         img.save(filepath=str(img_file))
 
+        scn = context.scene
+        style = get_style_set(scn.style_list)
+
         obj = context.active_object
-        txt = curve_to_text(obj, self.description)
-        txt_file = to_path(self.style_name, self.category_name, curve_name(self.category_item))
+        txt = curve_to_text(obj, self.description, style)
+        txt_file = to_path(is_user, self.category_name, curve_name(self.category_item))
         txt_file.write_text(txt)
 
         return {"FINISHED"}
@@ -345,10 +395,23 @@ class QARCH_OT_catalog_mesh(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     overwrite: BoolProperty(name="Overwrite", description="Overwrite existing", default=True)
-    style_name: StringProperty(name="Style", description="Style name (default, scifi, etc.)")
     category_name: StringProperty(name="Category", description="Collection name (Doors, Windows, etc.)")
     description: StringProperty(name="Description", description="Description text")
     category_item: StringProperty(name="Name", description="Name of object in catalog")
+
+    active_style: IntProperty(name="active_style")
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.prop(self, 'overwrite')
+        col.prop(self, 'category_name')
+        col.prop(self, 'description')
+        scene = context.scene
+        col.template_list("QARCH_UL_Styles", "Catalog Mesh", scene, 'style_list', self, 'active_style',
+                          item_dyntip_propname='style')
+        col.prop(self, 'category_item')
+
 
     @classmethod
     def poll(cls, context):
@@ -359,52 +422,29 @@ class QARCH_OT_catalog_mesh(bpy.types.Operator):
 
     def invoke(self, context, event):
         self.category_item = ""
+        scn = context.scene
+        if len(scn.style_list) == 0:
+            fill_style_list(scn.style_list)
+
         return self.execute(context)
 
     def execute(self, context):
         from ..mesh import export_mesh
 
-        if (len(self.category_name)== 0) or (len(self.category_item)== 0) or (len(self.style_name)==0):
+        if (len(self.category_name) == 0) or (len(self.category_item) == 0):
             return {"FINISHED"}
 
         if not self.overwrite:
             qual_name = mesh_name(self.category_item)
-            if exists_in_catalog(self.style_name, self.category_name, qual_name):
+            if exists_in_catalog(self.style_name, self.category_name, qual_name[:-4]):  # search without extension
                 self.report({"ERROR_INVALID_INPUT"}, "Mesh name is in use")
                 return {'CANCELLED'}
 
-        export_mesh(context.active_object, self.style_name, self.category_name, self.category_item, self.description)
+        scn = context.scene
+        style = get_style_set(scn.style_list)
+        export_mesh(context.active_object, style, self.category_name, self.category_item, self.description)
 
         return {"FINISHED"}
-
-
-def load_catalog():  # for asset view
-    lst = []
-    filepath = qarch_asset_dir / "blender_assets.cats.txt"
-    with open(filepath, "r") as cat:
-        lines = cat.readlines()
-
-    for line in lines:
-        line.strip()
-        if line[-1] == '\n':
-            line = line[:-1]
-        if len(line)==0:
-            continue
-        if line[0]=="#":
-            continue
-        if line.startswith('VERSION'):
-            continue
-
-        parts = line.split(":")
-        lst.append(parts)
-    print(lst)
-    return lst
-
-
-def append_catalog(uid, pth, name):  # for asset view
-    filepath = qarch_asset_dir / "blender_assets.cats.txt"
-    with open(filepath, "a") as cat:
-        cat.writelines([f'{uid}:{pth}:{name}\n'])
 
 
 class QARCH_OT_scan_catalogs(bpy.types.Operator):
@@ -418,6 +458,33 @@ class QARCH_OT_scan_catalogs(bpy.types.Operator):
         return {'FINISHED'}
 
 # unused classes that might be good in the future
+# def load_catalog():  # for asset view
+#     lst = []
+#     filepath = qarch_asset_dir / "blender_assets.cats.txt"
+#     with open(filepath, "r") as cat:
+#         lines = cat.readlines()
+#
+#     for line in lines:
+#         line.strip()
+#         if line[-1] == '\n':
+#             line = line[:-1]
+#         if len(line)==0:
+#             continue
+#         if line[0]=="#":
+#             continue
+#         if line.startswith('VERSION'):
+#             continue
+#
+#         parts = line.split(":")
+#         lst.append(parts)
+#     print(lst)
+#     return lst
+#
+#
+# def append_catalog(uid, pth, name):  # for asset view
+#     filepath = qarch_asset_dir / "blender_assets.cats.txt"
+#     with open(filepath, "a") as cat:
+#         cat.writelines([f'{uid}:{pth}:{name}\n'])
 # this pushes an object into asset catalog, but from current file. you have to be in library file to be useful
 # class QARCH_OT_catalog_object(bpy.types.Operator):
 #     bl_idname = "qarch.catalog_object"

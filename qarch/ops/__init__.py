@@ -1,5 +1,8 @@
 import bpy
 from bpy.app.handlers import persistent
+from .. import __package__ as base_package
+from .dynamic_enums import load_styles, load_previews, qarch_asset_dir, user_asset_dir
+from .properties import StyleNameProperty
 
 debug_undo_state = False
 
@@ -7,7 +10,7 @@ lst_cls = []
 # use push so we don't have to update pull functions all the time
 
 for mod_name in ['dynamic_enums', 'properties', 'custom', 'compound', 'assets', 'geom', 'state']:
-    pathname = f'qarch.ops.{mod_name}'
+    pathname = f'{base_package}.ops.{mod_name}'
     _temp = __import__(pathname, globals(), locals(), ['lst_classes', 'lst_funcs'], 0)
     lst_classes = _temp.lst_classes
     lst_funcs = _temp.lst_funcs
@@ -99,8 +102,13 @@ def unregister_progress():
 
 
 def register_ops():
+    load_styles()
+    bpy.app.timers.register(load_previews, first_interval=2)  # delay because long, let interface get up and running
+
     for cls in lst_cls:
         bpy.utils.register_class(cls)
+
+    bpy.types.Scene.style_list = bpy.props.CollectionProperty(type=StyleNameProperty)
 
     if debug_undo_state:
         bpy.app.handlers.undo_pre.append(pre_undo_handler)

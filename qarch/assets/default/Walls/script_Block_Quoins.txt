@@ -1,0 +1,57 @@
+{
+    "max_id": 1,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1
+        ],
+        "op1": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Block quoins (edit for side)",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_quoin_divide",
+        "properties": {
+            "tooth_height": 3.0299999713897705,
+            "inset": 0.0,
+            "long_width": 1.5099999904632568,
+            "short_width": 0.75,
+            "start_long": true,
+            "left_side": true
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 0}}
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_set_face_material",
+        "properties": {
+            "material": "BT_Block"
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}}
+    }
+}
