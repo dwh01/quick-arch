@@ -37,13 +37,17 @@ from .journal import (
     extract_record,
     import_record,
     merge_record,
+    blank_journal,
     get_journal,
     set_journal,
     wrap_id,
     JOURNAL_PROP_NAME,
     get_block,
     merge_record_dct,
-    MyEncoder
+    MyEncoder,
+    append_operation,
+    splice_operation,
+    compact,
 )
 
 from .materials import (lst_bt_materials, enum_oriented_material, material_best_mode, enum_plan_wall_material, enum_plan_floor_material,

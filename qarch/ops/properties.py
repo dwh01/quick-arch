@@ -13,7 +13,7 @@ from .dynamic_enums import enum_styles, enum_categories, enum_category_items, en
 from .dynamic_enums import face_tag_to_int, int_to_face_tag, get_face_tag_enum
 
 # order might matter for registration
-lst_classes = [
+lst_classes1 = [
     'FaceTagProperty',
     'FaceMaterialProperty',
     'FaceElevationProperty',
@@ -65,7 +65,8 @@ lst_classes = [
     'LatticeProperty',
     'StyleNameProperty',
     'QARCH_UL_Styles',
-    'UnionPolyProperty'
+    'UnionPolyProperty',
+    'ClassicalOrderProperty'
 ]
 
 lst_funcs = [
@@ -97,6 +98,17 @@ def uv_mode_to_int(s):
 def int_to_uv_mode(i):
     return uv_mode_list[i][0]
 
+
+class ControlPointProperty(CustomPropertyBase):
+    line0: StringProperty(name="Control Faces")
+    line1: StringProperty(name="Control Points")
+    line2: StringProperty(name="Control Flags")
+    field_layout = [
+        ['line0'],
+        ['line1'],
+        ['line2']
+       ]
+    topology_lock = []
 
 # FYI, to access defaults, you can do ExtendGableProperty.__annotations__['soffit_width'].keywords['default']
 class FaceTagProperty(CustomPropertyBase):
@@ -213,15 +225,17 @@ class ArrayProperty(CustomPropertyBase):
     spacing: FloatProperty(name="Spacing", default = 1.0, description="Distance between copies")
     do_orbit: BoolProperty(name="Use Orbit", default=False, description="Orbit a point instead of straight line")
     origin: PointerProperty(name="Origin", type=DirectionProperty, description="Orbit origin")
+    clip: BoolProperty(name="Clip to poly", description="Limit points to inside poly")
 
     field_layout = [
         ['count', 'spacing'],
         ['direction'],
         ['do_orbit'],
-        [{'do_orbit': True}, 'origin']
+        [{'do_orbit': True}, 'origin'],
+        ['clip']
     ]
 
-    topology_lock = ['count']
+    topology_lock = ['count', 'clip']
 
 
 class PositionProperty(CustomPropertyBase):
@@ -398,13 +412,14 @@ class InsetPolygonProperty(CustomPropertyBase):
     catalog_object: PointerProperty(name="Catalog", type=CatalogObjectProperty)
     super_curve: PointerProperty(name="Super", type=SuperCurveProperty)
     resolution: IntProperty(name="Resolution", min=1, default=4, description="Curve resolution")
+    side_list: StringProperty(name="Sides", description="Comma separated list of numbers, or empty for all")
 
     field_layout = [
         ['position'],
         ['size'],
         ['join'],
         ({'join': {'BRIDGE','INSIDE_BRIDGE'}}, 'add_perimeter'),
-        ({'join': {'FREE', 'OUTSIDE', 'INSIDE'}}, 'del_source'),
+        ['del_source'],
         ['shape_type'],
         ({'shape_type': 'SELF'}, 'by_inset'),
         ({'shape_type': 'SELF', 'by_inset': True}, 'thickness'),
@@ -416,6 +431,7 @@ class InsetPolygonProperty(CustomPropertyBase):
         ({'shape_type': 'CURVE'}, 'local_object'),
         ({'shape_type': 'CATALOG'}, 'catalog_object'),
         ({'shape_type': {'CURVE', 'CATALOG', 'SUPER'}}, 'resolution'),
+        ({'by_inset': True}, 'side_list'),
         ['center_material', 'extrude_distance']
     ]
 
@@ -503,6 +519,7 @@ class ExtrudeProperty(CustomPropertyBase):
     distance: FloatProperty(name="Distance", default=0.1, unit="LENGTH", description="Extrude distance")
     steps: IntProperty(name="Steps", default=1, description="Number of steps along axis")
     on_axis: BoolProperty(name="On Axis", default=False, description="Direction other than normal")
+    to_vertical: BoolProperty(name="To Vertical", default=False, description="Extrude horizontally to a vertical face")
     both_directions: BoolProperty(name="Both Directions", default=False, description="Extrude in both directions")
     axis: PointerProperty(name="Axis", type=DirectionProperty)
     align_end: BoolProperty(name="Align End", description="Align end face normal with axis", default=False)
@@ -516,8 +533,8 @@ class ExtrudeProperty(CustomPropertyBase):
 
     field_layout = [
         ['distance', 'steps'],
-        ['both_directions'],
-        ['flip_normals', 'on_axis'],
+        ['both_directions', 'flip_normals'],
+        ['to_vertical', 'on_axis'],
         [{'on_axis': True}, 'axis'],
         [{'on_axis': True}, 'align_end'],
         ['twist'],
@@ -672,13 +689,14 @@ door_type_enum = [
     ('Left', 'Left', 'Single Left Hinge'),
     ('Right', 'Right', 'Single Right Hinge'),
     ('French', 'French Door', 'Double door'),
-    ('Sliding', 'Sliding', 'Double, offset for sliding')
+    ('Sliding', 'Sliding', 'Double, offset for sliding'),
+    ('None', 'None', 'Just the doorway')
 ]
 
 
 class SimpleDoorProperty(CustomPropertyBase):
-    size: PointerProperty(type=SizeProperty, name="Window Size")
-    position: PointerProperty(type=PositionProperty, name="Window Position")
+    size: PointerProperty(type=SizeProperty, name="Door Size")
+    position: PointerProperty(type=PositionProperty, name="Door Position")
     wall_thickness: FloatProperty(name="Wall Thickness", default=0.2, min=0.1)
     trim_width: FloatProperty(name="Trim Width", default=0.075, min=0)
     frame_protrude: FloatProperty(name="Frame Protrude", default=0)
@@ -866,14 +884,53 @@ class BuildRoofProperty(CustomPropertyBase):
     shed_side: IntProperty(name="High side", description="Face side for top of shed", default=0)
     gable_sides: StringProperty(name="Gable sides", description="Comma separated list of numbers, or empty for none")
     wall_material: EnumProperty(name="Wall Material", items=enum_nonplan_material, description="Material for gable walls")
+    roof_material: EnumProperty(name="Roof Material", items=enum_nonplan_material,
+                                description="Material for roof")
 
     field_layout = [
         ['slope', 'hip'],
         [{'hip': True}, 'gable_sides'],
         [{'hip': False}, 'shed_side'],
         ['wall_material'],
+        ['roof_material'],
+
     ]
     topology_lock = ['hip']
+
+
+class AddRoofProperty(CustomPropertyBase):
+    soffit_types = [
+        ("PLAIN", "Plain", "Just wall and overhang"),
+        ("BOX", "Boxed", "Boxed in"),
+        ("BRACKET", "Brackets", "Bracket supports"),
+    ]
+    base_roof: PointerProperty(type=BuildRoofProperty, name="Base Roof")
+    gambrel: BoolProperty(name="Gambrel Roof", default=False, description="Split roof into two slopes")
+    gambrel_height: FloatProperty(name="Gambrel Height", default=1.5, description="Height to slope change")
+    gambrel_inset: FloatProperty(name="Gambrel Inset", default=0.5, description="Inward length to slope change")
+    soffit_material: EnumProperty(name="Soffit Material", items=enum_nonplan_material, description="Material for soffit")
+    soffit_width: FloatProperty(name="Soffit Width", default=0.2, description="Roof overhang distance")
+    soffit_height: FloatProperty(name="Soffit Height", default=0.3, description="Height between floors for ceiling joists")
+    soffit_type: EnumProperty(items=soffit_types, name="Soffit Type", default="PLAIN")
+    bracket: PointerProperty(type=CatalogObjectProperty, name="Bracket")
+    bracket_spacing: FloatProperty(name="Bracket Spacing", default=1.5, min=0.01,  description="Distance between brackets")
+    #bracket_pairs: BoolProperty(name="Paired Brackets", description="Brackets grouped in pairs")
+    bracket_scale: FloatProperty(name="Bracket Scale", default=1, min=0.01, description="Scale brackets")
+    bracket_z: FloatProperty(name="Bracket Z", default=1, description="Position brackets vertically")
+
+    field_layout = [
+        ['base_roof'],
+        ['gambrel'],
+        [{'gambrel': True}, 'gambrel_inset', 'gambrel_height'],
+        ['soffit_width', 'soffit_height'],
+        ['soffit_type'],
+        [{'soffit_type': 'BRACKET'}, 'bracket_spacing'],#, 'bracket_pairs'],
+        [{'soffit_type': 'BRACKET'}, 'bracket_scale', 'bracket_z'],
+        ({'soffit_type': 'BRACKET'}, 'bracket'),
+        ['soffit_material'],
+
+    ]
+    topology_lock = ['soffit_type', 'gambrel']
 
 
 stair_shape_type_list = [
@@ -1040,6 +1097,23 @@ class PlanFloorProperty(CustomPropertyBase):
     topology_lock = []
 
 
+class ClassicalOrderProperty(CustomPropertyBase):
+    order_list = [
+        ('TUSCAN', 'Tuscan', 'Tuscan'),
+        ('DORIC', 'Doric', 'Doric')
+    ]
+    height: FloatProperty(name="Height", description="Height of full stack")
+    order: EnumProperty(items=order_list, default='DORIC')
+    material: EnumProperty(items=enum_nonplan_material, name="Material", description="Column material")
+
+    field_layout=[
+        ['height'],
+        ['order'],
+        ['material']
+    ]
+    topology_lock = []
+
+
 dimension_dict = {}
 dimension_enum = []
 
@@ -1203,3 +1277,20 @@ class QARCH_UL_Styles(bpy.types.UIList):
         else:  # {'COMPACT','GRID'}
             row.label(text=item.style)
         row.prop(item, 'active', text="")
+
+lst_classes = [
+    'CalculatorProperty',
+    'BTAddonPreferences',
+    'StyleNameProperty',
+    'QARCH_UL_Styles',
+]
+# auto register
+tmp = list(locals().items())
+for k,v in tmp:
+
+    if (type(v) == type(CustomPropertyBase)) and issubclass(v, CustomPropertyBase):
+        lst_classes.append(k)
+
+for s in lst_classes1:
+    if s not in lst_classes:
+        print(s)

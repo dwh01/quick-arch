@@ -29,6 +29,7 @@ from .geom import (
     quoin_divide,
     lattice,
     union_poly,
+    generate_classical,
 )
 
 from .coordsys import CoordSys

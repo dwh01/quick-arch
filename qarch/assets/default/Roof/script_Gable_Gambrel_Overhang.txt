@@ -1,0 +1,128 @@
+{
+    "max_id": 2,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1
+        ],
+        "op1": [
+            2
+        ],
+        "op2": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Gambrel gable overhang",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "add_perimeter": false,
+            "shape_type": "SELF",
+            "by_inset": true,
+            "thickness": 0.20000000298023224,
+            "side_list": "1,2,3,4",
+            "center_material": "BT_Siding",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op-1": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 5]], "Center": [[0, 0]], "Frame": [], "Key": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+        "description": "Inset for Gable Overhang"
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.30000001192092896,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "to_vertical": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Roof",
+            "center_material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    2,
+                    3,
+                    4,
+                    5
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op0": 2
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 8], [10, 13], [15, 18]], "Tops": [[4, 4], [9, 9], [14, 14], [19, 19]]}, "moduli": {"Sides": 4, "Tops": 0}},
+        "description": "Gable Overhang"
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_set_face_material",
+        "properties": {
+            "material": "BT_Trim"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    2,
+                    3,
+                    7,
+                    12,
+                    17,
+                    18
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 5]]}, "moduli": {"All": 0}},
+        "description": "Trim under overhang"
+    },
+    "style": []
+}

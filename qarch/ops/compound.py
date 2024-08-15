@@ -2,8 +2,9 @@ import bpy
 from .. import __package__ as base_package
 from .custom import CompoundOperator
 from .properties import SimpleWindowProperty, PointerProperty, SimpleDoorProperty, SimpleRailProperty, SimplePorticoProperty
-from .properties import ExtendGableProperty, DormerProperty, DeckProperty
-from ..object import Journal, get_obj_data, ACTIVE_OP_ID, SelectionInfo, wrap_id, merge_record_dct, MyEncoder, delete_record
+from .properties import ExtendGableProperty, DormerProperty, DeckProperty, AddRoofProperty
+from ..object import (Journal, get_obj_data, ACTIVE_OP_ID, SelectionInfo, wrap_id, merge_record_dct, MyEncoder,
+                      delete_record, splice_operation, append_operation, compact)
 from ..mesh import ManagedMesh, SmartPoly, CoordSys, _common_start
 from mathutils import Vector
 import math
@@ -11,15 +12,6 @@ import json
 import pathlib
 
 # registration and module init info
-lst_classes = [
-    'QARCH_OT_add_window',
-    'QARCH_OT_add_door',
-    'QARCH_OT_add_portico',
-    'QARCH_OT_add_rail',
-    'QARCH_OT_add_deck',
-    'QARCH_OT_extend_gable',
-    'QARCH_OT_add_dormer',
-]
 lst_funcs = []
 
 class QARCH_OT_add_window(CompoundOperator):
@@ -489,51 +481,95 @@ class QARCH_OT_add_door(CompoundOperator):
 
     props: PointerProperty(type=SimpleDoorProperty)
 
+    def get_delete(self):
+        j = Journal(None)
+        j.jj['controlled'][wrap_id(-1)] = [0]
+        j.jj['controlled'][wrap_id(0)] = []
+        j.jj['max_id'] = 0
+        j.jj[wrap_id(0)] ={
+            "op_id": 0,
+            "op_name": "QARCH_OT_set_face_tag",
+            "properties": {
+                "tag": "DELETE"
+            },
+            "control_points": {
+                "faces": {
+                    "op3": [
+                        13,
+                    ]
+                },
+                "verts": {},
+                "flags": {},
+                "mode": "GROUP"
+            },
+            "gen_info": {
+                "ranges": {
+                    "All": [
+                        [
+                            0,
+                            0
+                        ]
+                    ]
+                },
+                "moduli": {
+                    "All": 0
+                }
+            },
+            "description": "Delete Unused Panel"
+        }
+        return j.jj
+
     def get_script(self):
         """Merges door frame, in or out door, and door finish scripts"""
         script_text = self.get_catalog_script(self.context, 'default', 'Doors', 'Arched_Double_Door')
         finish_faces = [(13,0), (10,9), (18,0), (15,10)]
         dct_master = json.loads(script_text)
 
-        if self.props.door_type in ["Left", "Right"]:  # single door
+        if self.props.door_type in ["Left", "Right", "None"]:  # single door
             # abuse journal
             j = Journal(self.obj)
             j.obj = None  # ensure no writeback
             j.jj = dct_master
             j.controlled = dct_master['controlled']
-            if self.props.door_type == "Left":
+            if self.props.door_type == "None":
+                remove = 8
+                finish_faces = []
+            elif self.props.door_type == "Left":
                 remove = 14
                 finish_faces = finish_faces[:2]
             else:
                 remove = 9
                 finish_faces = finish_faces[2:]
             j.delete_record(remove, flush=False)
-            # update divide topology
-            j.jj["op8"]['properties']['count_x'] = 0
-            j.jj["op8"]["gen_info"]["ranges"]["All"] = [[0, 1]]
-            j.jj["op8"]["gen_info"]["moduli"]["All"] = 0
-            if self.props.door_type == "Left":
-                j.jj["op9"]['control_points']['faces']['op8'] = 1
-            else:
-                j.jj["op14"]['control_points']['faces']['op8'] = 1
+            if self.props.door_type != "None":  # update divide topology
+                j.jj["op8"]['properties']['count_x'] = 0
+                j.jj["op8"]["gen_info"]["ranges"]["All"] = [[0, 1]]
+                j.jj["op8"]["gen_info"]["moduli"]["All"] = 0
+                if self.props.door_type == "Left":
+                    j.jj["op9"]['control_points']['faces']['op8'] = 1
+                else:
+                    j.jj["op14"]['control_points']['faces']['op8'] = 1
 
-        finish_file = self.props.finish.category_item
-        if len(finish_file) > 3:
-            path = pathlib.Path(finish_file)
-            finish_text = path.read_text()
-            # add to faces
-            for f_op, f_seq in finish_faces:
-                sel_info = SelectionInfo()
-                sel_info.add_face(f_op, f_seq)
-                sel_info.set_mode('SINGLE')
-                dct_finish = json.loads(finish_text)
-                for update_op in range(0, dct_finish['max_id']+1):
-                    wrap = wrap_id(update_op)
-                    if wrap in dct_finish:
-                        rec = dct_finish[wrap]
-                        rec['description'] = rec.get('description', wrap) + ' for-{}-{}'.format(f_op, f_seq)
-                finish_op_id = merge_record_dct(dct_master, dct_finish, sel_info)
-                print("finish_op_id", finish_op_id)
+        if len(finish_faces):
+            finish_file = self.props.finish.category_item
+            if len(finish_file) > 3:
+                path = pathlib.Path(finish_file)
+                finish_text = path.read_text()
+                # add to faces
+                for f_op, f_seq in finish_faces:
+                    sel_info = SelectionInfo()
+                    sel_info.add_face(f_op, f_seq)
+                    sel_info.set_mode('SINGLE')
+                    dct_finish = json.loads(finish_text)
+                    for update_op in range(0, dct_finish['max_id']+1):
+                        wrap = wrap_id(update_op)
+                        if wrap in dct_finish:
+                            rec = dct_finish[wrap]
+                            rec['description'] = rec.get('description', wrap) + ' for-{}-{}'.format(f_op, f_seq)
+                    finish_op_id = merge_record_dct(dct_master, dct_finish, sel_info)
+                    print("finish_op_id", finish_op_id)
+        if self.props.door_type == "None":
+            dct_master, del_op = append_operation(3, [13], dct_master, self.get_delete())
 
         script_text = json.dumps(dct_master, cls=MyEncoder, indent=4)
         return script_text
@@ -649,6 +685,10 @@ class QARCH_OT_add_door(CompoundOperator):
         for s in ['Extrude Surround', 'Intrude Surround', 'Extrude Frame']:
             rec = dct_records[s]['properties']
             rec['distance'] = self.props.wall_thickness / 2
+
+        if self.props.door_type == "None":
+            self.journal.flush()
+            return
 
         rec = dct_records['Divide Door']['properties']
         if self.props.door_type == 'Left':
@@ -1501,4 +1541,189 @@ class QARCH_OT_add_dormer(CompoundOperator):
         self.props.octagon_window = (child_rec['properties']['poly']['num_sides'] == 8)
 
 
+class QARCH_OT_add_roof(CompoundOperator):
+    bl_idname = "qarch.add_roof"
+    bl_label = "Add Roof"
+    bl_options = {"REGISTER", "UNDO"}
+    bl_description = "Add soffit and roof"
 
+    props: PointerProperty(type=AddRoofProperty)
+
+    @classmethod
+    def poll(cls, context):
+        # because each gable has a unique direction
+        if cls.is_face_selected(context):
+            #mode = context.preferences.addons[base_package].preferences.select_mode
+            #if mode in {'SINGLE', 'REGION'}:
+            return True
+        return False
+
+    def get_gambrel_base(self):
+        """Single operation script"""
+        j = Journal(None)
+        j.jj['controlled'][wrap_id(-1)] = [0]
+        j.jj['controlled'][wrap_id(0)] = []
+        j.jj['max_id'] = 0
+        j.jj[wrap_id(0)] = {
+            "op_id": 0,
+            "op_name": "QARCH_OT_inset_polygon",
+            "properties": {
+                "position": {
+                    "offset_x": 0.0, "is_relative_x": False, "center_x": False, "offset_y": 0.0, "is_relative_y": False,
+                    "center_y": False
+                },
+                "size": {
+                    "size_x": 1.0, "is_relative_x": True, "size_y": 1.0, "is_relative_y": True, "is_ratio_yx": False
+                },
+                "join": "BRIDGE",
+                "add_perimeter": False,
+                "shape_type": "SELF",
+                "by_inset": True,
+                "thickness": 0.5,
+                "side_list": "0,1,3,4,5,6,7",
+                "center_material": "BT_Nothing",
+                "extrude_distance": 1.5
+            },
+            "control_points": {
+                "faces": {
+                    "op-1": [
+                        0
+                    ]
+                },
+                "verts": {},
+                "flags": {
+                    "op-1": 3
+                },
+                "mode": "GROUP"
+            },
+            "gen_info": {"ranges": {"Bridge": [[1, 8]], "Center": [[0, 0]], "Frame": [], "Key": []},
+                         "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+            "description": "First Roof Slope"
+        }
+        return j
+
+    def get_script(self):
+        """Returns the same kind of script you get by exporting something"""
+        # this script is not generally applicable because it has a globally set direction vector
+        # so we remove it from the catalog and only have it here
+        script_text = self.get_catalog_script(self.context, 'default', 'Roof', 'Roof_Base')
+        if self.props.gambrel:
+            j_inner = self.get_gambrel_base()
+            j_outer = self.get_gambrel_base()
+            dct_master = json.loads(script_text)
+            dct_master = splice_operation(dct_master, j_inner.jj, 2, [0], ' Inner')
+            # 4 became 3
+            dct_master = splice_operation(dct_master, j_outer.jj, 3, [0], ' Outer')
+            dct_master = compact(dct_master)
+            script_text = json.dumps(dct_master, cls=MyEncoder, indent=4)
+
+        return script_text
+
+    def recordset(self, op_id):
+        dct_records = {}
+        dct_c, lst_c = self.journal.child_ops(op_id)
+        lst_c.sort()
+
+        for op in lst_c:
+            rec = self.journal[op]
+            if not 'description' in rec:
+                rec['description'] = op
+            txt = rec['description']
+            dct_records[txt] = rec
+
+        return dct_records
+
+    def write_props_to_journal(self, op_id):
+        """After this operator properties are updated, push them down to the script operators
+        by updating the journal text
+        """
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        self.journal[op_id]['properties'] = self.props.to_dict(compact=True)
+        self.journal[op_id]['description'] = "Add Roof"
+
+        sel_info = self.journal.get_sel_info(op_id)
+        mm, lst_poly = _common_start(self.obj, sel_info, break_link=True)
+        poly = lst_poly[0]
+        mm.free()
+
+        child_rec = dct_records['Soffit Height']['properties']
+        child_rec['distance'] = self.props.soffit_height
+        child_rec['side_material'] = self.props.base_roof.wall_material
+
+        child_rec = dct_records['Inset for Gable']['properties']
+        child_rec['side_list'] = self.props.base_roof.gable_sides
+        child_rec['thickness'] = self.props.soffit_width
+        child_rec['center_material'] = self.props.base_roof.roof_material
+
+        s0 = [int(p.strip()) for p in self.props.base_roof.gable_sides.split(",") if p != '']
+        s1 = [i for i in range(len(poly.points)) if i not in s0]
+        hip_list = ",".join([str(s) for s in s1])
+
+        if self.props.gambrel:
+            for info in [' Inner', ' Outer']:
+                child_rec = dct_records['First Roof Slope' + info]['properties']
+                child_rec['side_list'] = hip_list
+                child_rec['extrude_distance'] = self.props.gambrel_height
+                child_rec['thickness'] = self.props.gambrel_inset
+
+        child_rec = dct_records["Inner Roof"]['properties']
+        child_rec.update(self.props.base_roof.to_dict())
+
+        child_rec = dct_records['Outset Soffit Top']['properties']
+        child_rec['side_list'] = hip_list
+        child_rec['thickness'] = -self.props.soffit_width
+        child_rec['center_material'] = self.props.base_roof.roof_material
+
+        child_rec = dct_records["Outer Roof"]['properties']
+        child_rec.update(self.props.base_roof.to_dict())
+
+        child_rec = dct_records['Box Soffit']['properties']
+        child_rec['size']['size_x'] = self.props.soffit_width
+        if self.props.soffit_type == 'PLAIN':
+            child_rec['size']['size_y'] = 0.01
+        elif self.props.soffit_type == 'BOX':
+            child_rec['size']['size_y'] = self.props.soffit_height
+        else:
+            child_rec['size']['size_y'] = 1/5 * self.props.soffit_height
+        child_rec['z_offset'] = -0.5 * child_rec['size']['size_y']
+        child_rec['inset'] = 0.5 * self.props.soffit_width
+        child_rec['frame_material'] = self.props.soffit_material
+        child_rec['side_list'] = hip_list
+
+        child_rec = dct_records['Brackets']['properties']
+        if self.props.soffit_type == 'BRACKET':
+            child_rec['catalog_object'].update(self.props.bracket.to_dict())
+            child_rec['rotation'] = child_rec['catalog_object']['rotate']
+            nmax = math.sqrt(poly.box_size.x ** 2 + poly.box_size.y ** 2) / self.props.bracket_spacing
+            nmax = int(math.ceil(nmax))
+            child_rec['scale'] = self.props.bracket_scale
+            child_rec['array']['spacing'] = self.props.bracket_spacing
+            child_rec['array']['count'] = nmax
+            child_rec['position']['offset_x'] = 0.5 * self.props.bracket_spacing
+            # child_rec['array']['origin'] for orbit types
+            child_rec['z_offset'] = self.props.bracket_z
+
+            for k in dct_records['Brackets']['control_points']['faces']:
+                dct_records['Brackets']['control_points']['faces'][k] = [i+1 for i in s1]  # skip center poly
+        else:
+            child_rec['category_item'] = '0'
+        self.journal.flush()
+
+    def read_props_from_journal(self, op_id):
+        """Get the properties from the script and put them into this operator's properties
+        """
+        dct_records = self.recordset(op_id)
+
+        # normal operator properties
+        record = self.journal[op_id]
+        self.props.from_dict(record['properties'])
+
+
+# registration and module init info
+lst_classes = []
+tmp = list(locals().items())
+for k,v in tmp:
+    if k[:8]=="QARCH_OT":
+        lst_classes.append(k)

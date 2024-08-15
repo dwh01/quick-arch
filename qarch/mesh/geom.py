@@ -242,8 +242,8 @@ def _move_verts(lst_poly, v3):
 
 def _make_ngon(control_poly, prop_dict, mm, b_make=True):
     poly = prop_dict['poly']
-    n, start_ang = poly['num_sides'], poly['start_angle']
-    total_ang = poly['total_angle']
+    n, start_ang = poly['num_sides'], poly.get('start_angle', 0)
+    total_ang = poly.get('total_angle', math.pi*2)
     thickness = prop_dict['frame']
 
     new_poly = control_poly.generate_ngon(n, start_ang, total_ang)
@@ -254,7 +254,7 @@ def _make_ngon(control_poly, prop_dict, mm, b_make=True):
 
     lst = [new_poly]
     if thickness > 0:
-        inner_poly = new_poly.generate_inset(thickness)
+        inner_poly = new_poly.generate_inset(thickness, [])
         if b_make:
             inner_poly.make_verts()
 
@@ -277,7 +277,11 @@ def _make_ngon(control_poly, prop_dict, mm, b_make=True):
 
 def _make_self_poly(control_poly, prop_dict, mm, b_make=True):
     if prop_dict['by_inset']:
-        new_poly = control_poly.generate_inset(prop_dict['thickness'])
+        side_list = []
+        if prop_dict.get('side_list', "") != "":
+            side_list = prop_dict['side_list'].split(",")
+            side_list = [int(s.strip()) for s in side_list]
+        new_poly = control_poly.generate_inset(prop_dict['thickness'], side_list)
     else:
         new_poly = SmartPoly(control_poly.coord_sys, pt_list=control_poly.points, break_link=True)
         _shift_and_size(control_poly, new_poly, prop_dict)
@@ -610,16 +614,23 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
                 p.face_attr['material'] = frame_idx
                 # uv mode set by arch, etc
             face = p.make_face()
-            face[mm.key_tag] = 0
+            if face:
+                face[mm.key_tag] = 0
         for inew, p in enumerate(lst_key):
             face = p.make_face()
-            face[mm.key_tag] = 0
+            if face:
+                face[mm.key_tag] = 0
 
+        print(control_poly.debug_str())
+        print(outer.debug_str())
         if join_type in ['BRIDGE', 'INSIDE_BRIDGE']:  # and (shape_type != 'SUPER'):
             # make bmesh verts so bridge faces share them
             control_poly.make_verts()
-            # ARCH has fake outer, but it used the same bm verts so was updated in position
-            lst_result = outer.bridge(control_poly, add_perimeter, v_extruding, b_close=b_close,
+            if shape_type == "SELF":
+                lst_result = outer.bridge_by_number(control_poly, idx_offset=0, b_reversed=False, v_extruding=v_extruding)
+            else:
+                # ARCH has fake outer, but it used the same bm verts so was updated in position
+                lst_result = outer.bridge(control_poly, add_perimeter, v_extruding, b_close=b_close,
                                       b_allow_square=add_perimeter, arch_type=arch_info)
             topo.add('Bridge', len(lst_result))
             for p in lst_result:
@@ -629,10 +640,10 @@ def inset_polygon(self, obj, sel_info, op_id, prop_dict):
                         del p.face_attr['uv_mode']  # let material decide
                 face = p.make_face()
 
-            if len(lst_result) and (control_poly.coord_sys.reference_face is not None):
-                mm.delete_face(control_poly.coord_sys.reference_face)
+            if prop_dict['extrude_distance'] == 0:
+                b_del_control = True
 
-        elif prop_dict.get('del_source', False) or b_del_control:
+        if prop_dict.get('del_source', False) or b_del_control:
             if control_poly.coord_sys.reference_face is not None:
                 mm.delete_face(control_poly.coord_sys.reference_face)
 
@@ -769,6 +780,7 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
     center_idx = mm.get_material_index(center_mat)
     keep_y = prop_dict.get('keep_y', False)
     both_dir = prop_dict.get('both_directions', False)
+    to_vert = prop_dict.get('to_vertical', False)
 
     for control_poly in lst_orig_poly:
         if len(control_poly.points) != len(lst_orig_poly[0].points):
@@ -789,6 +801,7 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
             dz0 = prop_dict['distance']
             da0 = prop_dict['twist']
             steps = prop_dict['steps']
+            on_axis = prop_dict['on_axis']
 
             sx = sx0 ** (1 / steps)
             sy = sy0 ** (1 / steps)
@@ -802,7 +815,23 @@ def extrude_fancy(self, obj, sel_info, op_id, prop_dict):
             for i in range(steps):
                 csys = bottom_poly.coord_sys.copy()  # if not on axis, don't want to overwrite bottom origin during shift
                 top_poly = SmartPoly(csys, pt_list=bottom_poly.points, break_link=True, b_no_roll=True)
-                if (i == 0) and prop_dict['on_axis']:
+                if to_vert:
+                    v = Vector(control_poly.normal())
+                    v.z = 0
+                    if v.length > 0.001:
+                        on_axis = False
+                        v.normalize()
+                        if (i == 0):
+                            dd = top_poly.coord_sys.make_3d(top_poly.bbox_min) - top_poly.coord_sys.origin
+                            dz = v.dot(dd)
+                            top_poly.project_to(v)
+                            top_poly.calc_coord_sys(b_no_roll=True)
+                        else:
+                            dz = dz0 / (steps - 1)
+                    else:
+                        v = top_poly.normal()
+
+                elif (i == 0) and on_axis:
                     # project not rotate
                     v = Vector((prop_dict['axis']['x'], prop_dict['axis']['y'], prop_dict['axis']['z']))
                     if prop_dict['align_end']:
@@ -1647,8 +1676,9 @@ def import_mesh(self, obj, sel_info, op_id, prop_dict):
                 else:
                     v_inst = v_start + i * a_spacing * inst_dir
 
-                bmv = mm.new_vert(v_inst)
-                mm.instance_on_vert(bmv, pick, r_euler, v_scale)
+                if (not prop_dict['array'].get('clip')) or control_poly.point_inside(v_inst):
+                    bmv = mm.new_vert(v_inst)
+                    mm.instance_on_vert(bmv, pick, r_euler, v_scale)
 
         else:  # copy mesh to position
             dct_map_verts = {}
@@ -1850,11 +1880,11 @@ def build_face(self, obj, sel_info, op_id, prop_dict):
     return topo
 
 
-def build_shed_roof(mm, control_poly, shed_side, tan, topo, wall_index):
+def build_shed_roof(mm, control_poly, shed_side, tan, topo, wall_index, roof_index):
     n = len(control_poly.points)
     n2 = int(math.floor(n/2))
     lst_poly = []
-    material_index = mm.get_material_index('BT_Roof')
+    material_index = roof_index
 
     if n % 2:  # odd number, triangle fan
         p_ctr = control_poly.points[shed_side].co3 + control_poly.points[(shed_side+1) % n].co3
@@ -1918,7 +1948,10 @@ def build_roof(self, obj, sel_info, op_id, prop_dict):
     # use a tangent of the roof pitch angle of 0.6 instead of the roof's height
     # height = 0.0
     # tan = 0.6
-    material_index = mm.get_material_index('BT_Roof')
+    if prop_dict['roof_material'] not in ['0', '', 'N/A']:
+        roof_index = mm.get_material_index(prop_dict['roof_material'])
+    else:
+        roof_index = mm.get_material_index(prop_dict['BT_Roof'])
     if prop_dict['wall_material'] not in ['0','','N/A']:
         wall_index = mm.get_material_index(prop_dict['wall_material'])
     else:
@@ -1928,7 +1961,7 @@ def build_roof(self, obj, sel_info, op_id, prop_dict):
     if not b_hip:  # shed
         shed_side = prop_dict['shed_side']
         control_poly = lst_orig_poly[0]
-        return build_shed_roof(mm, control_poly, shed_side, tan, topo, wall_index)
+        return build_shed_roof(mm, control_poly, shed_side, tan, topo, wall_index, roof_index)
 
     gable_side_list = []
     if prop_dict['gable_sides'] != "":
@@ -2001,14 +2034,14 @@ def build_roof(self, obj, sel_info, op_id, prop_dict):
 
             sides = gable_poly.bridge_by_number(roof_poly, b_reversed=rev)
             for p in sides:
-                p.face_attr['material'] = material_index
+                p.face_attr['material'] = roof_index
                 p.face_attr['radial'] = p.normal().cross(axis)
                 p.calc_coord_sys(radial=p.face_attr['radial'])
                 p.make_face()
             topo.add('Roof', len(sides))
         else:
             new_face = mm.new_face(vlist)
-            new_face.material_index = material_index
+            new_face.material_index = roof_index
             new_face.normal_update()
             xdir = Vector((0,0,1)).cross(new_face.normal).normalized()
             ydir = new_face.normal.cross(xdir)
@@ -2915,4 +2948,34 @@ def lattice(self, obj, sel_info, op_id, prop_dict):
 
     mm.to_mesh()
     mm.free()
+    return topo
+
+
+def generate_classical(self, obj, sel_info, op_id, prop_dict):
+    from .geom_2d import generate_order
+
+    mm, lst_orig_poly = _common_start(obj, sel_info)
+    mm.set_op(op_id)
+
+    topo = TopologyInfo(from_keys=["Pedestal", "Column", "Entabulature"])
+    mat_index = mm.get_material_index(prop_dict['material'])
+
+    ht = prop_dict['height']
+    order = prop_dict['order']
+    lst_sections = generate_order(ht, order)
+
+    for control_poly in lst_orig_poly:
+        for lst_2d in lst_sections:
+            pts = [Vector((p.x, 0, p.y)) + control_poly.coord_sys.origin for p in lst_2d]
+            poly = SmartPoly(coord_sys=control_poly.coord_sys.copy(), pt_list=pts)
+            face = poly.make_face()
+            face.material_index = mat_index
+        topo.add("Pedestal", 3)
+        topo.add("Column", 3)
+        topo.add("Entabulature", 3)
+
+    mm.to_mesh()
+    mm.free()
+
+    topo = TopologyInfo(from_keys=["All"])
     return topo

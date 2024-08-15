@@ -414,7 +414,8 @@ def enum_objects_or_curves(self, context):
 
 
 def exists_in_catalog(unused, category, stem):
-    for ftype, lst_items in dynamic_enum_sets[category].items():
+    print(list(dynamic_enum_sets.keys()))
+    for ftype, lst_items in dynamic_enum_sets.get(category, {}).items():
         for e in lst_items:
             if e[1] == stem:
                 return True

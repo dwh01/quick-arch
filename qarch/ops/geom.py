@@ -29,43 +29,11 @@ from ..mesh import (
     niche,
     quoin_divide,
     lattice,
+    generate_classical,
 )
 from ..object import get_obj_data, ACTIVE_OP_ID, material_best_mode
 
 # registration and module init info
-lst_classes = [
-    'QARCH_OT_inset_polygon',
-    'QARCH_OT_grid_divide',
-    'QARCH_OT_split_face',
-    'QARCH_OT_extrude_fancy',
-    'QARCH_OT_extrude_sweep',
-    'QARCH_OT_solidify_edges',
-    'QARCH_OT_make_louvers',
-    'QARCH_OT_set_face_uv_orig',
-    'QARCH_OT_set_face_uv_mode',
-    'QARCH_OT_set_face_uv_rotate',
-    'QARCH_OT_set_face_elevation',
-    'QARCH_OT_set_face_radial',
-    'QARCH_OT_set_face_tag',
-    'QARCH_OT_set_face_material',
-    'QARCH_OT_calc_uvs',
-    'QARCH_OT_set_oriented_mat',
-    'QARCH_OT_flip_normal',
-    'QARCH_OT_import_mesh',
-    'QARCH_OT_project_face',
-    'QARCH_OT_extrude_walls',
-    'QARCH_OT_build_face',
-    'QARCH_OT_build_roof',
-    'QARCH_OT_quoin_divide',
-    'QARCH_OT_build_stairs',
-    'QARCH_OT_plan_feature',
-    'QARCH_OT_plan_inset_walls',
-    'QARCH_OT_set_plan_floor',
-    'QARCH_OT_perpendicular_face',
-    'QARCH_OT_niche',
-    'QARCH_OT_add_lattice',
-    'QARCH_OT_union_poly',
-]
 lst_funcs = []
 
 class QARCH_OT_inset_polygon(CustomOperator):
@@ -724,3 +692,20 @@ class QARCH_OT_perpendicular_face(CustomOperator):
 
     function = perpendicular_face
 
+class QARCH_OT_classical_order(CustomOperator):
+    """Add points to make columns or molding"""
+    bl_idname = "qarch.classical_order"
+    bl_label = "Classical Order"
+    # bl_options = {"REGISTER", "UNDO"}
+
+    props: bpy.props.PointerProperty(type=ClassicalOrderProperty)
+
+    function = generate_classical
+
+
+# registration and module init info
+lst_classes = []
+tmp = list(locals().items())
+for k,v in tmp:
+    if k[:8]=="QARCH_OT":
+        lst_classes.append(k)

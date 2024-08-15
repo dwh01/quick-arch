@@ -3,10 +3,10 @@ many are not derived from CustomOperator"""
 import math
 
 import bpy
-from bpy.props import EnumProperty, StringProperty, IntProperty, FloatProperty, BoolProperty
+from bpy.props import EnumProperty, StringProperty, IntProperty, FloatProperty, BoolProperty, PointerProperty
 from .. import __package__ as base_package
 from .custom import *
-from .properties import face_tag_to_int, get_face_tag_enum
+from .properties import face_tag_to_int, get_face_tag_enum, ControlPointProperty
 from ..object import create_object, Journal, wrap_id, delete_record, SelectionInfo, REPLAY_OP_ID
 from ..mesh import ManagedMesh
 from .dynamic_enums import qarch_asset_dir
@@ -21,6 +21,7 @@ lst_classes = [
     'QARCH_OT_add_face_tags',
     'QARCH_OT_clean_object',
     'QARCH_OT_child_operation',
+    'QARCH_OT_Edit_Control',
 ]
 lst_funcs = []
 
@@ -432,6 +433,51 @@ class QARCH_OT_clean_object(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
+class QARCH_OT_Edit_Control(bpy.types.Operator):
+    """For cleanup when auto face renumbering fails"""
+    bl_idname = "qarch.edit_control"
+    bl_label = "Fix Selection"
+    bl_description = "Fix face selection inputs"
+    bl_options = {"REGISTER"}
+
+    props: PointerProperty(type = ControlPointProperty)
+
+    @classmethod
+    def poll(cls, context):
+        if (context.object is not None) and (context.mode == "EDIT_MESH"):
+            op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+            if op_id is not None and op_id > -1:
+                return True
+        return False
+
+    def draw(self, context):
+        self.layout.ui_units_x = 0 if context.region.type == 'UI' else 20
+        print(self.layout.ui_units_x)
+        self.props.draw(context, self.layout)
+
+    def invoke(self, context, event):
+        op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+        j = Journal(context.object)
+        rec = j[op_id]['control_points']
+        self.props.line0 = str(rec['faces'])
+        self.props.line1 = str(rec['verts'])
+        self.props.line2 = str(rec['flags'])
+
+        wm = context.window_manager
+        return wm.invoke_props_dialog(self)
+
+    def execute(self, context):
+        op_id = get_obj_data(context.object, ACTIVE_OP_ID)
+        j = Journal(context.object)
+        rec = j[op_id]['control_points']
+        rec['faces'] = eval(self.props.line0)
+        rec['verts'] =eval(self.props.line1)
+        rec['flags'] = eval(self.props.line2)
+        j.flush()
+
+        bpy.ops.qarch.rebuild_object()
+        return {'FINISHED'}
 
 def from_faces_linked(orig_mm, new_name, vertices, faces_linked):
     from ..object import upgrade_object, BT_INST_COLLECTION

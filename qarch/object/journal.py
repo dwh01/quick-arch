@@ -157,10 +157,11 @@ class Journal:
             lst.remove(operation_id)
 
         # remove trailing count if we deleted the last operations
-        op_max = self.jj['max_id']
-        while wrap_id(op_max) not in self.jj:
-            op_max = op_max - 1
-        self.jj['max_id'] = op_max
+        # op_max = self.jj['max_id']
+        # while wrap_id(op_max) not in self.jj:
+        #     op_max = op_max - 1
+        # self.jj['max_id'] = op_max
+        self.jj = compact(self.jj)
 
         if flush:
             self.flush()
@@ -318,6 +319,9 @@ def get_block(obj):
 
 def get_journal(obj):
     """Retrieve dictionary"""
+    if obj is None:
+        return blank_journal()
+
     text_block = get_block(obj)
     return parse_block(text_block)
 
@@ -327,6 +331,18 @@ def set_journal(obj, journal):
     text_block = get_block(obj)
     update_block(text_block, journal)
 
+def append_operation(parent_op, face_sequence, dct_master, dct_child, postfix=''):
+    """Insert an operation into a journal dictionary"""
+    sel_info = SelectionInfo()
+    sel_info.add_faces(parent_op, face_sequence)
+    sel_info.set_mode('GROUP')
+    for update_op in range(0, dct_child['max_id'] + 1):
+        wrap = wrap_id(update_op)
+        if wrap in dct_child:
+            rec = dct_child[wrap]
+            rec['description'] = rec.get('description', wrap) + postfix
+    new_op_id = merge_record_dct(dct_master, dct_child, sel_info)
+    return dct_master, new_op_id
 
 def export_record(obj, operation_id, filename, do_screenshot, imagefile, description, style=[]):
     """Select operation and children and export to text file"""
@@ -346,10 +362,7 @@ def export_record(obj, operation_id, filename, do_screenshot, imagefile, descrip
         img.save(filepath=imagefile)
 
 
-def extract_record(obj, operation_id, description):
-    """Get dict ready for file export or cut-paste"""
-    journal = Journal(obj)
-
+def extract_record_journal(journal, operation_id, description):
     dct_subset = blank_journal()  # the bit to store
     new_id_number = 0  # renumbering stored operations from zero
     dct, lst = journal.child_ops(operation_id)
@@ -395,6 +408,12 @@ def extract_record(obj, operation_id, description):
     dct_subset['max_id'] = new_id_number - 1
     dct_subset['description'] = description
     return dct_subset
+
+
+def extract_record(obj, operation_id, description):
+    """Get dict ready for file export or cut-paste"""
+    journal = Journal(obj)
+    return extract_record_journal(journal, operation_id, description)
 
 
 def delete_record(obj, operation_id):
@@ -481,6 +500,29 @@ def merge_record(obj, dct_operation, sel_info):
     return first_op_id
 
 
+def splice_operation( dct_master, dct_insert, insert_as_op, new_control_ids, postfix=''):
+    """Takes the insert_as_op and splices rec before it, making rec the new parent of insert_as_op"""
+    rec = dct_master[wrap_id(insert_as_op)]
+    cp = rec['control_points']
+    parent_op, face_sequence = next(iter(cp['faces'].items()))
+    dct_head, dct_tail = split_operations(dct_master, insert_as_op)
+    dct_master, new_op_id = append_operation(unwrap_id(parent_op), face_sequence, dct_head, dct_insert, postfix)
+    dct_master[wrap_id(new_op_id)]['control_points'] = cp  # keep flags and mode
+
+    dct_full, new_op = append_operation(new_op_id, new_control_ids, dct_master, dct_tail, '')
+    return dct_full
+
+def split_operations(dct_master, split_op):
+    """Make two dicts so that an operation can be inserted before split_op"""
+    journal = Journal(None)
+    journal.jj = dct_master
+    journal.controlled = dct_master['controlled']
+
+    dct_split = extract_record_journal(journal, split_op, dct_master[wrap_id(split_op)]['description'])
+    lst_children = journal.delete_record(split_op, flush=False)
+    return journal.jj, dct_split
+
+
 def parse_block(text_block):
     """Read dictionary in json format"""
     lines = [line.body for line in text_block.lines]
@@ -489,6 +531,46 @@ def parse_block(text_block):
         journal = json.loads(txt, object_hook=object_hook)
     else:
         journal = blank_journal()
+    return journal
+
+
+def compact(journal):
+    dct_remap = {}
+    shift = 0
+    new_max = -1
+    for i in range(journal['max_id'] + 1):
+        if wrap_id(i) in journal:
+            dct_remap[i] = i - shift
+            if shift > 0:
+                rec = journal[wrap_id(i)]
+                rec["op_id"] = dct_remap[i]
+                journal[wrap_id(dct_remap[i])] = rec
+                del journal[wrap_id(i)]
+                journal['controlled'][wrap_id(dct_remap[i])] = journal['controlled'][wrap_id(i)]
+                del journal['controlled'][wrap_id(i)]
+
+                new_faces = {}
+                new_flags = {}
+                new_verts = {}
+                for k, v in rec['control_points']['faces'].items():
+                    kk = unwrap_id(k)
+                    j = dct_remap[kk]
+                    new_faces[wrap_id(j)] = v
+                    new_flags[wrap_id(j)] = rec['control_points']['flags'].get(k, 0)
+                    new_verts[wrap_id(j)] = rec['control_points']['verts'].get(k, [])
+                    c_list = journal['controlled'][wrap_id(j)]
+                    c_list = [o for o in c_list if o != i]
+                    c_list.append(dct_remap[i])
+                    c_list.sort()
+                    journal['controlled'][wrap_id(j)] = c_list
+
+                rec['control_points']['faces'] = new_faces
+                rec['control_points']['flags'] = new_flags
+                rec['control_points']['verts'] = new_verts
+            new_max = dct_remap[i]
+        else:
+            shift = shift + 1
+    journal['max_id'] = new_max
     return journal
 
 

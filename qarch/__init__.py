@@ -61,6 +61,7 @@ class QARCH_PT_mesh_tools(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("qarch.inset_polygon")
+        row.operator("qarch.edit_control")
 
 
 class QARCH_PT_plan_level(bpy.types.Panel):
@@ -129,7 +130,7 @@ class QARCH_PT_hi_level(bpy.types.Panel):
         row.operator("qarch.add_deck")
         row.operator("qarch.add_rail")
         row = layout.row(align=True)
-        row.operator("qarch.build_roof")
+        row.operator("qarch.add_roof")
         row.operator("qarch.extend_gable")
         row = layout.row(align=True)
         row.operator("qarch.add_dormer")
@@ -168,6 +169,9 @@ class QARCH_PT_low_level(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("qarch.set_oriented_mat")
         row.operator("qarch.flip_normal")
+        row = layout.row(align=True)
+        row.operator("qarch.build_roof")
+        row.operator("qarch.classical_order")
 
 
 

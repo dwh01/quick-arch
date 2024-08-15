@@ -1,0 +1,305 @@
+{
+    "max_id": 6,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1,
+            3
+        ],
+        "op1": [
+            2
+        ],
+        "op2": [],
+        "op3": [
+            4,
+            5
+        ],
+        "op4": [],
+        "op5": [
+            6
+        ],
+        "op6": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Roof with brackets",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_extrude_fancy",
+        "properties": {
+            "distance": 0.30000001192092896,
+            "steps": 1,
+            "both_directions": false,
+            "flip_normals": false,
+            "on_axis": false,
+            "twist": 0.0,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "del_source": false,
+            "keep_y": false,
+            "side_material": "BT_Trim",
+            "center_material": "BT_Nothing"
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op-1": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 7]], "Tops": [[8, 8]]}, "moduli": {"Sides": 8, "Tops": 0}},
+        "description": "Soffit Height"
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "join": "FREE",
+            "del_source": false,
+            "shape_type": "SELF",
+            "by_inset": true,
+            "thickness": 0.20000000298023224,
+            "side_list": "2",
+            "center_material": "BT_Roof",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    8
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": [], "Key": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+        "description": "Inset for Gable"
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_build_roof",
+        "properties": {
+            "slope": 0.6000000238418579,
+            "hip": true,
+            "gable_sides": "2",
+            "wall_material": "BT_Nothing"
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op1": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Roof": [[0, 0], [2, 10]], "Attic": [], "Gable": [[1, 1]]}, "moduli": {"Roof": 0, "Attic": 0, "Gable": 0}},
+        "description": "Inner Roof"
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": true,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "join": "BRIDGE",
+            "del_source": false,
+            "shape_type": "SELF",
+            "by_inset": true,
+            "thickness": -0.20000000298023224,
+            "side_list": "0,1,3,4,5,6,7",
+            "center_material": "BT_Roof",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    8
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [[1, 8]], "Center": [[0, 0]], "Frame": [], "Key": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+        "description": "Outset Soffit Top"
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_build_roof",
+        "properties": {
+            "slope": 0.6000000238418579,
+            "hip": true,
+            "gable_sides": "2",
+            "wall_material": "BT_Nothing"
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op3": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Roof": [[0, 4], [6, 10]], "Attic": [], "Gable": [[5, 5]]}, "moduli": {"Roof": 0, "Attic": 0, "Gable": 0}},
+        "description": "Outer Roof"
+    },
+    "op5": {
+        "op_id": 5,
+        "op_name": "QARCH_OT_solidify_edges",
+        "properties": {
+            "size": {
+                "size_x": 0.20000000298023224,
+                "is_relative_x": false,
+                "size_y": 0.029999999329447746,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "side_list": "0,1,3,4,5,6,7",
+            "z_offset": -0.014999999664723873,
+            "inset": 0.10000000149011612,
+            "del_source": false,
+            "frame_material": "BT_Trim",
+            "shape_type": "NGON",
+            "poly": {
+                "num_sides": 4,
+                "start_angle": -0.7853981852531433,
+                "total_angle": 6.2831854820251465
+            },
+            "frame": 0.0,
+            "revolutions": 0,
+            "dashed": false,
+            "dash_info": {
+                "dash_length": 0.10000000149011612,
+                "dash_offset": 0.0,
+                "dash_spacing": 0.0
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op3": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 3], [5, 8], [10, 29]], "Starts": [[9, 9]], "Ends": [[4, 4]]}, "moduli": {"Sides": 0, "Starts": 0, "Ends": 0}},
+        "description": "Box Soffit"
+    },
+    "op6": {
+        "op_id": 6,
+        "op_name": "QARCH_OT_import_mesh",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.001,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "rotation": [
+                -1.5707963705062866,
+                0.0,
+                0
+            ],
+            "z_offset": 0.0,
+            "scale": 0.4099999964237213,
+            "as_instance": true,
+            "use_catalog": true,
+            "array": {
+                "count": 10,
+                "spacing": 1.5,
+                "direction": {
+                    "x": 1.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "do_orbit": false,
+                "origin": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 1.0
+                },
+                "clip": true
+            },
+            "catalog_object": {
+                "style_name": "Any",
+                "category_name": "Brackets",
+                "search_text": "",
+                "category_item": "/home/dave/.config/blender/4.0/scripts/addons/qarch/assets/default/Brackets/mesh_Bracket_A.txt",
+                "rotate": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            }
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0,1,3,4,5,6,7
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 6]]}, "moduli": {"All": 0}},
+        "description": "Brackets"
+    },
+    "style": []
+}

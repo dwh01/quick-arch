@@ -322,21 +322,51 @@ class SmartPoly:
         """
         normal = self.coord_sys.normal
         # try to find a normal based on points
-        v0 = self.points[0].co3
+        nsum = {}
+
+        v0 = self.points[-1].co3
+        e0 = self.points[-1].co3 - self.points[-2].co3
         for i in range(1, len(self.points)):
-            v1 = (self.points[i].co3 - v0)
-            if v1.length > 0:
-                v1.normalize()
-                for j in range(i+1, len(self.points)):
-                    v2 = (self.points[j].co3 - v0)
-                    if v2.length > 0:
-                        v2.normalize()
-                        if approx(1, abs(v1.dot(v2))):
-                            continue
-                        else:
-                            normal = v1.cross(v2).normalized()
-                            break
-                break
+            v1 = self.points[i].co3
+            e1 = v1-v0
+            if e0.length < 0.001 or e1.length < 0.001:
+                pass
+            else:
+                e0.normalize()
+                e1.normalize()
+                c = e0.cross(e1)
+                cl = c.length
+                if cl < -1:
+                    cl = -1
+                elif cl > 1:
+                    cl = 1
+                try:
+                    a = math.asin(cl)
+                except ValueError as err:
+                    print(v0, v1, e0, e1, c, cl)
+                    raise
+
+                c.normalize()
+                key = (c[0], c[1], c[2])
+                if key not in nsum:
+                    nsum[key] = 0
+                nsum[key] += a
+            v0 = v1
+            e0 = e1
+
+        mv = None
+        mk = None
+        for k, v in nsum.items():
+            if mk is None:
+                mk = k
+                mv = v
+            else:
+                if v > mv:
+                    mk = k
+                    mv = v
+        if mk is None:
+            mk = (0,0,1)
+        normal = Vector(mk)
 
         origin = self.calc_center_median()
         self.coord_sys = CoordSys(self.coord_sys.mm, None, radial=radial, normal=normal, origin=origin)
@@ -529,11 +559,12 @@ class SmartPoly:
 
         return lst_poly, boundary_pts, kpoly
 
-    def generate_inset(self, thickness):
+    def generate_inset(self, thickness, side_list):
         """Create an inset of self at distance thickness
         :param float thickness: distance to inset
+        :param side_list: indices of sides to inset
         :return SmartPoly: inset polygon"""
-        lst_pts = generate_inset(self.points, self.coord_sys.normal, thickness)
+        lst_pts = generate_inset(self.points, self.coord_sys.normal, thickness, side_list)
         poly = SmartPoly(self.coord_sys, pt_list=lst_pts)
         poly.make_verts()
         return poly
@@ -781,6 +812,27 @@ class SmartPoly:
         sv3 = self.points[(idx + 1) % n]
         ray_out = self.outward_ray(sv1, sv2, sv3)
         return sv2.co3, ray_out
+
+    def point_inside(self, v):
+        n = 0
+        # ensure in plane
+        dp = self.coord_sys.normal.dot(v - self.coord_sys.origin)
+        v = v - dp * self.coord_sys.normal
+
+        v1, lst = self.ray_intersection(v, self.coord_sys.xdir, True)
+        if v1 is None:
+            return False
+
+        if approx_vector(v1, v):
+            return True  # on edge
+        v = v1
+        while v is not None:
+            v = v + 0.001 * self.coord_sys.xdir
+            n = n + 1
+            v, lst = self.ray_intersection(v, self.coord_sys.xdir, True)
+        if n % 2 == 0:
+            return False
+        return True
 
     def project_to(self, v):
         """Change normal and project shape

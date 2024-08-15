@@ -800,7 +800,7 @@ def generate_keystone(w, h, arch_type, thickness, key_width, key_below, key_abov
     return lst_pts, lst_ctr
 
 
-def generate_inset(coord, normal, thickness):
+def generate_inset(coord, normal, thickness, side_list=[]):
     """Takes SmartPoint or Vector3 coord, makes parallel offset lines and finds intersections
     Small corners may be eliminated by the neighboring sides, check return length before bridge by number!
 
@@ -810,13 +810,20 @@ def generate_inset(coord, normal, thickness):
     :return list[Vector]: list of inset points
     """
     lst_v_in = []
+    lst_dist = []
     n = len(coord)
+    if len(side_list)==0:
+        side_list = list(range(n))
     for i in range(n):
         j = (i+1) % n
         e = coord[j] - coord[i]
         e.normalize()
         v_in = normal.cross(e).normalized()
         lst_v_in.append(v_in)
+        if i in side_list:
+            lst_dist.append(thickness)
+        else:
+            lst_dist.append(0)
 
     lst_pts = []
     b_skip = False
@@ -827,22 +834,23 @@ def generate_inset(coord, normal, thickness):
         h = (i+n-1) % n
         j = (i+1) % n
         m = (i+2) % n
-        a = coord[h] + lst_v_in[h]*thickness
-        b = coord[i] + lst_v_in[h]*thickness
-        c = coord[i] + lst_v_in[i]*thickness
-        d = coord[j] + lst_v_in[i]*thickness
+        a = coord[h] + lst_v_in[h]*lst_dist[h]
+        b = coord[i] + lst_v_in[h]*lst_dist[h]
+        c = coord[i] + lst_v_in[i]*lst_dist[i]
+        d = coord[j] + lst_v_in[i]*lst_dist[i]
         pts = mathutils.geometry.intersect_line_line(a, b, c, d)
         if pts is not None:
             # make sure we don't have a small edge disappearing
             # should test multiple next points, but we just test one
-            c = coord[j] + lst_v_in[j] * thickness
-            d = coord[m] + lst_v_in[j] * thickness
-            pts2 = mathutils.geometry.intersect_line_line(a, b, c, d)
+            e = coord[j] + lst_v_in[j] * lst_dist[j]
+            f = coord[m] + lst_v_in[j] * lst_dist[j]
+            pts2 = mathutils.geometry.intersect_line_line(c, d, e, f)
             if pts2 is not None:
-                dist1 = (pts[0] - a).length
-                dist2 = (pts2[0] - a).length
-                if dist2 < dist1:
-                    lst_pts.append(pts2[0])
+                vi = pts2[0] - pts[0]
+                ve = d - c
+                if vi.dot(ve) < 0: # flipped means overshoot
+                    pts3 = mathutils.geometry.intersect_line_line(pts[0], b, e, pts2[0])
+                    lst_pts.append(pts3[0])
                     b_skip = True
                 else:
                     lst_pts.append(pts[0])
@@ -926,4 +934,369 @@ def generate_super(x, sx, px, y, sy, py, n, resolution, start_angle):
     return lst
 
 
+def flip_profile(lst_pts, flip):
+    # vertical flip
+    vtop = lst_pts[-1]
+    rval = []
+    if flip in ['flip_y', 'flip_xy']:
+        for pt in lst_pts:
+            v = pt-vtop
+            v.y = -v.y
+            rval.append(v)
+        rval.reverse()
+    else:
+        rval = lst_pts
 
+    if flip in ['flip_x', 'flip_xy']:
+        for v in rval:
+            v.x = -v.x
+    return rval
+
+
+def shift_profile(lst_pts, v):
+    return [p+v for p in lst_pts]
+
+
+def generate_profile(ht, profile_type):
+    lst_pts = []
+    if profile_type == 'cyma':
+        lst0 = generate_profile(ht / 2, 'ovolo')
+        lst1 = generate_profile(ht / 2, 'cavetto')
+        lst_pts = lst0
+        v0 = lst0[-1]
+        for v in lst1[1:]:
+            v1 = v + v0
+            lst_pts.append(v1)
+
+    elif profile_type == 'cyma_reversa':
+        lst0 = generate_profile(ht/2, 'cavetto')
+        lst1 = generate_profile(ht / 2, 'ovolo')
+        lst_pts = lst0
+        v0 = lst0[-1]
+        for v in lst1[1:]:
+            v1 = v + v0
+            lst_pts.append(v1)
+
+    elif profile_type == 'ovolo':
+        cell = ht / 5
+        r0 = 5 * cell
+        theta_0 = -math.atan2(5, 1.5)
+        theta_1 = 0
+        n = 3
+        ctr0 = Vector((-1.5 * cell, 5*cell))
+        step = (theta_1 - theta_0) / n
+        lst1, unused = generate_arc_points(ctr0, r0, theta_0, step, n+1, 0)
+        lst_pts = lst1
+
+    elif profile_type == 'cavetto':
+        cell = ht / 5
+        r0 = 5 * cell
+        theta_0 = math.pi
+        theta_1 = math.pi - math.atan2(5, 1.5)
+        n = 3
+        ctr0 = Vector((5.25*cell, 0))
+        step = (theta_1 - theta_0) / n
+        lst1, unused = generate_arc_points(ctr0, r0, theta_0, step, n+1, 0)
+        lst_pts = lst1
+
+    elif profile_type == 'scotia':
+        h0 = 3.5/5 * ht
+        h1 = 1.5/5 * ht
+        lst0 = generate_profile(h0, 'cavetto')
+        lst1 = generate_profile(h1, 'cavetto')
+        lst_pts = flip_profile(lst0, 'flip_y')
+        v0 = lst_pts[-1]
+        for v in lst1[1:]:
+            v1 = v + v0
+            lst_pts.append(v1)
+
+    elif profile_type in ['torus', 'astragal']:
+        r0 = ht/2
+        n = 6
+        theta_0 = -math.pi/2
+        theta_1 = math.pi/2
+        step = (theta_1 - theta_0)/n
+        ctr0 = Vector((0, r0))
+        lst0, unused = generate_arc_points(ctr0, r0, theta_0, step, n+1, 0)
+        lst_pts = lst0
+
+    elif profile_type == 'corona':
+        cell = ht/5
+        r0 = 1.25 * cell
+        n = 3
+        ctr0 = Vector((r0, 4 * cell))
+        theta_0 = math.pi
+        theta_1 = math.pi - math.atan2(cell, r0)
+        step = (theta_1 - theta_0)/n
+        lst0, unused = generate_arc_points(ctr0, r0, theta_0, step, n + 1, 0)
+        lst0.insert(0, Vector((0,0)))
+        lst_pts = lst0
+
+    else:
+        assert False, profile_type
+
+    return lst_pts
+
+
+def generate_order(ht, order):
+    # common divisions
+    a = ht / 5
+    ped_ht = a
+    b = 4 / 5 * a
+    entab_ht = b
+    col_ht = 4 * b
+
+    ped_base = ped_ht / 5
+    ped_cap = 1 / 5 * (ped_ht - ped_base)
+
+    ratio = 7/10  # w/h for cavetto, cyma, ovolo
+    corona = (1.25 - math.cos(math.atan2(1, 1.25)))/5
+
+    if order == 'TUSCAN':
+        D = col_ht/6
+        modulo = D/2
+        m = modulo/12
+        D_ent = modulo + 7 * m
+
+        ped_radius = 4.5*m + D/2
+
+        ped_base_molding = [
+            ('start', 0, 0), ('step', ped_radius + 4*m, 0),
+            ('step', 0, 5 * m), ('step', -2*m, 0),
+            ('step', 0, m), ('start', 0, 'last')
+        ]
+
+        h1 = 2 * m / ratio
+        ped_middle_molding = [
+            ('start', 0, 'last'), ('step', ped_radius + 2 * m, 0),
+            ('cavetto', "flip_y", h1),
+            ('step', 0, ped_ht - D/2 - h1),
+            ('start', 0, 'last')
+        ]
+
+        w1 = ratio * 4 * m
+        w2 = (4 * m - w1) / 2
+        ped_cap_molding = [
+            ('start', 0, 'last'), ('step', ped_radius + w2, 0),
+            ('cyma_reversa', w1, 4 * m),
+            ('step', w2, 0), ('step', 0, 2 * m),
+            ('start', 0, 'last')
+        ]
+
+        col_base_molding = [
+            ('start', 0, ped_ht), ('step', ped_radius, 0),
+            ('step', 0, 6 * m), ('step', -2.5 * m, 0),
+            ('torus', 0, 5 * m), ('step', -m/3, 0),
+            ('step', 0, m),
+            ('start', 0, 'last')
+        ]
+
+        w1 = (4.5 - 2.5 - 1/3) * m
+        h1 = w1/ratio
+        h2 = D/2 + 1.5*m
+        w2 = D/2 - D_ent/2
+        h3 = 0.5 * m / ratio
+        col_middle_molding = [
+            ('start', 0, 'last'), ('step', D/2+w1, 0),
+            ('cavetto', 'flip_y', h1),
+            ('step', 0, col_ht/3 - h1),  # straight
+            ('step', -w2, col_ht * 2 / 3 - h2 - h3),  # entasis
+            ('cavetto', 0.5 * m, h3),
+            ('step', 0, 0.5 * m),
+            ('torus', 0, m),
+            ('start', 0, 'last')
+        ]
+
+        w1 = ratio * 3 * m
+        w2 = corona * 3 * m
+        w3 = 5 * m - w1 - w2
+        col_cap_molding = [
+            ('start', 0, 'last'), ('step', D_ent/2, 0),
+            ('step', 0, 4 * m),
+            ('step', m, 0), ('step', 0, m),
+            ('ovolo', w1, 3 * m), ('step', w3, 0),
+            ('corona', w2, 3 * m), ('step', 0, m),
+            ('start', 0, 'last')
+        ]
+
+        w1 = 10 * m * corona
+        ent_base_molding = [
+            ('start', 0, 'last'), ('step', D_ent/2, 0),
+            ('corona', w1, 10 * m), ('step', 0, 2 * m),
+            ('start', 0, 'last')
+        ]
+
+        ent_middle_molding = [  # frieze
+            ('start', 0, 'last'), ('step', D_ent/2, 0),
+            ('step', 0, 14 * m),
+            ('start', 0, 'last')
+        ]
+
+        w1 = 3 * m * ratio
+        w2 = 3.5 * m - w1
+        w3 = 4 * m * ratio
+        ent_cap_molding = [  # crown
+            ('start', 0, 'last'), ('step', D_ent/2, 0),
+            ('step', m, 0), ('step', 0, m),
+            ('ovolo', w1, 3 * m), ('step', w2, 0),
+            ('step', 0, 0.5 * m), ('step', 4.5 * m, 0),
+            ('step', 0, -1.5 * m), ('step', 3 * m, 2.25 * m),
+            ('step', 0, -0.75 * m), ('step', m, 0),
+            ('step', 0, 6 * m),
+            ('step', 0.5 * m, 0), ('step', 0, 0.5 * m),
+            ('step', m, 0), ('step', 0, m),
+            ('ovolo', w3, 4 * m),
+            ('start', 0, 'last')
+        ]
+
+    if order == 'DORIC':
+        D = col_ht/7
+        modulo = D / 2
+        m = modulo / 12
+        D_ent = modulo + 8 * m
+
+        ped_radius = 5 * m + D / 2
+        w1 = (3 * modulo + 7 * m) / 2
+        w2 = 2 * m * ratio
+        w3 = 3 * m - w2 - ratio * m
+        h1 = 0.5 * m
+        ped_base_molding = [
+            ('start', 0, 0), ('step', w1, 0),
+            ('step', 0, 4 * m), ('step', -0.5 * m, 0),
+            ('step', 0, 1.5 * m), ('step', -w3, 0),
+            ('cyma_reversa', "flip_x", 2 * m),
+            ('torus', 0, m), ('step', -m, 0),
+            ('step', 0, h1),
+            ('start', 0, 'last')
+            ]
+
+        h1 = 8 * m
+        h2 = ped_ht - 6 * m - h1
+        w1 = ratio * m
+        ped_middle_molding = [
+            ('start', 0, 'last'), ('step', ped_radius + w1, 0),
+            ('cavetto', "flip_y", m),
+            ('step', 0, h2 - m),
+            ('start', 0, 'last')
+        ]
+
+        w2 = 1.5 * m * ratio
+        w3 = 4 * m - w2
+        w4 = 1.5 * m * ratio
+        ped_cap_molding = [
+            ('start', 0, 'last'), ('step', ped_radius + w1, 0),
+            ('cyma_reversa', w2, 1.5 * m),
+            ('step', w3, 0), ('step', 0, 2.5 * m),
+            ('cyma', w4, 1.5 * m),
+            ('step', 2 * m - w4, 0), ('step', 0, 0.5 * m),
+            ('start', 0, 'last'),
+        ]
+
+        w1 = ratio * 2 * m
+        w2 = 3 * m - w1
+        col_base_molding = [
+            ('start', 0, 'last'), ('step', ped_radius, 0),
+            ('step', 0, 6 * m), ('step', -2 * m, 0),
+            ('torus', 0, 4 * m),
+            ('step', 0, m), ('step', -w2, 0),
+            ('step', 0, m),
+            ('start', 0, 'last'),
+        ]
+
+        h1 = 2 * m
+        w1 = h1 * ratio
+        w2 = (D - D_ent)/2
+        h3 = 1.5 * m
+        w3 = h3 * ratio
+        h4 = 1.5 * m + h3
+        col_middle_molding = [
+            ('start', 0, 'last'), ('step', modulo + w1, 0),
+            ('cavetto', "flip_y", h1),
+            ('step', 0, col_ht/3 - h1),  # straight
+            ('step', -w2, col_ht * 2/3 - h4),  # entasis
+            ('cavetto', w3, h3), ('step', 0, 0.5 * m),
+            ('torus', 0.5 * m, m),
+            ('start', 0, 'last'),
+        ]
+
+        w1 = 2.5 * m * ratio
+        w2 = m * ratio
+        w3 = 3 * m - w2 - w1
+        col_cap_molding = [
+            ('start', 0, 'last'), ('step', D_ent/2, 0),
+            ('step', 0, 4 * m),
+            ('step', 0.5 * m, 0), ('step', 0, 0.5 * m),
+            ('step', 0.5 * m, 0), ('step', 0, 0.5 * m),
+            ('step', 0.5 * m, 0), ('step', 0, 0.5 * m),
+            ('ovolo', w1, 2.5 * m),
+            ('step', w3, 0), ('step', 0, 2.5 * m),
+            ('cyma', w2, m), ('step', 0, 0.5 * m),
+            ('start', 0, 'last'),
+        ]
+
+        ent_base_molding = [
+            ('start', 0, 'last'), ('step', D_ent/2, 0),
+            ('step', 0, 10 * m), ('step', 1.5 * m, 0),
+            ('step', 0, 2 * m),
+            ('start', 0, 'last')
+        ]
+
+        ent_middle_molding = [  # frieze
+            ('start', 0, 'last'), ('step', D_ent/2, 0),
+            ('step', 0, 18 * m),
+            ('start', 0, 'last')
+        ]
+
+        h1 = 2.5 * m
+        w1 = h1 * ratio
+        w2 = 5.5 * m - w1
+        h3 = 2 * m
+        w3 = h3 * ratio
+        w4 = 3 * m * ratio
+        w5 = 5.5 * m - w4 - w3
+        ent_cap_molding = [  # crown
+            ('start', 0, 'last'), ('step', D_ent/2 + 1.5 * m, 0),
+            ('step', 0, 2 * m),
+            ('cyma', w1, h1), ('step', 0, 3 * m),
+            ('step', w2, 0),
+            ('step', 0, 0.5 * m), ('step', 8 * m, 0),
+            ('step', 0, -0.5 * m), ('step', 0.5 * m, 0),
+            ('step', 0, -m), ('step', m, 0),
+            ('step', 0, 0.5 * m), ('step', 0.5 * m, 0),
+            ('step', 0, 0.5 * m), ('step', 0.5 * m, 0),
+            ('step', 0, 0.5 * m), ('step', 0.5 * m, 0),
+            ('step', 0, -0.5 * m), ('step', 1.5 * m, 0),
+            ('step', 0, 4 * m),
+            ('ovolo', w3, h3), ('step', w5, 0),
+            ('cavetto', w4, 3 * m), ('step', 0, m),
+            ('start', 0, 'last')
+        ]
+
+    # make points
+    rval = []
+    v0 = Vector((0, 0))
+    for lst in [ped_base_molding, ped_middle_molding, ped_cap_molding,
+                col_base_molding, col_middle_molding, col_cap_molding,
+                ent_base_molding, ent_middle_molding, ent_cap_molding]:
+        pts = []
+        for mold, dx, dy in lst:
+            if mold == 'start':
+                if dx == 'last':
+                    dx = v0.x
+                if dy == 'last':
+                    dy = v0.y
+                v0 = Vector((dx, dy))
+                pts.append(v0)
+            elif mold == 'step':
+                v0 = v0 + Vector((dx, dy))
+                pts.append(v0)
+            else:
+                arc = generate_profile(dy, mold)
+                if isinstance(dx, str):
+                    arc = flip_profile(arc, dx)
+                arc = shift_profile(arc, v0)
+                pts.extend(arc)
+                v0 = pts[-1]
+        rval.append(pts)
+
+    return rval

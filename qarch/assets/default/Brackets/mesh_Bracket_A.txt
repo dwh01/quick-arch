@@ -1,0 +1,1 @@
+{"description": "Eaves bracket", "style": ["Second Empire", "Italianate", "Queen Anne", "Contemporary", "Gothic Revival"]}

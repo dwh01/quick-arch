@@ -1,0 +1,228 @@
+{
+    "max_id": 4,
+    "controlled": {
+        "op-1": [
+            0
+        ],
+        "op0": [
+            1
+        ],
+        "op1": [
+            2
+        ],
+        "op2": [
+            3
+        ],
+        "op3": [
+            4
+        ],
+        "op4": []
+    },
+    "adjusting": [],
+    "face_tags": [],
+    "version": "0.1",
+    "description": "Example Dome",
+    "op0": {
+        "op_id": 0,
+        "op_name": "QARCH_OT_perpendicular_face",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 2.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 0.5,
+                "is_relative_y": true,
+                "is_ratio_yx": true
+            },
+            "rotation": 0.0,
+            "offset_z": 0.0,
+            "material": "BT_Nothing",
+            "del_source": false
+        },
+        "control_points": {
+            "faces": {
+                "op-1": [
+                    4
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 0]]}, "moduli": {"All": 0}},
+        "description": ""
+    },
+    "op1": {
+        "op_id": 1,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "join": "FREE",
+            "del_source": true,
+            "shape_type": "ARCH",
+            "arch": {
+                "step_size": 0.18000000715255737,
+                "drop_length": 0.0,
+                "arch_type": "ROMAN",
+                "keystone": false,
+                "key_width": 0.8500000238418579,
+                "key_above": 0.0,
+                "key_below": 0.0,
+                "key_material": "BT_Nothing"
+            },
+            "frame": 0.0,
+            "frame_material": "BT_Nothing",
+            "center_material": "BT_Nothing",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op0": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op0": 3
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": [], "Key": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+        "description": "Dome Arch Shape"
+    },
+    "op2": {
+        "op_id": 2,
+        "op_name": "QARCH_OT_grid_divide",
+        "properties": {
+            "count_x": 1,
+            "count_y": 0,
+            "offset": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "define_size": false
+        },
+        "control_points": {
+            "faces": {
+                "op1": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {
+                "op1": 1
+            },
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"All": [[0, 1]]}, "moduli": {"All": 0}},
+        "description": "Split Arch"
+    },
+    "op3": {
+        "op_id": 3,
+        "op_name": "QARCH_OT_inset_polygon",
+        "properties": {
+            "position": {
+                "offset_x": 0.0,
+                "is_relative_x": false,
+                "center_x": false,
+                "offset_y": 0.0,
+                "is_relative_y": false,
+                "center_y": false
+            },
+            "size": {
+                "size_x": -0.20000000298023224,
+                "is_relative_x": false,
+                "size_y": -0.20000000298023224,
+                "is_relative_y": false,
+                "is_ratio_yx": false
+            },
+            "join": "PARTITION",
+            "shape_type": "SELF",
+            "by_inset": false,
+            "center_material": "BT_Nothing",
+            "extrude_distance": 0.0
+        },
+        "control_points": {
+            "faces": {
+                "op2": [
+                    1
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Bridge": [], "Center": [[0, 0]], "Frame": [], "Key": []}, "moduli": {"Bridge": 0, "Center": 0, "Frame": 0, "Key": 0}},
+        "description": "Inset Dome"
+    },
+    "op4": {
+        "op_id": 4,
+        "op_name": "QARCH_OT_extrude_sweep",
+        "properties": {
+            "origin": {
+                "x": 2.0,
+                "y": 0.0,
+                "z": 0.0
+            },
+            "axis": {
+                "x": 0.0,
+                "y": 1.0,
+                "z": 0.0
+            },
+            "angle": 6.2831854820251465,
+            "steps": 16,
+            "size": {
+                "size_x": 1.0,
+                "is_relative_x": true,
+                "size_y": 1.0,
+                "is_relative_y": true,
+                "is_ratio_yx": false
+            },
+            "side_material": "BT_Block",
+            "center_material": "BT_Block",
+            "y_up": false
+        },
+        "control_points": {
+            "faces": {
+                "op3": [
+                    0
+                ]
+            },
+            "verts": {},
+            "flags": {},
+            "mode": "GROUP"
+        },
+        "gen_info": {"ranges": {"Sides": [[0, 607]], "Tops": [[608, 608]]}, "moduli": {"Sides": 38, "Tops": 0}},
+        "description": "Revolve Dome"
+    },
+    "style": [
+        "Romanesque",
+        "Federal",
+        "Neoclassical"
+    ]
+}
